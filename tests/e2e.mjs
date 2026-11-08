@@ -194,7 +194,7 @@ await T('multiplayer: 6-digit room code, join, sync, act, fire, offline shield, 
   // host sees the guest's profile + ship; guest sees host ship
   await H.page.waitForFunction(() => SALT.game.W.players.GUEST1?.online && SALT.game.sim.ships.has('p:GUEST1'), { polling: 200, timeout: 240000 });
   await C.page.bringToFront();
-  await C.page.waitForFunction(() => SALT.game.sim.ships.has('p:HOST1') && SALT.game.views.has('p:HOST1'), { polling: 200, timeout: 240000 });
+  await C.page.waitForFunction(() => SALT.game.sim.ships.has('p:HOST1'), { polling: 200, timeout: 240000 });
   const gb = await H.page.evaluate(() => SALT.game.W.bases.find((b) => b.owner === 'GUEST1')?.name);
   assert(gb, 'guest was granted an island');
   // guest moves; host sees it

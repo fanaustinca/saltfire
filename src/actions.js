@@ -1,6 +1,7 @@
 // Host-side action handler: every player intent (from the local UI or a remote peer) goes through
 // here, so the host stays authoritative for the economy, empire and diplomacy.
-import { HAVEN_R, BUILDINGS, tierById } from './config.js';
+import { HAVEN_R, BUILDINGS, tierById, claimFee } from './config.js';
+import { DOCK_SPEED } from './sim.js';
 import * as E from './economy.js';
 import { baseRadius } from './basegeo.js';
 
@@ -13,7 +14,8 @@ export function dockSite(sim, s) {
     if (d > baseRadius(b) + 110) continue;
     if (b.owner === s.pid) return { kind: 'base', id: b.id, name: b.name, own: true };
     if (!b.owner) return { kind: 'unclaimed', id: b.id, name: b.name };
-    if (b.owner.startsWith('ai:')) continue;
+    if (b.owner === 'ai:wild') return { kind: 'wild', id: b.id, name: b.name, fee: claimFee(W.bases.filter((x) => x.owner === s.pid).length), lvl: b.lvl || 1 };
+    if (b.owner.startsWith('ai:')) return { kind: 'hold', id: b.id, name: b.name, clan: W.ai?.[b.owner]?.name || 'Pirates' };
     if (!b.buildings.some((x) => x.type === 'dock' && x.hp > 0)) continue;
     if (E.hostile(W, s.pid, b.owner) && !b.haven?.safe && !b.haven?.fee && !(b.haven?.allow || []).includes(s.pid)) continue;
     const acc = E.havenAccess(W, b, s.pid);
@@ -41,9 +43,11 @@ export function handleAct(sim, pid, a) {
   switch (a.type) {
     case 'dock': {
       if (!s || s.sink > 0) return r('No ship');
-      if (s.spd > 7) return r('Slow down to dock (reduce sail with S)');
+      if (s.spd > DOCK_SPEED) return r('Slow down to dock (reduce sail with S)');
       const site = dockSite(sim, s);
       if (!site) return r('No friendly harbour nearby');
+      if (site.kind === 'wild') return r(`Squatters hold ${site.name}: destroy their stockade, then hold position nearby to claim it (charter ${site.fee} gold).`);
+      if (site.kind === 'hold') return r(`${site.name} is a fortress of ${site.clan}. Smash its keep, sink its defenders and hold position to conquer it.`);
       if (site.kind === 'fee') return r(`Pay the ${site.fee} gold entry fee first`);
       if (site.kind === 'unclaimed') return { ok: true, data: { unclaimed: site } };
       s.docked = site; s.spd = 0; s.sail = 0;
@@ -60,8 +64,9 @@ export function handleAct(sim, pid, a) {
     }
     case 'craft': err = E.craft(p, a.kind, Math.max(1, Math.min(50, a.times | 0 || 1))); if (!err) E.addXp(p, 2); mark(); return r(err);
     case 'upgrade': {
-      err = E.buyUpgrade(p, a.key);
+      err = E.buyUpgrade(p, a.key, a.n || 1);
       if (!err && s) { sim.refreshShip(s); }
+      if (!err) for (const f of sim.ships.values()) if (f.role === 'fleet' && f.owner === pid) sim.refreshShip(f);
       mark(); return r(err);
     }
     case 'buyShip': {
@@ -84,11 +89,35 @@ export function handleAct(sim, pid, a) {
       const ns = sim.spawnPlayer(pid); Object.assign(ns, keep); ns.local = s.local;
       mark(); return r();
     }
+    case 'deploy': err = sim.deployFleet(pid, a.uid, { mode: a.mode, base: a.base }); mark(); return r(err);
+    case 'deployAll': {
+      const idle = p.fleet.filter((x) => x.uid !== p.flag && !x.wrecked && (a.redirect || !x.out));
+      if (!idle.length) return r('No ships available — buy or build more ships, or repair wrecks');
+      let n = 0, last = null;
+      for (const x of idle) { const e = sim.deployFleet(pid, x.uid, { mode: a.mode, base: a.base }); if (e) last = e; else n++; }
+      mark(); return n ? r(null, n) : r(last);
+    }
+    case 'recall': err = sim.recallFleet(pid, a.uid); mark(); return r(err);
+    case 'recallAll': for (const x of p.fleet) if (x.out) sim.recallFleet(pid, x.uid); mark(); return r();
+    case 'repairFleet': {
+      if (!docked) return r('Dock in a harbour to repair ships');
+      const sh = p.fleet.find((x) => x.uid === a.uid);
+      if (!sh || (!sh.wrecked && sh.hp == null)) return r('Nothing to repair');
+      const T = tierById(sh.tier);
+      const st = E.shipStats(sh, p.upg);
+      const miss = st.hull - (sh.hp ?? st.hull);
+      const c = { gold: Math.ceil(miss * 0.45 + (sh.wrecked ? T.hull * 0.2 : 0)), oak: Math.ceil(miss * 0.04) };
+      if (!E.pay(p.inv, c)) return r(`Repairs cost ${E.costText(c)}`);
+      sh.wrecked = false; sh.hp = null;
+      mark(); return r();
+    }
     case 'renameShip': { const sh = p.fleet.find((x) => x.uid === a.uid); if (!sh) return r('No ship'); sh.name = String(a.name || sh.name).slice(0, 24); mark(); return r(); }
     case 'claim': {
       if (!s) return r('No ship');
       const b = W.bases.find((x) => x.id === a.base);
       if (!b || Math.hypot(s.x - b.x, s.z - b.z) > baseRadius(b) + 140) return r('Sail closer to the island');
+      if (b.owner && b.owner !== 'ai:wild') return r('Island already claimed');
+      if (b.owner === 'ai:wild' && W.bases.some((x) => x.owner === pid)) return r('Squatters hold this island — destroy their stockade and hold position to claim it');
       err = sim.claim(pid, a.base, !W.bases.some((x) => x.owner === pid));
       mark(); return r(err);
     }

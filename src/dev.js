@@ -22,10 +22,13 @@ const CMDS = {
   sun: ['elevation=28, azimuth=140', 'Move the sun (degrees)'],
   clear: ['', 'Remove all AI ships'],
   sinkall: ['radius=600', 'Sink every AI ship within radius'],
-  density: ['n=5', 'Ambient AI ships per player'],
+  density: ['n=16', 'Ambient AI ships per player (0 = empty seas, also stops clan patrols/raids)'],
   unlock: ['', 'Max level, lots of resources, all ammo'],
   build: ['type', `Free building at the base you're docked at (${Object.keys(BUILDINGS).filter((k) => k !== 'keep').join(', ')})`],
-  claim: ['', 'Claim the nearest unclaimed island for free'],
+  claim: ['', 'Claim the nearest wild/unclaimed island for free'],
+  fleet: ["tier='frigate', n=1", 'Add ships to your fleet (send them out with G)'],
+  clans: ['', 'List pirate clans: level, gold, fortress'],
+  raid: ['', 'Make the nearest clan raid one of your islands'],
   offline: ['pid', 'Toggle another player offline (test shields)'],
   cam: ['x, y, z, lookX, lookY, lookZ', 'Freeze the camera (no args = release); offsets relative to your ship'],
   fps: ['', 'Show frame rate + entity counts'],
@@ -88,8 +91,8 @@ export function installDev(app) {
     sun(e = 28, a = 140) { const st = g().stage; st.setSun(e, a); st.ocean.uniforms.uSunDir.value.copy(st.sunDir); st.bakeEnv(); return done(`Sun ${e}°/${a}°`); },
     clear() { host(); for (const s of [...g().sim.ships.values()]) if (!s.pid) g().sim.removeShip(s.id); g().sim.kraken = null; return done('AI cleared'); },
     sinkall(r = 600) { host(); let n = 0; for (const s of g().sim.ships.values()) if (!s.pid && s.sink === 0 && Math.hypot(s.x - me().x, s.z - me().z) < r) { g().sim.hurt(s, 1e6, 0, 0, g().pid); n++; } return done(`Sank ${n}`); },
-    density(n = 5) { host(); g().sim.aiDensity = n; return done(`AI density ${n}`); },
-    unlock() { host(); const p = P(); p.level = 40; p.points += 30; for (const r of [...RES, 'chain', 'grape', 'explosive']) p.inv[r] = (p.inv[r] || 0) + 99999; return done('Unlocked everything'); },
+    density(n = 16) { host(); g().sim.aiDensity = n; return done(`AI density ${n}`); },
+    unlock() { host(); const p = P(); p.points += Math.max(0, 200 - p.level); p.level = 200; for (const r of [...RES, 'chain', 'grape', 'explosive']) p.inv[r] = (p.inv[r] || 0) + 99999; return done('Unlocked everything'); },
     build(type = 'watchtower') {
       host();
       const d = me().docked; if (!d || d.kind !== 'base') return done('Dock at your base first');
@@ -101,7 +104,10 @@ export function installDev(app) {
       b.buildings.push({ id: uid('b'), type, slot, hp: B.hp });
       return done(`Built ${type}`);
     },
-    claim() { host(); const s = me(); const b = g().W.bases.filter((x) => !x.owner).sort((a, c) => Math.hypot(a.x - s.x, a.z - s.z) - Math.hypot(c.x - s.x, c.z - s.z))[0]; if (!b) return done('Nothing to claim'); g().sim.claim(g().pid, b.id, true); return done(`Claimed ${b.name}`); },
+    fleet(tier = 'frigate', n = 1) { host(); for (let i = 0; i < n; i++) P().fleet.push(shipSpec(tier, { name: `${TIERS.find((t) => t.id === tier)?.name || tier} ${P().fleet.length}` })); return done(`+${n} ${tier} in your fleet`); },
+    clans() { const W = g().W; const out = Object.values(W.ai || {}).filter((c) => c.clan).map((c) => `${c.name}: lv ${c.level || 1}, ${Math.round(c.inv.gold)}g, ${W.bases.filter((b) => b.owner === c.id).map((b) => b.name + ' (' + b.buildings.length + ')').join(', ') || 'homeless'}`); console.log(out.join('\n')); return out.join(' | '); },
+    raid() { host(); const sim = g().sim, W = g().W; const mine = sim.homeOf(g().pid); if (!mine) return done('You have no island'); const cl = Object.values(W.ai).filter((c) => c.clan && c.base).map((c) => ({ c, b: W.bases.find((x) => x.id === c.base) })).sort((a, b) => Math.hypot(a.b.x - mine.x, a.b.z - mine.z) - Math.hypot(b.b.x - mine.x, b.b.z - mine.z))[0]; if (!cl) return done('No clans'); sim.clanRaid(cl.c, cl.b, mine); return done(`${cl.c.name} raids ${mine.name}`); },
+    claim() { host(); const s = me(); const b = g().W.bases.filter((x) => !x.owner || x.owner === 'ai:wild').sort((a, c) => Math.hypot(a.x - s.x, a.z - s.z) - Math.hypot(c.x - s.x, c.z - s.z))[0]; if (!b) return done('Nothing to claim'); g().sim.claim(g().pid, b.id, true); return done(`Claimed ${b.name}`); },
     offline(pid) { host(); const p = g().W.players[pid]; if (!p) return done('No such player: ' + Object.keys(g().W.players).join(', ')); p.online = !p.online; return done(`${p.name} is now ${p.online ? 'online' : 'offline'}`); },
     cam(x, y, z, lx = 0, ly = 0, lz = 0) { const s = me(); if (x == null) { g().freeCam = null; return done('Camera released'); } g().freeCam = { pos: [s.x + x, y, s.z + z], look: [s.x + lx, ly, s.z + lz] }; return done('Camera frozen'); },
     fps() { const G = g(); const info = `fps ${G.fps.toFixed(0)} · ships ${G.sim.ships.size} · balls ${G.sim.balls.length} · calls ${G.stage.renderer.info.render.calls} · tris ${(G.stage.renderer.info.render.triangles / 1000).toFixed(0)}k`; return done(info); },

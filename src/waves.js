@@ -16,11 +16,45 @@ function norm(w) { const l = Math.hypot(w[0], w[1]); return [w[0] / l, w[1] / l,
 export const WAVES_N = WAVES.map(norm);
 export const setSea = (v) => { SEA = v; };
 
+// Calm water in the lee of islands: wave amplitude fades from 100% in open sea to CALM_MIN at the
+// shore. The same factor is applied in the ocean shader (uCalm) so ships ride what is drawn.
+export const CALM_MIN = 0.22, CALM_W = 190;
+let calmList = [];
+let calmGrid = null;
+const CELL = 400;
+/** islands: [{x, z, r}] — shorelines that calm the sea. */
+export function setCalm(list) {
+  calmList = list.map((i) => ({ x: i.x, z: i.z, r: i.r }));
+  calmGrid = new Map();
+  for (const c of calmList) {
+    const reach = c.r * 0.9 + CALM_W;
+    for (let gx = Math.floor((c.x - reach) / CELL); gx <= Math.floor((c.x + reach) / CELL); gx++)
+      for (let gz = Math.floor((c.z - reach) / CELL); gz <= Math.floor((c.z + reach) / CELL); gz++) {
+        const k = gx * 65536 + gz; let a = calmGrid.get(k); if (!a) calmGrid.set(k, (a = [])); a.push(c);
+      }
+  }
+}
+export const calmIslands = () => calmList;
+const sstep = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+/** 0..1 wave amplitude multiplier at (x,z). */
+export function calmAt(x, z) {
+  if (!calmGrid) return 1;
+  const a = calmGrid.get(Math.floor(x / CELL) * 65536 + Math.floor(z / CELL));
+  if (!a) return 1;
+  let f = 1;
+  for (const c of a) {
+    const d = Math.hypot(x - c.x, z - c.z), r0 = c.r * 0.9;
+    f = Math.min(f, sstep(r0, r0 + CALM_W, d));
+  }
+  return CALM_MIN + (1 - CALM_MIN) * f;
+}
+
 /** Displacement of the undisturbed grid point (x,z) at time t: returns [dx, dy, dz]. */
 export function displace(x, z, t, out = [0, 0, 0]) {
   let dx = 0, dy = 0, dz = 0;
+  const calm = calmAt(x, z);
   for (const [ux, uz, L, st] of WAVES_N) {
-    const k = (2 * Math.PI) / L, c = Math.sqrt(G / k), a = (st * SEA) / k;
+    const k = (2 * Math.PI) / L, c = Math.sqrt(G / k), a = (st * SEA * calm) / k;
     const f = k * (ux * x + uz * z - c * t);
     const cf = Math.cos(f), sf = Math.sin(f);
     dx += ux * a * cf; dz += uz * a * cf; dy += a * sf;

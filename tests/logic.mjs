@@ -4,9 +4,10 @@ import * as E from '../src/economy.js';
 import { Sim, joinPlayer, solveElev, arcOf } from '../src/sim.js';
 import { handleAct } from '../src/actions.js';
 import { generateIslands } from '../src/worldgen.js';
-import { TIERS, MARKET_TAX, BUILDINGS, GRAVITY, MUZZLE } from '../src/config.js';
+import { TIERS, MARKET_TAX, BUILDINGS, GRAVITY, MUZZLE, UPGRADE_TOTAL, claimFee } from '../src/config.js';
+import { setCalm, heightAt } from '../src/waves.js';
 import { gunLayout } from '../src/layout.js';
-import { buildingPos } from '../src/basegeo.js';
+import { buildingPos, baseShape, dockAngle, harborPoint, baseRadius } from '../src/basegeo.js';
 
 let pass = 0, fail = 0;
 const T = (name, fn) => { try { fn(); pass++; console.log('  ✓ ' + name); } catch (e) { fail++; console.log('  ✗ ' + name + '\n      ' + e.stack.split('\n').slice(0, 3).join('\n      ')); } };
@@ -75,7 +76,7 @@ T('custom shipyard respects tier limits and costs', () => {
   ok(typeof E.buildCustomShip(W, p, base.id, { tier: 'frigate', side: 5 }) === 'string', 'needs shipyard');
   ok(typeof E.build(W, p, base.id, 'dock') === 'object'); ok(typeof E.build(W, p, base.id, 'shipyard') === 'object');
   const s = E.buildCustomShip(W, p, base.id, { tier: 'frigate', side: 99, size: 1.2, name: 'Vengeance', hullColor: '#223344' });
-  ok(typeof s === 'object' && s.side === 6 && s.size === 1.2 && s.custom && s.name === 'Vengeance');
+  ok(typeof s === 'object' && s.side === 7 && s.size === 1.2 && s.custom && s.name === 'Vengeance');
   ok(typeof E.buildCustomShip(W, p, base.id, { tier: 'manowar', side: 10 }) === 'string', 'level gate');
 });
 T('base growth: buildings enlarge the island', () => {
@@ -119,8 +120,8 @@ T('safe haven blocks firing; offline owners are shielded', () => {
   ok(E.shielded(W, 'v') && !E.shielded(W, 'u'));
   const vb = W.bases.find((b) => b.owner === 'v'); const keep = vb.buildings[0]; const hp = keep.hp;
   const p = buildingPos(vb, keep);
-  sim.hitBuilding({ x: p.x, y: 3, z: p.z, owner: 'u', ammo: 'ball', dmg: 30 }); ok(keep.hp === hp, 'shielded keep undamaged');
-  W.players.v.online = true; sim.hitBuilding({ x: p.x, y: 3, z: p.z, owner: 'u', ammo: 'ball', dmg: 30 }); ok(keep.hp < hp, 'online keep damaged');
+  sim.hitBuilding({ x: p.x, y: p.y + 3, z: p.z, owner: 'u', ammo: 'ball', dmg: 30 }); ok(keep.hp === hp, 'shielded keep undamaged');
+  W.players.v.online = true; sim.hitBuilding({ x: p.x, y: p.y + 3, z: p.z, owner: 'u', ammo: 'ball', dmg: 30 }); ok(keep.hp < hp, 'online keep damaged');
 });
 T('treaties and alliances stop hostility', () => {
   const W = world(); W.players.a = E.newProfile('a'); W.players.b = E.newProfile('b');
@@ -128,7 +129,9 @@ T('treaties and alliances stop hostility', () => {
   ok(E.propose(W, 'a', 'b', 'peace') === null); ok(E.answer(W, 'b', W.proposals[0].id, true) === null);
   ok(!E.hostile(W, 'a', 'b')); E.propose(W, 'a', 'b', 'war'); ok(E.hostile(W, 'a', 'b'));
   W.players.a.alliance = W.players.b.alliance = 'Red Tide'; ok(!E.hostile(W, 'a', 'b'));
-  ok(!E.hostile(W, 'a', 'ai:merchant') && E.hostile(W, 'a', 'ai:pirates'));
+  ok(E.hostile(W, 'a', 'ai:merchant') && E.hostile(W, 'a', 'ai:pirates'), 'captains may plunder merchants');
+  ok(E.hostile(W, 'ai:pirates', 'ai:merchant') && E.hostile(W, 'ai:navy', 'ai:pirates') && !E.hostile(W, 'ai:navy', 'ai:merchant'), 'AI factions');
+  ok(E.hostile(W, 'ai:clan:0', 'ai:clan:1') && E.hostile(W, 'ai:clan:0', 'ai:pirates') && E.hostile(W, 'ai:clan:0', 'ai:wild'), 'clans fight everyone');
 });
 T('entry fee: paying credits the owner; refusing makes you a trespasser', () => {
   const W = world(); const sim = new Sim(W, { rand: rng(8) }); joinPlayer(sim, 'o', 'Owner'); joinPlayer(sim, 'v', 'Visitor');
@@ -149,14 +152,102 @@ T('conquest: destroy the keep and hold position to capture', () => {
   for (let i = 0; i < 60 * 14; i++) sim.step(1 / 60);
   ok(hold.owner === 'u', 'captured: ' + hold.owner);
 });
-T('AI spawns level-matched around players and fights', () => {
-  const W = world(); const sim = new Sim(W, { rand: rng(10) }); const { p } = joinPlayer(sim, 'u', 'U'); p.level = 12;
+T('AI: lots of small fry plus level-matched heavies up to your tier', () => {
+  const W = world(); const sim = new Sim(W, { rand: rng(10) }); const { p } = joinPlayer(sim, 'u', 'U'); p.level = 30;
   const me = sim.spawnPlayer('u'); me.x = 1500; me.z = -900; me.docked = null; me.local = true;
-  p.fleet[0] = E.shipSpec('frigate'); sim.refreshShip(me);
-  for (let i = 0; i < 60 * 8; i++) sim.step(1 / 60);
-  const ai = [...sim.ships.values()].filter((s) => !s.pid);
-  ok(ai.length >= 4, 'spawned ' + ai.length);
-  ok(ai.every((a) => a.level >= 10 && a.level <= 14), 'levels ' + ai.map((a) => a.level));
+  p.fleet[0] = E.shipSpec('manowar'); p.flag = p.fleet[0].uid; sim.spawnPlayer('u'); const m2 = sim.ships.get('p:u'); m2.x = 3000; m2.z = 3000; m2.local = true;
+  for (let i = 0; i < 60 * 12; i++) sim.step(1 / 60);
+  const ai = [...sim.ships.values()].filter((s) => !s.pid && !s.tag && Math.hypot(s.x - m2.x, s.z - m2.z) < 1600);
+  ok(ai.length >= 12, 'busy seas: ' + ai.length);
+  const tiers = ai.map((a) => a.spec.tier);
+  ok(tiers.filter((t) => t === 'sloop' || t === 'schooner').length >= 4, 'small fry ' + tiers);
+  ok(tiers.some((t) => ['frigate', 'galleon', 'manowar'].includes(t)), 'heavies ' + tiers);
+  ok(ai.filter((a) => ['frigate', 'galleon', 'manowar'].includes(a.spec.tier)).every((a) => Math.abs(a.level - 30) <= 3), 'heavies level-matched');
+});
+T('AI ships fight each other (pirates vs navy and merchants)', () => {
+  const W = world(); const sim = new Sim(W, { rand: rng(21) }); sim.aiDensity = 0;
+  const pir = sim.spawnAI(10, { x: 2600, z: -2600 }, { role: 'pirate', tier: 'frigate', dist: 1, strong: true });
+  const nav = sim.spawnAI(10, pir, { role: 'navy', tier: 'frigate', dist: 160, strong: true });
+  ok(pir && nav, 'spawned');
+  const h0 = pir.hull + nav.hull;
+  for (let i = 0; i < 60 * 60 && pir.sink === 0 && nav.sink === 0; i++) sim.step(1 / 60);
+  ok(pir.hull + nav.hull < h0 - 50, 'they traded broadsides: ' + (h0 - pir.hull - nav.hull));
+});
+T('man of war carries up to 20 guns a side; ~230 upgrade ranks to spend', () => {
+  const st = E.shipStats(E.shipSpec('manowar'), { side: 10 });
+  ok(st.side === 20 && gunLayout(st).filter((g) => g.side === 'L').length === 20, 'side ' + st.side);
+  ok(E.shipStats(E.shipSpec('manowar'), { side: 50 }).side === 20, 'capped at 20');
+  ok(UPGRADE_TOTAL >= 199, 'ranks ' + UPGRADE_TOTAL);
+  const p = E.newProfile('a'); p.points = 30; ok(E.buyUpgrade(p, 'speed', 30) === null && p.upg.speed === 25 && p.points === 5, 'bulk buy caps at max');
+  const fast = E.shipStats(E.shipSpec('sloop'), { speed: 25, range: 15, reload: 20 });
+  const base = E.shipStats(E.shipSpec('sloop'));
+  ok(fast.speed > base.speed * 1.5 && fast.range > base.range * 1.4 && fast.reload < base.reload * 0.6 && fast.muzzle > base.muzzle);
+  ok(TIERS.find((t) => t.id === 'manowar').speed >= 14 && TIERS[0].speed >= 20, 'ships are faster');
+});
+T('waves calm down near islands', () => {
+  setCalm([{ x: 0, z: 0, r: 100 }]);
+  let near = 0, far = 0;
+  for (let t = 0; t < 20; t += 0.5) { near = Math.max(near, Math.abs(heightAt(110, 0, t))); far = Math.max(far, Math.abs(heightAt(900, 0, t))); }
+  setCalm([]);
+  ok(near < far * 0.5, `near ${near.toFixed(2)} far ${far.toFixed(2)}`);
+});
+T('island coves: the bay is open water, the hills are land', () => {
+  const W = world(); const sim = new Sim(W, { rand: rng(22) });
+  const b = W.bases.find((x) => x.owner === 'ai:wild'); const S = baseShape(b); const a = dockAngle(b);
+  ok(S.edge(a) < S.R * 0.75, 'bay cuts in: ' + (S.edge(a) / S.R).toFixed(2));
+  const bx = b.x + Math.cos(a) * S.R * 0.85, bz = b.z + Math.sin(a) * S.R * 0.85;
+  ok(sim.groundAt(bx, bz) == null, 'inside the bay is water');
+  ok(sim.groundAt(b.x, b.z) > 1, 'centre is land');
+  const h = harborPoint(b, 74); ok(sim.groundAt(h.x, h.z) == null, 'harbour point afloat');
+});
+T('wild islands: squatters fight back; claiming costs a charter that grows', () => {
+  const W = world(); const sim = new Sim(W, { rand: rng(23) }); const { p } = joinPlayer(sim, 'u', 'U'); sim.aiDensity = 0;
+  ok(W.bases.filter((b) => b.owner === 'ai:wild').length > 40, 'many wild islands');
+  ok(claimFee(1) < claimFee(3) && claimFee(3) < claimFee(8), 'charter grows');
+  const wild = W.bases.filter((b) => b.owner === 'ai:wild').sort((a, b) => Math.hypot(b.x, b.z) - Math.hypot(a.x, a.z))[0];
+  ok(wild.buildings.filter((x) => x.type === 'cannon').length >= 3, 'far islands are well defended');
+  wild.buildings.forEach((x) => { x.hp = 0; }); wild.hitT = 1e9;
+  const me = sim.spawnPlayer('u'); const h = harborPoint(wild, 16); me.x = h.x; me.z = h.z; me.docked = null; me.local = true; me.sail = 0;
+  p.inv.gold = 10;
+  for (let i = 0; i < 60 * 14; i++) sim.step(1 / 60);
+  ok(wild.owner === 'ai:wild', 'no charter money, no claim');
+  p.inv.gold = 50000;
+  for (let i = 0; i < 60 * 3; i++) sim.step(1 / 60);
+  ok(wild.owner === 'u' && p.inv.gold < 50000, 'claimed after paying: ' + wild.owner);
+  ok(wild.buildings.some((x) => x.type === 'keep'), 'stockade became a keep');
+});
+T('fleet: send a ship to attack an island; it bombards and captures', () => {
+  const W = world(); const sim = new Sim(W, { rand: rng(24) }); const { p } = joinPlayer(sim, 'u', 'U'); sim.aiDensity = 0;
+  p.inv.gold = 1e5; p.level = 30; p.fleet.push(E.shipSpec('frigate', { name: 'Avenger' }));
+  const me = sim.spawnPlayer('u'); me.local = true; me.sail = 0;
+  const home = sim.homeOf('u');
+  const tgt = W.bases.filter((b) => b.owner === 'ai:wild').sort((a, b) => Math.hypot(a.x - home.x, a.z - home.z) - Math.hypot(b.x - home.x, b.z - home.z))[0];
+  ok(sim.deployFleet('u', p.fleet[0].uid, { mode: 'attack', base: tgt.id }), 'flagship cannot deploy');
+  ok(!sim.deployFleet('u', p.fleet[1].uid, { mode: 'attack', base: tgt.id }), 'deployed');
+  const f = sim.ships.get('f:' + p.fleet[1].uid); ok(f && f.owner === 'u' && p.fleet[1].out);
+  f.x = tgt.x + Math.cos(dockAngle(tgt)) * (baseRadius(tgt) + 160); f.z = tgt.z + Math.sin(dockAngle(tgt)) * (baseRadius(tgt) + 160);
+  const hp0 = tgt.buildings.reduce((a, b) => a + b.hp, 0);
+  for (let i = 0; i < 60 * 240 && tgt.owner !== 'u' && f.sink === 0; i++) { f.hull = f.stats.hull; sim.step(1 / 60); }
+  ok(tgt.buildings.reduce((a, b) => a + b.hp, 0) < hp0 || tgt.owner === 'u', 'buildings damaged');
+  ok(tgt.owner === 'u', 'fleet captured the island: ' + tgt.owner + ' core hp ' + tgt.buildings.find((x) => x.type === 'camp' || x.type === 'keep')?.hp);
+  ok(!sim.recallFleet('u', p.fleet[1].uid));
+  E.setFlagship(p, p.fleet[1].uid) && ok(true);
+});
+T('clans fortify their holds, buying materials on the market', () => {
+  const W = world(); const sim = new Sim(W, { rand: rng(25) }); E.npcRestock(W, rng(2));
+  const clan = Object.values(W.ai).find((c) => c.clan); const base = W.bases.find((b) => b.id === clan.base);
+  ok(base.owner === clan.id && base.hold, 'clan owns its hold');
+  clan.inv = { gold: 50000, oak: 0, iron: 0, canvas: 0, powder: 0 };
+  const n0 = base.buildings.length, t0 = W.trades.length;
+  for (let i = 0; i < 6; i++) sim.clanEconomy(clan);
+  ok(base.buildings.length > n0, 'built: ' + n0 + ' -> ' + base.buildings.length);
+  ok(W.trades.slice(t0).some((t) => t.buyer === clan.id), 'bought on the market');
+  // the guild trades too
+  W.ai['ai:merchant'].inv.oak = 500; sim.guildEconomy(); ok(W.market.some((o) => o.owner === 'ai:merchant'), 'guild lists cargo');
+});
+T('kraken is a fair fight now', () => {
+  const W = world(); const sim = new Sim(W, { rand: rng(26) }); joinPlayer(sim, 'u', 'U'); const me = sim.spawnPlayer('u'); me.local = true;
+  sim.startEvent('kraken'); ok(sim.kraken.maxHp < 2000, 'hp ' + sim.kraken.maxHp);
 });
 T('world events: kraken, treasure fleet, raid', () => {
   const W = world(); const sim = new Sim(W, { rand: rng(11) }); joinPlayer(sim, 'u', 'U');

@@ -8,7 +8,8 @@ import { Effects } from './render/effects.js';
 import { KrakenView } from './render/kraken.js';
 import { Sim, joinPlayer, arcOf, solveElev, localToWorld, SAIL_STEPS, wrapA } from './sim.js';
 import { handleAct, dockSite } from './actions.js';
-import { heightAt } from './waves.js';
+import { heightAt, setCalm } from './waves.js';
+import { baseRadius } from './basegeo.js';
 import { AMMO, AMMO_ORDER, MUZZLE, GRAVITY, SECTOR_HALF, CHASE_HALF, MIN_RANGE, VERSION } from './config.js';
 import { shipStats, crewEff, flagship } from './economy.js';
 import { saveWorld } from './save.js';
@@ -60,17 +61,38 @@ export class Game {
   me() { return this.sim.ships.get('p:' + this.pid); }
   profile() { return this.W.players[this.pid]; }
 
+  /** Islands are built lazily (and dropped again) by distance: the world is far too big to keep in memory. */
   buildStaticWorld() {
-    for (const g of this.islandGroups) this.scene.remove(g);
-    this.islandGroups = this.W.islands.map((i) => { const g = buildIsland(i); this.scene.add(g); return g; });
-    const shallow = [...this.W.islands.filter((i) => i.kind !== 'rock').map((i) => ({ x: i.x, z: i.z, r: i.r * 1.02, shallow: 26 })), ...this.W.bases.map((b) => ({ x: b.x, z: b.z, r: b.r * 1.1, shallow: 30 }))];
-    this.shallows = shallow;
+    for (const e of this.islandGroups) if (e.group) this.scene.remove(e.group);
+    this.islandGroups = this.W.islands.map((isl) => ({ isl, group: null }));
+    this.updateShallows();
   }
-  syncBases() {
+  updateShallows() {
+    const sig = this.W.bases.map((b) => baseRadius(b).toFixed(1)).join(',');
+    if (sig === this.shallowSig) return;
+    this.shallowSig = sig;
+    this.shallows = [...this.W.islands.filter((i) => i.kind !== 'rock').map((i) => ({ x: i.x, z: i.z, r: i.r, shallow: 26 })), ...this.W.bases.map((b) => ({ x: b.x, z: b.z, r: baseRadius(b), shallow: 30 }))];
+    setCalm(this.shallows);
+    this.sim._land = null;
+  }
+  /** Distance LOD for islands + bases; also refreshes the ocean's shallows/calm set. */
+  updateWorldLOD(focus) {
+    const BUILD = 3300, DROP = 4300;
+    for (const e of this.islandGroups) {
+      const d = Math.hypot(e.isl.x - focus.x, e.isl.z - focus.z);
+      if (!e.group && d < BUILD) { e.group = buildIsland(e.isl); this.scene.add(e.group); }
+      else if (e.group && d > DROP) { this.scene.remove(e.group); e.group.traverse((o) => { if (o.geometry && !o.isInstancedMesh) o.geometry.dispose(); }); e.group = null; }
+    }
+    this.updateShallows();
+    this.stage.ocean.setIslands(this.shallows, focus);
+  }
+  syncBases(focus) {
     for (const b of this.W.bases) {
       let v = this.baseViews.get(b.id);
       if (!v) { v = new BaseView(this.scene); this.baseViews.set(b.id, v); }
-      v.update(b, this.W, this.W.players);
+      const d = Math.hypot(b.x - focus.x, b.z - focus.z);
+      if (d < 3300) v.update(b, this.W, this.W.players);
+      else if (d > 4300 && v.group) { v.dispose(); v.group = null; v.sig = ''; }
     }
   }
 
@@ -116,6 +138,7 @@ export class Game {
     const p = this.W.players[info.pid];
     if (p) { p.online = false; p.lastSeen = Date.now(); }
     this.sim.removeShip('p:' + info.pid);
+    this.sim.dismissFleet(info.pid);
     this.sim.msgs.push({ to: null, text: `${p?.name || 'A captain'} went offline — their bases are now shielded.`, kind: 'info' });
     this.sim.dirty.meta = true;
     this.save();
@@ -275,7 +298,7 @@ export class Game {
         sfx.cannon(this.distTo(f.balls[0][0], f.balls[0][2]), f.balls.length);
         break;
       }
-      case 'hit': this.fx.hit(f.x, f.y, f.z, f.rig, f.ammo); sfx.crack(d); break;
+      case 'hit': { this.fx.hit(f.x, f.y, f.z, f.rig, f.ammo); sfx.crack(d); const v = this.views.get(f.ship); if (v && !f.rig && f.lx != null) v.model.addHole(f.lx, f.ly, f.lz); break; }
       case 'splash': this.fx.splash(f.x, f.z, 1, t); sfx.splash(d); break;
       case 'dirt': case 'stone': this.fx.dustPuff(f.x, f.y, f.z); sfx.crack(d * 1.3); break;
       case 'shield': this.fx.glow.add({ x: f.x, y: f.y, z: f.z, vx: 0, vy: 0, vz: 0, age: 0, life: 0.6, s0: 6, s1: 14, a: 0.8, c: new THREE.Color(0.4, 0.75, 1) }); break;
@@ -299,7 +322,7 @@ export class Game {
       const down = e.type === 'keydown';
       if (down) this.keys.add(e.code); else this.keys.delete(e.code);
       if (!down || e.repeat) { if (e.code === 'KeyF' && !down) this.act({ type: 'harvest', on: false }); return; }
-      if (this.ui.blocking() && e.code !== 'Escape' && e.code !== 'KeyM' && e.code !== 'Backquote') return;
+      if (this.ui.blocking() && e.code !== 'Escape' && e.code !== 'KeyM' && e.code !== 'Backquote' && e.code !== 'KeyG') return;
       const me = this.me();
       switch (e.code) {
         case 'KeyW': case 'ArrowUp': this.setSail(+1); break;
@@ -314,6 +337,7 @@ export class Game {
         case 'Space': e.preventDefault(); this.tryFire(); break;
         case 'Escape': this.ui.escape(this); break;
         case 'KeyP': if (me?.docked) this.ui.port(this); break;
+        case 'KeyG': this.ui.port(this, 'fleet', !me?.docked); break;
         default: break;
       }
     };
@@ -431,19 +455,17 @@ export class Game {
     const [mx, my0, mz] = localToWorld(me, g.x, g.y, g.z);
     const my = my0 + (me.heave || heightAt(me.x, me.z, this.sim.time));
     const hd = Math.max(1, Math.hypot(tx - mx, tz - mz));
-    const v = MUZZLE * A.speed;
-    const el = solveElev(hd, heightAt(tx, tz, this.sim.time) + 1.6 - my, v) ?? 0.26;
+    const v = (me.stats.muzzle || MUZZLE) * A.speed;
+    const el = solveElev(hd, this.sim.surfaceAt(tx, tz) + 1.6 - my, v) ?? 0.26;
     const hx = (tx - mx) / hd, hz = (tz - mz) / hd;
     const pts = [];
     let blocked = false;
-    const land = this.sim.landmasses();
     let x = mx, y = my, z = mz, vy = v * Math.sin(el); const vh = v * Math.cos(el);
     const dt = 0.04;
     for (let i = 0; i < 200; i++) {
       pts.push(new THREE.Vector3(x, y, z));
       if (y < heightAt(x, z, this.sim.time) - 0.2 && i > 2) break;
-      for (const l of land) { const dd = Math.hypot(x - l.x, z - l.z); if (dd < l.r * 0.9 && y < 3 + (1 - dd / l.r) * 10) { blocked = true; break; } }
-      if (blocked) break;
+      if (i > 2 && this.sim.landHit(x, y, z)) { if (Math.hypot(x - tx, z - tz) > 22) blocked = true; break; }
       x += hx * vh * dt; z += hz * vh * dt; vy -= GRAVITY * dt; y += vy * dt;
     }
     const haven = this.sim.inHaven(me.x, me.z) || this.sim.inHaven(tx, tz);
@@ -547,25 +569,40 @@ export class Game {
     const t = this.sim.time;
     this.frames++;
     this.fps += (1 / Math.max(1e-3, dt) - this.fps) * 0.05;
-    this.syncBases();
-    if (this.shallowsSig !== this.W.bases.length) { this.shallowsSig = this.W.bases.length; this.stage.ocean.setIslands(this.shallows); }
     const me = this.me();
+    const focus = me ? { x: me.x, z: me.z } : { x: this.camera.position.x, z: this.camera.position.z };
+    this.lodT = (this.lodT || 0) - dt;
+    if (this.lodT <= 0) { this.lodT = 0.5; this.updateWorldLOD(focus); this.syncBases(focus); }
     // ships
     for (const [id, v] of this.views) if (!this.sim.ships.has(id)) this.dropView(id);
+    let built = 0;
     for (const s of this.sim.ships.values()) {
       let v = this.views.get(s.id);
-      if (!v || v.key !== s.spec.uid + ':' + (s.rev || 0) + ':' + JSON.stringify(s.look)) {
+      const dist = Math.hypot(s.x - focus.x, s.z - focus.z);
+      const far = 700 + s.stats.len * 20;
+      if (dist > far + 300 && s !== me) { if (v) this.dropView(s.id); continue; }
+      const key = s.spec.uid + ':' + (s.rev || 0) + ':' + JSON.stringify(s.look);
+      if (!v || v.key !== key) {
+        if (built >= 3 && v == null && s !== me) continue; // spread model building over frames
         if (v) this.dropView(s.id);
         const model = buildShip(s.stats, s.look || s.spec);
         this.scene.add(model.root);
-        v = { model, key: s.spec.uid + ':' + (s.rev || 0) + ':' + JSON.stringify(s.look), pitch: 0, roll: 0, heave: 0 };
+        v = { model, key, pitch: 0, roll: 0, heave: 0, hullF: 1 };
         this.views.set(s.id, v);
+        built++;
       }
+      v.model.root.visible = dist < far || s === me;
+      if (!v.model.root.visible) continue;
       const p = this.pose(s);
       this.poseShip(v, s, p, t, dt);
       if (s.sink === 0) this.fx.wake({ ...s, x: p.x, z: p.z, yaw: p.yaw }, t);
       if (s.fire > 0 && Math.random() < 0.6) { const [fx, , fz] = localToWorld({ ...s, ...p }, (Math.random() - 0.5) * s.stats.beam, 0, (Math.random() - 0.5) * s.stats.len * 0.7); this.fx.fire(fx, v.model.root.position.y + s.stats.depth * 0.7, fz); }
-      if (s.sink === 0 && s.hull < s.stats.hull * 0.35 && Math.random() < 0.15) this.fx.smoke.add({ x: p.x, y: v.model.root.position.y + s.stats.depth, z: p.z, vx: 0.6, vy: 2.5, vz: 0.4, age: 0, life: 4, s0: 3, s1: 12, a: 0.35, c: new THREE.Color(0x3a3530), drag: 0.3 });
+      // battle damage: holes clear when repaired, smoke thickens and fires break out as the hull fails
+      const hf = Math.max(0, s.hull / s.stats.hull);
+      if (hf > v.hullF + 0.05) v.model.clearHoles();
+      v.hullF = hf;
+      v.model.setHullDamage(s.sink > 0 ? 1 : Math.max(0, 1 - hf) * 0.95);
+      if (s.sink === 0 && hf < 0.6 && dist < 900 && Math.random() < (hf < 0.35 ? 0.3 : 0.08)) { const [sx, , sz] = localToWorld({ ...s, ...p }, (Math.random() - 0.5) * s.stats.beam * 0.6, 0, (Math.random() - 0.5) * s.stats.len * 0.6); this.fx.smoke.add({ x: sx, y: v.model.root.position.y + s.stats.depth, z: sz, vx: 0.6, vy: 2.5, vz: 0.4, age: 0, life: 4, s0: 2 + s.stats.len * 0.04, s1: 8 + s.stats.len * 0.2, a: hf < 0.35 ? 0.45 : 0.25, c: new THREE.Color(hf < 0.35 ? 0x2a2622 : 0x5a5550), drag: 0.3 }); if (hf < 0.3 && Math.random() < 0.4) this.fx.fire(sx, v.model.root.position.y + s.stats.depth * 0.8, sz); }
     }
     this.krakenView.update(this.sim.kraken, t);
     this.fx.syncCrates(this.sim.crates, t);
@@ -611,6 +648,8 @@ export class Game {
     const k = Math.min(1, dt * (5 / Math.sqrt(L / 16)));
     v.heave += (heave - v.heave) * k; v.pitch += (pitch - v.pitch) * k; v.roll += (roll - v.roll) * k;
     let y = v.heave, pitchX = v.pitch, rollZ = v.roll;
+    const dmg = Math.max(0, 1 - s.hull / s.stats.hull);
+    if (s.sink === 0 && dmg > 0.3) { const k2 = (dmg - 0.3) / 0.7; y -= k2 * s.stats.depth * 0.22; rollZ += k2 * 0.09 * ((s.id.charCodeAt(s.id.length - 1) & 1) ? 1 : -1); pitchX -= k2 * 0.025; }
     if (s.sink > 0) { y -= s.sink * s.sink * 0.25 + s.sink * 0.8; pitchX += Math.min(0.6, s.sink * 0.06); rollZ += Math.min(0.9, s.sink * 0.1); }
     m.root.position.set(p.x, y, p.z);
     // yaw about Y, then pitch (nose up = -X rot), then roll about the hull's axis

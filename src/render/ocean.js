@@ -1,7 +1,7 @@
 // Dynamic ocean: camera-following Gerstner-displaced grid, analytic normals, procedural ripple
 // detail, Fresnel sky reflection (cube map of the sky), subsurface tint, crest + shore foam, sun glint.
 import * as THREE from 'three';
-import { WAVES_N, G, SEA } from '../waves.js';
+import { WAVES_N, G, SEA, CALM_MIN, CALM_W } from '../waves.js';
 
 const MAXW = 5;
 
@@ -9,6 +9,8 @@ const vert = /* glsl */`
 uniform float uTime;
 uniform float uSea;
 uniform vec4 uWaves[${MAXW}];
+uniform vec3 uCalm[32];
+uniform int uCalmCount;
 varying vec3 vWorld;
 varying vec3 vNormalW;
 varying float vCrest;
@@ -23,11 +25,20 @@ void main() {
   // fade waves out with distance so the horizon doesn't alias
   float camD = length(p.xz - cameraPosition.xz);
   float fade = 1.0 - smoothstep(900.0, 2400.0, camD);
+  // calm water in the lee of islands (matches waves.js calmAt)
+  float cf0 = 1.0;
+  for (int i = 0; i < 32; i++) {
+    if (i >= uCalmCount) break;
+    vec3 c = uCalm[i];
+    float r0 = c.z * 0.9;
+    cf0 = min(cf0, smoothstep(r0, r0 + ${CALM_W.toFixed(1)}, length(p.xz - c.xy)));
+  }
+  float calm = ${CALM_MIN.toFixed(3)} + ${(1 - CALM_MIN).toFixed(3)} * cf0;
   for (int i = 0; i < ${MAXW}; i++) {
     vec4 w = uWaves[i];
     float k = 6.2831853 / w.z;
     float c = sqrt(${G.toFixed(2)} / k);
-    float st = w.w * uSea * (i > 2 ? fade * 0.6 + 0.4 : fade);
+    float st = w.w * uSea * calm * (i > 2 ? fade * 0.6 + 0.4 : fade);
     float a = st / k;
     float f = k * (dot(w.xy, p.xz) - c * uTime);
     float cf = cos(f), sf = sin(f);
@@ -56,7 +67,7 @@ uniform vec3 uShallow;
 uniform vec3 uSkyTint;
 uniform samplerCube uEnv;
 uniform float uHasEnv;
-uniform vec4 uIslands[24];
+uniform vec4 uIslands[32];
 uniform int uIslandCount;
 varying vec3 vWorld;
 varying vec3 vNormalW;
@@ -101,7 +112,7 @@ void main() {
   vec3 water = mix(uDeep, uShallow, clamp(0.25 + vCrest * 0.9 + sss, 0.0, 1.0)) * (0.55 + 0.45 * facing);
   // shore shallows near islands
   float shore = 0.0;
-  for (int i = 0; i < 24; i++) {
+  for (int i = 0; i < 32; i++) {
     if (i >= uIslandCount) break;
     vec4 is = uIslands[i];
     float dd = length(vWorld.xz - is.xy) - is.z;
@@ -138,8 +149,10 @@ export class Ocean {
       uShallow: { value: new THREE.Color(0x1aa7a8) },
       uSkyTint: { value: new THREE.Color(0x6aa8d8) },
       uEnv: { value: null }, uHasEnv: { value: 0 },
-      uIslands: { value: Array.from({ length: 24 }, () => new THREE.Vector4()) },
+      uIslands: { value: Array.from({ length: 32 }, () => new THREE.Vector4()) },
       uIslandCount: { value: 0 },
+      uCalm: { value: Array.from({ length: 32 }, () => new THREE.Vector3()) },
+      uCalmCount: { value: 0 },
     }]);
     this.uniforms.uWaves.value = waves;
     this.mat = new THREE.ShaderMaterial({ vertexShader: vert, fragmentShader: frag, uniforms: this.uniforms, fog: true });
@@ -151,11 +164,13 @@ export class Ocean {
     scene.add(this.mesh);
   }
   setEnv(cube) { this.uniforms.uEnv.value = cube; this.uniforms.uHasEnv.value = cube ? 1 : 0; }
-  setIslands(list) {
-    const arr = this.uniforms.uIslands.value;
-    const n = Math.min(24, list.length);
-    for (let i = 0; i < n; i++) arr[i].set(list[i].x, list[i].z, list[i].r, list[i].shallow || 40);
-    this.uniforms.uIslandCount.value = n;
+  /** Shallows + calm water for the islands nearest the camera (call a few times a second). */
+  setIslands(list, focus) {
+    const near = focus ? list.map((l) => ({ l, d: Math.hypot(l.x - focus.x, l.z - focus.z) - l.r })).sort((a, b) => a.d - b.d).slice(0, 32).map((x) => x.l) : list.slice(0, 32);
+    const arr = this.uniforms.uIslands.value, calm = this.uniforms.uCalm.value;
+    for (let i = 0; i < near.length; i++) { arr[i].set(near[i].x, near[i].z, near[i].r, near[i].shallow || 40); calm[i].set(near[i].x, near[i].z, near[i].calmR ?? near[i].r); }
+    this.uniforms.uIslandCount.value = near.length;
+    this.uniforms.uCalmCount.value = near.filter((l) => l.calmR !== 0).length === near.length ? near.length : near.length;
   }
   update(t, focus) {
     this.uniforms.uTime.value = t;

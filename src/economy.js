@@ -2,7 +2,7 @@
 // Host-authoritative: every function here is called on the host (or in solo) and is unit-tested.
 import {
   RES, AMMO_ORDER, RECIPES, TIERS, tierById, UPGRADES, XP_PER_LEVEL, MAX_LEVEL, BUILDINGS,
-  MARKET_TAX, LAND_SLOTS, PROD_PERIOD, BASE_RELOAD, rangeFor,
+  MARKET_TAX, LAND_SLOTS, PROD_PERIOD, BASE_RELOAD, rangeFor, MUZZLE, FLEET_BASE,
 } from './config.js';
 
 export const uid = (p = '') => p + Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-4);
@@ -47,21 +47,26 @@ export const clampInt = (v, a, b) => clamp(Math.round(v), a, b);
 export function shipStats(spec, upg = {}) {
   const T = tierById(spec.tier);
   const s = spec.size || 1;
-  const sideCap = T.maxSide;
-  const side = Math.min(sideCap, spec.side + (upg.side || 0));
+  const u = (k) => Math.min(UPGRADES[k].max, upg[k] || 0) * UPGRADES[k].per;
+  const side = Math.min(T.maxSide, (spec.side ?? T.side) + (upg.side || 0));
+  const rangeK = 1 + u('range');
   return {
     tier: T.id, name: spec.name,
     len: T.len * s, beam: T.beam * s, depth: T.depth * s,
-    side, bow: upg.bow || 0, stern: upg.stern || 0,
-    speed: T.speed * (1 + 0.06 * (upg.speed || 0)) * (1.08 - 0.08 * s),
-    turn: T.turn * (1 + 0.08 * (upg.turn || 0)) * (1.1 - 0.1 * s),
-    hull: Math.round(T.hull * (1 + 0.1 * (upg.hull || 0)) * s),
-    sails: Math.round(T.sails * s),
-    crew: Math.round(T.crew * s),
-    reload: BASE_RELOAD * (1 - 0.08 * (upg.reload || 0)) * (1 + 0.04 * Math.max(0, side - 3)),
-    range: rangeFor(T.id),
+    side, bow: Math.min(4, upg.bow || 0), stern: Math.min(4, upg.stern || 0),
+    speed: T.speed * (1 + u('speed')) * (1.08 - 0.08 * s),
+    turn: T.turn * (1 + u('turn')) * (1.1 - 0.1 * s),
+    hull: Math.round(T.hull * (1 + u('hull')) * s),
+    sails: Math.round(T.sails * (1 + u('sails')) * s),
+    crew: Math.round(T.crew * (1 + u('crew')) * s),
+    reload: (BASE_RELOAD / (1 + u('reload'))) * (1 + 0.025 * Math.max(0, side - 3)),
+    range: rangeFor(T.id) * rangeK,
+    muzzle: MUZZLE * Math.sqrt(rangeK),
+    dmg: 1 + u('damage'), armor: 1 - u('armor'), spread: 1 - u('accuracy'), regen: u('repair'),
   };
 }
+/** How many fleet ships a captain may have at sea at once. */
+export const fleetCap = (p) => FLEET_BASE + Math.floor(p.level / 25) + (p.upg?.fleet || 0);
 
 /** Crew efficiency: losing crew slows reload and steering. Below 25% it degrades sharply. */
 export function crewEff(crew, max) {
@@ -90,13 +95,13 @@ export function addXp(p, amount) {
   while (p.level < MAX_LEVEL && p.xp >= XP_PER_LEVEL(p.level)) { p.xp -= XP_PER_LEVEL(p.level); p.level++; p.points++; ups++; }
   return ups;
 }
-export function buyUpgrade(p, key) {
+export function buyUpgrade(p, key, n = 1) {
   const U = UPGRADES[key];
   if (!U) return 'Unknown upgrade';
-  const r = p.upg[key] || 0;
-  if (r >= U.max) return 'Already maxed';
+  n = Math.max(1, Math.min(50, n | 0 || 1));
+  if ((p.upg[key] || 0) >= U.max) return 'Already maxed';
   if (p.points < 1) return 'No upgrade points — earn XP to level up';
-  p.points--; p.upg[key] = r + 1;
+  for (let i = 0; i < n && p.points > 0 && (p.upg[key] || 0) < U.max; i++) { p.points--; p.upg[key] = (p.upg[key] || 0) + 1; }
   return null;
 }
 
@@ -133,7 +138,7 @@ export function buildCustomShip(W, p, baseId, o) {
   p.fleet.push(s);
   return s;
 }
-export function setFlagship(p, shipUid) { if (!p.fleet.some((s) => s.uid === shipUid)) return 'Not in fleet'; p.flag = shipUid; return null; }
+export function setFlagship(p, shipUid) { const s = p.fleet.find((x) => x.uid === shipUid); if (!s) return 'Not in fleet'; if (s.out) return 'That ship is at sea with your fleet — recall it first'; if (s.wrecked) return 'That ship is wrecked — repair it first'; p.flag = shipUid; return null; }
 export const flagship = (p) => p.fleet.find((s) => s.uid === p.flag) || p.fleet[0];
 
 // ------------------------------------------------------------------ bases
@@ -190,8 +195,8 @@ export function setHaven(W, p, baseId, cfg) {
 /** Passive production for every owned base (dt in seconds of game time). Owners get it even offline. */
 export function produce(W, dt) {
   for (const b of W.bases) {
-    const p = W.players[b.owner];
-    if (!p) continue;
+    const p = W.players[b.owner] || W.ai?.[b.owner];
+    if (!p || !p.inv) continue;
     b.prodT = (b.prodT || 0) + dt;
     while (b.prodT >= PROD_PERIOD) {
       b.prodT -= PROD_PERIOD;
@@ -206,11 +211,20 @@ export function produce(W, dt) {
 export function treatyBetween(W, a, b) {
   return W.treaties.filter((t) => (t.a === a && t.b === b) || (t.a === b && t.b === a)).map((t) => t.type);
 }
-/** Are two owners (player ids, or 'ai:*') hostile to each other? */
+/** AI faction of an owner id: 'pirates' | 'navy' | 'merchant' | 'clan' | 'wild' (or null for players). */
+export const aiFaction = (o) => (o && o.startsWith('ai:') ? o.split(':')[1] : null);
+/** Are two owners (player ids, or 'ai:*') hostile to each other? Pirates and clans prey on everyone
+ * (including each other and merchants); the navy hunts pirates and escorts merchants. */
 export function hostile(W, a, b) {
   if (!a || !b || a === b) return false;
-  if (a.startsWith('ai:') && b.startsWith('ai:')) return a.split(':')[1] !== b.split(':')[1] && (a.includes('navy') || b.includes('navy'));
-  if (a.startsWith('ai:') || b.startsWith('ai:')) { const ai = a.startsWith('ai:') ? a : b; return !ai.includes('merchant'); }
+  const fa = aiFaction(a), fb = aiFaction(b);
+  if (fa && fb) {
+    if (fa === fb && fa !== 'clan' && fa !== 'pirates') return false;
+    const peace = (x, y) => (fa === x && fb === y) || (fa === y && fb === x);
+    if (peace('navy', 'merchant') || peace('merchant', 'wild') || peace('navy', 'wild') || peace('pirates', 'wild')) return false;
+    return true;
+  }
+  if (fa || fb) return true; // captains may attack anyone at sea, merchants included — it's piracy
   const pa = W.players[a], pb = W.players[b];
   if (pa && pb && pa.alliance && pa.alliance === pb.alliance) return false;
   const t = treatyBetween(W, a, b);
@@ -254,7 +268,9 @@ export function setAlliance(W, p, name) { p.alliance = name ? String(name).slice
 // ------------------------------------------------------------------ market (order book with 5% tax)
 // order: { id, side: 'sell'|'buy', item, qty, price (per unit), owner, ship? }
 // Sell orders hold the goods in escrow; buy orders hold the gold.
-const escrow = (W, pid) => W.players[pid] || W.npc;
+const escrow = (W, pid) => W.players[pid] || W.ai?.[pid] || W.npc;
+/** Display name of a market participant. */
+export const traderName = (W, id) => W.players[id]?.name || W.ai?.[id]?.name || (id === 'npc' ? 'Free Port Exchange' : id);
 
 export function placeOrder(W, pid, o) {
   const p = escrow(W, pid);
@@ -269,6 +285,7 @@ export function placeOrder(W, pid, o) {
       const i = p.fleet ? p.fleet.findIndex((s) => s.uid === o.shipUid) : -1;
       if (i < 0) return { err: 'Ship not in your fleet' };
       if (p.flag === o.shipUid || p.fleet.length < 2) return { err: 'You cannot sell your flagship' };
+      if (p.fleet[i].out) return { err: 'Recall that ship from sea before selling it' };
       order.ship = p.fleet.splice(i, 1)[0];
     } else {
       if ((p.inv[item] || 0) < qty) return { err: 'Not enough ' + item };
@@ -380,7 +397,7 @@ export function npcRestock(W, rand = Math.random) {
 export function newWorld(seed = Math.floor(Math.random() * 1e9)) {
   return {
     v: 1, seed, created: Date.now(), time: 0,
-    players: {}, bases: [], market: [], trades: [], treaties: [], proposals: [],
+    players: {}, bases: [], market: [], trades: [], treaties: [], proposals: [], ai: {},
     npc: { id: 'npc', inv: { gold: 1e9 }, fleet: [] }, taxPool: 0,
     log: [],
   };

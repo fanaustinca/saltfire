@@ -125,11 +125,19 @@ await T('port: dock at home, build (island grows), craft, trade, upgrade, custom
     out.custom = cs.err || 'ok';
     out.flag = (await g.act({ type: 'flagship', uid: cs.data })).err || 'ok';
     out.tier = g.me().spec.tier; out.name = g.me().spec.name; out.side = g.me().stats.side;
+    // the old sloop is now a fleet ship: send it to attack the nearest wild island
+    const wild = g.W.bases.filter((x) => x.owner === 'ai:wild').sort((a, c) => Math.hypot(a.x - b.x, a.z - b.z) - Math.hypot(c.x - b.x, c.z - b.z))[0];
+    const sloop = g.profile().fleet.find((x) => x.tier === 'sloop');
+    out.deploy = (await g.act({ type: 'deploy', uid: sloop.uid, mode: 'attack', base: wild.id })).err || 'ok';
+    out.fleetShip = !!g.sim.ships.get('f:' + sloop.uid) && g.sim.ships.get('f:' + sloop.uid).ai.mode === 'attack';
+    out.up5 = (await g.act({ type: 'upgrade', key: 'speed', n: 5 })).err || 'ok';
+    out.speedRank = g.profile().upg.speed;
     return out;
   });
   assert(r.docked && r.panel, 'docked + port open ' + JSON.stringify(r));
   assert(!r.err && r.buildings >= 7 && r.slot === 1.0, 'built ' + JSON.stringify(r));
-  for (const k of ['craft', 'buy', 'order', 'up', 'custom', 'flag']) assert(r[k] === 'ok', k + ': ' + r[k]);
+  for (const k of ['craft', 'buy', 'order', 'up', 'custom', 'flag', 'deploy', 'up5']) assert(r[k] === 'ok', k + ': ' + r[k]);
+  assert(r.fleetShip && r.speedRank === 5, 'fleet ship at sea + bulk upgrade ' + JSON.stringify(r));
   assert(r.bow === 1 && r.tier === 'frigate' && r.name === 'Test Ship' && r.side === 5, JSON.stringify(r));
   // every port tab renders
   for (const tab of ['harbor', 'ships', 'fleet', 'upgrades', 'craft', 'market', 'build', 'haven', 'diplomacy']) {
@@ -137,6 +145,11 @@ await T('port: dock at home, build (island grows), craft, trade, upgrade, custom
     const ok = await page.evaluate(() => document.querySelector('#pbody').children.length > 0);
     assert(ok, 'tab ' + tab);
   }
+  await page.evaluate(() => { SALT.game.ui.tab = 'fleet'; SALT.game.ui.renderPanel(SALT.game); });
+  assert(await page.evaluate(() => document.querySelectorAll('[data-dep]').length > 0 && !!document.querySelector('#fl-all-atk')), 'fleet command renders');
+  await shot(page, 'e2e-fleet.png');
+  await page.evaluate(() => { SALT.game.ui.tab = 'upgrades'; SALT.game.ui.renderPanel(SALT.game); });
+  await shot(page, 'e2e-upgrades.png');
   await page.evaluate(() => { SALT.game.ui.tab = 'build'; SALT.game.ui.renderPanel(SALT.game); });
   await shot(page, 'e2e-port-build.png');
   await page.click('#pclose');
@@ -206,7 +219,7 @@ await T('multiplayer: 6-digit room code, join, sync, act, fire, offline shield, 
   await C.page.close();
   await H.page.bringToFront();
   await H.page.waitForFunction(() => !SALT.game.W.players.GUEST1.online && !SALT.game.sim.ships.has('p:GUEST1'), { polling: 200, timeout: 120000 });
-  const sh = await H.page.evaluate(() => { const b = SALT.game.W.bases.find((x) => x.owner === 'GUEST1'); const keep = b.buildings[0]; const hp = keep.hp; const g = SALT.game; const p = { x: b.x, z: b.z }; g.sim.hitBuilding({ x: p.x, y: 3, z: p.z, owner: 'HOST1', ammo: 'ball', dmg: 30 }); return keep.hp === hp; });
+  const sh = await H.page.evaluate(() => { const b = SALT.game.W.bases.find((x) => x.owner === 'GUEST1'); const keep = b.buildings[0]; const hp = keep.hp; SALT.game.sim.damageBuilding(b, keep, { owner: 'HOST1', ammo: 'ball', dmg: 30 }, 1); return keep.hp === hp; });
   assert(sh, 'offline guest base is shielded');
   // returning player keeps their empire
   const C2 = await openPage(browser, `${base}&auto=join&code=${code}&name=Guesty&pid=GUEST1`);

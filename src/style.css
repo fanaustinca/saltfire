@@ -158,3 +158,19 @@ label { display: block; margin: 6px 0; }
   .toasts { width: 220px; top: 8px; right: 8px; }
   .captain { top: 8px; left: 8px; } .room { top: 80px; left: 8px; }
 }
+
+/* v2: fleet command, upgrade bars, clan/fleet labels */
+.ev.fleet { border-color: #7dffb0; font-size: 12px; line-height: 1.5; }
+.ev.fleet .fh { display: inline-block; height: 4px; background: #7dffb0; vertical-align: middle; border-radius: 2px; }
+.ln.clan { color: #ff6a8a; } .ln.fleet { color: #7dffb0; }
+.lsub { font-size: 10px; opacity: .75; font-weight: 400; }
+.fleetcmd .card label { display: flex; gap: 8px; align-items: center; margin: 6px 0; flex-wrap: wrap; }
+.fleetcmd select { max-width: 100%; }
+.fleetcmd .row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.fleet .fship { flex-wrap: wrap; }
+.fbtns { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; max-width: 340px; }
+.good { color: #7dffb0; }
+.ubar { height: 5px; background: rgba(255,255,255,.1); border-radius: 3px; margin-top: 6px; overflow: hidden; }
+.ubar i { display: block; height: 100%; background: linear-gradient(90deg, #c9a227, #ffd34a); }
+.ubtn { display: flex; flex-direction: column; gap: 4px; }
+#mapc { cursor: pointer; }

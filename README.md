@@ -5,25 +5,37 @@ peer-to-peer multiplayer over WebRTC. **Play: https://fanaustinca.github.io/salt
 
 ## Features
 - **Ocean & ships** — Gerstner-wave ocean with foam, sky reflections, sun glint and shoreline surf. Ships ride the
-  same wave field the GPU draws (heave, pitch, roll, heel, recoil). Six procedurally built, period-styled hulls
-  (Sloop, Schooner, Brigantine, Frigate, Galleon, Man of War): planked lofted hulls, painted wales, gun decks with
-  open ports and run-out cannons, stern galleries, tapered masts with tops, square/gaff/lateen/jib sails that
-  billow and tear, shrouds with ratlines, waving flags.
+  same wave field the GPU draws (heave, pitch, roll, heel, recoil); the sea calms in the lee of islands. Six
+  distinct procedural designs: a raked single-mast **Sloop**, a clipper-bowed **Schooner**, a square-fore
+  **Brigantine** with quarterdeck, a black-and-ochre full-rigged **Frigate**, a **Galleon** with a towering painted
+  stern castle, beakhead and lateen mizzens, and a three-decked **Man of War** with triple stern galleries, studding
+  sails, gilt lion figurehead and up to 20 guns a side.
+- **Battle damage** — shot holes appear exactly where balls strike, hulls char and smoulder, damaged ships settle
+  and list, sails tear and topmasts get shot away.
 - **3rd-person helm + visual targeting** — the mouse shows the firing sector on the aimed side and a 3D trajectory
   arc to the exact landing point: green = valid (bright when over a ship), yellow = reloading, red = out of range,
   outside the arc, blocked by land or inside a safe haven. Edge-look swings the camera over the aimed broadside.
 - **Crew** — crew losses slow reloads and steering. Grapeshot kills crew, chainshot shreds sails, explosive shot
   sets ships ablaze.
-- **Progression** — XP and levels give upgrade points: bow/stern chasers, extra broadside guns, speed, hull, turn,
-  reload. Ship tiers with exactly 1/1/2/3/5/10 cannons per side.
+- **Progression** — 200 levels and ~240 upgrade ranks across 17 upgrades (broadside guns, chasers, firing rate,
+  range, damage, accuracy, speed, turning, sails, hull, armour, crew, at-sea repairs, foraging, plunder, fleet size).
+  Ship tiers start at 1/1/2/3/5/10 cannons per side; a Man of War can be upgraded to 20.
+- **Fleets** — every ship you own beyond your flagship can be sent out (`G`, or click an island on the map) to
+  escort you, guard an island, or attack an enemy/clan/wild island — they bombard it and capture it for you.
 - **Crafting** — chainshot, grapeshot, explosive shot and gunpowder from oak, iron, canvas and powder.
 - **Custom shipyards** — build custom-sized ships with custom cannon counts (within tier limits), name them, paint
   hull/trim/sails and pick a flag, with a live 3D preview.
-- **Empire** — every new captain gets an island; docks, shipyards, watchtowers, mills, mines, sail lofts, powder
-  houses, warehouses, positionable shore cannons and sea forts all appear on the island, which grows as you build.
-  Pirate holds and other players' bases can be raided and conquered (destroy the keep, hold position).
-- **World** — level-matched AI merchants, pirates and navy patrols; random world events: the **Kraken**, guarded
-  **Treasure Flagships** and pirate raids on bases.
+- **Empire** — a big sea (12 km across) with ~70 claimable pirate-cove islands: sheltered bays with docks and stilt
+  huts, sea cliffs, hills, villages that grow with your base, beached wrecks. Wild islands are held by squatters
+  (stronger further out) — beat them and pay a colony charter that grows with every island you hold. Docks,
+  shipyards, watchtowers, mills, mines, lofts, powder houses, warehouses, shore cannons and sea forts appear on the
+  island as you build.
+- **Pirate clans** — eight clans hold fortresses (skull rocks included). They fortify them over time, buying what
+  they lack on the market and selling surplus, patrol their waters, raid wild islands, rival clans and players, and
+  can be conquered (smash the keep, sink the defenders, hold position). Broken clans rise again elsewhere.
+- **World** — busy seas: lots of small fry plus level-matched heavies (up to your own tier); pirates prey on
+  merchants and each other, the navy hunts pirates, merchants run cargo to the Free Port for the Merchant Guild.
+  Random events: the **Kraken**, guarded **Treasure Flagships** and clan raids.
 - **Economy & diplomacy** — player market with instant buys/sells, limit buy/sell orders, ship listings and a 5%
   transaction tax; safe havens, alliance access lists, entry fees, remote treaties (peace / trade / alliance / war).
 - **Multiplayer** — the host's browser generates a 6-digit room code; friends join with it. The host's browser
@@ -32,11 +44,12 @@ peer-to-peer multiplayer over WebRTC. **Play: https://fanaustinca.github.io/salt
 
 ## Controls
 `W`/`S` sails · `A`/`D` steer · mouse aim · click / `Space` fire · `1`–`4` / `Q` ammo · `E` dock / claim / port ·
-hold `F` harvest · `M` map · right-drag orbit · wheel zoom · `C` reset camera · `H` help · `Esc` menu.
+hold `F` harvest · `M` map · `G` fleet command · right-drag orbit · wheel zoom · `C` reset camera · `H` help · `Esc` menu.
 
 ## Dev console
 Open the browser console and run `dev.help()`, or press `` ` `` in game for a command prompt
-(`kraken`, `give all 500`, `ship galleon`, `spawn pirate frigate 3`, `event treasure`, `tp port`, `sea 1.4`, …).
+(`kraken`, `give all 500`, `ship manowar`, `fleet frigate 3`, `clans`, `raid`, `spawn pirate frigate 3`,
+`event treasure`, `tp port`, `sea 1.4`, `unlock`, …).
 
 ## Development
 ```bash

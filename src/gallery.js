@@ -15,7 +15,9 @@ export function gallery(q) {
   for (const id of tiers) {
     const st = shipStats(shipSpec(id), { bow: +(q.get('bow') || 0), stern: +(q.get('stern') || 0) });
     const s = buildShip(st, { emblem: 0, hullColor: q.get('hull') || undefined });
-    s.setSailLevel(+(q.get('sails') ?? 1)); s.setDamage(+(q.get('dmg') || 0));
+    s.setSailLevel(+(q.get('sails') ?? 1)); s.setDamage(+(q.get('dmg') || 0)); s.setHullDamage(+(q.get('dmg') || 0));
+    const nh = Math.round(+(q.get('dmg') || 0) * 30);
+    for (let i = 0; i < nh; i++) s.addHole(i % 2 ? 1 : -1, (Math.sin(i * 7.1) * 0.5 + 0.5) * st.depth * 0.8, (Math.sin(i * 3.3) * 0.45) * st.len);
     s.root.position.x = x; x += st.beam * 3 + 12;
     stage.scene.add(s.root); ships.push({ s, st });
   }

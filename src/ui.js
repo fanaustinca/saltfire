@@ -3,11 +3,11 @@
 // market, building, haven, diplomacy), world map, prompts and toasts.
 import * as THREE from 'three';
 import {
-  RES, RES_LABEL, RES_ICON, AMMO, AMMO_ORDER, RECIPES, TIERS, tierById, UPGRADES, XP_PER_LEVEL, BUILDINGS,
-  MARKET_ITEMS, MARKET_TAX, TREATY_TYPES, HAVEN_R, WORLD_R, VERSION, LAND_SLOTS,
+  RES, RES_LABEL, RES_ICON, AMMO, AMMO_ORDER, RECIPES, TIERS, tierById, UPGRADES, UPGRADE_TOTAL, XP_PER_LEVEL, BUILDINGS,
+  MARKET_ITEMS, MARKET_TAX, TREATY_TYPES, HAVEN_R, WORLD_R, VERSION, LAND_SLOTS, claimFee,
 } from './config.js';
-import { shipStats, customCost, costText, canAfford, bestAsk, bestBid, crewEff, treatyBetween, shielded, landSlotsUsed, flagship } from './economy.js';
-import { SAIL_NAMES, SAIL_STEPS } from './sim.js';
+import { shipStats, customCost, costText, canAfford, bestAsk, bestBid, crewEff, treatyBetween, shielded, landSlotsUsed, flagship, hostile, fleetCap, traderName, aiFaction } from './economy.js';
+import { SAIL_NAMES, SAIL_STEPS, DOCK_SPEED } from './sim.js';
 import { dockSite, repairCost } from './actions.js';
 import { baseRadius } from './basegeo.js';
 import { buildShip } from './render/shipmodel.js';
@@ -90,13 +90,14 @@ export class UI {
         <div class="ammo" id="ammo"></div>
       </div>
       <canvas class="minimap" id="minimap" width="220" height="220"></canvas>
-      <div class="hotkeys"><button class="btn tiny" id="hk-map">Map (M)</button><button class="btn tiny" id="hk-dip">Diplomacy</button><button class="btn tiny" id="hk-help">Help (H)</button><button class="btn tiny" id="hk-menu">Menu</button></div>
+      <div class="hotkeys"><button class="btn tiny" id="hk-map">Map (M)</button><button class="btn tiny" id="hk-fleet">Fleet (G)</button><button class="btn tiny" id="hk-dip">Diplomacy</button><button class="btn tiny" id="hk-help">Help (H)</button><button class="btn tiny" id="hk-menu">Menu</button></div>
       <div class="labels" id="labels"></div>
       <div class="crosshair" id="xhair"></div>
     </div>`;
     this.toastBox = $('#toasts');
     $('#hk-map').onclick = () => this.toggleMap(game);
     $('#hk-dip').onclick = () => this.port(game, 'diplomacy', true);
+    $('#hk-fleet').onclick = () => this.port(game, 'fleet', !game.me()?.docked);
     $('#hk-help').onclick = () => this.help();
     $('#hk-menu').onclick = () => this.escape(game);
     $('#ammo').onclick = (e) => { const b = e.target.closest('[data-ammo]'); if (b) game.setAmmo(b.dataset.ammo); };
@@ -118,7 +119,7 @@ export class UI {
   panelSig(game) {
     const W = game.W, p = game.profile(), d = game.me()?.docked;
     const b = d && W.bases.find((x) => x.id === d.id);
-    return JSON.stringify([p.inv, p.level, p.points, p.upg, p.fleet.map((s) => s.uid + s.name), p.flag, p.alliance, W.market.length, W.trades.length, W.proposals.length, W.treaties.length, b && b.buildings.map((x) => [x.type, Math.round(x.hp)]), b?.haven, Object.values(W.players).map((x) => x.online + x.name), this.tab]);
+    return JSON.stringify([p.inv, p.level, p.points, p.upg, p.fleet.map((s) => s.uid + s.name + (s.out ? 'o' : '') + (s.wrecked ? 'w' : '') + (s.hp ?? '')), p.flag, p.alliance, W.market.length, W.trades.length, W.proposals.length, W.treaties.length, b && b.buildings.map((x) => [x.type, Math.round(x.hp)]), b?.haven, Object.values(W.players).map((x) => x.online + x.name), this.tab]);
   }
   frame(game, dt) {
     const me = game.me(); if (!me || !$('#shippanel')) return;
@@ -144,7 +145,11 @@ export class UI {
     else if (me.docked) pr = `Docked at <b>${esc(me.docked.name || 'harbour')}</b> — <kbd>E</kbd> open port · <kbd>W</kbd> set sail`;
     else {
       const site = dockSite(game.sim, me);
-      if (site) pr = site.kind === 'fee' ? `<kbd>E</kbd> Pay entry fee (${site.fee}g) at ${esc(site.name)}` : site.kind === 'unclaimed' ? `<kbd>E</kbd> Claim <b>${esc(site.name)}</b>` : `<kbd>E</kbd> Dock at <b>${esc(site.name)}</b>${me.spd > 7 ? ' <span class="muted">(slow down)</span>' : ''}`;
+      if (site) pr = site.kind === 'fee' ? `<kbd>E</kbd> Pay entry fee (${site.fee}g) at ${esc(site.name)}`
+        : site.kind === 'unclaimed' ? `<kbd>E</kbd> Claim <b>${esc(site.name)}</b>`
+        : site.kind === 'wild' ? `⚔ <b>${esc(site.name)}</b> is held by squatters (lv ${site.lvl}) — destroy their stockade, then hold position to claim it <span class="muted">(charter ${site.fee}g)</span>`
+        : site.kind === 'hold' ? `☠ <b>${esc(site.name)}</b> — fortress of ${esc(site.clan)}. Smash the keep, sink the defenders, hold position to conquer.`
+        : `<kbd>E</kbd> Dock at <b>${esc(site.name)}</b>${me.spd > DOCK_SPEED ? ' <span class="muted">(slow down)</span>' : ''}`;
       const isl = game.W.islands.find((i) => i.kind === 'res' && Math.hypot(i.x - me.x, i.z - me.z) < i.r + 80);
       if (isl) pr += `${pr ? '<br>' : ''}Hold <kbd>F</kbd> to harvest <b>${RES_LABEL[isl.res]}</b> (${Math.floor(isl.amt ?? 100)}%)${me.spd > 4 ? ' <span class="muted">— stop the ship</span>' : ''}`;
       const cap = game.sim.capture?.get?.(game.W.bases.find((b) => Math.hypot(b.x - me.x, b.z - me.z) < baseRadius(b) + 90)?.id);
@@ -157,6 +162,8 @@ export class UI {
     const k = game.sim.kraken;
     if (k && k.hp > 0) ev.push(`<div class="ev kraken"><b>🐙 The Kraken</b> ${Math.round(game.distTo(k.x, k.z))}m<div class="evbar"><i style="width:${(k.hp / k.maxHp) * 100}%"></i></div></div>`);
     for (const s of game.sim.ships.values()) if (s.tag === 'treasure' && s.sink === 0) ev.push(`<div class="ev treasure"><b>💰 Treasure Flagship</b> ${Math.round(game.distTo(s.x, s.z))}m<div class="evbar"><i style="width:${(s.hull / s.stats.hull) * 100}%"></i></div></div>`);
+    const myFleet = [...game.sim.ships.values()].filter((s) => s.role === 'fleet' && s.owner === game.pid && s.sink === 0);
+    if (myFleet.length) ev.push(`<div class="ev fleet"><b>⚓ Fleet at sea</b> ${myFleet.map((s) => `<span title="${esc(s.name)}">${esc(s.name)} <i class="fh" style="width:${Math.round((s.hull / s.stats.hull) * 40)}px"></i> <small>${s.ai?.mode || ''}</small></span>`).join('<br>')}</div>`);
     const raiders = [...game.sim.ships.values()].filter((s) => s.tag === 'raider' && s.sink === 0).length;
     if (raiders) ev.push(`<div class="ev raid"><b>⚔ Pirate raid</b> ${raiders} ship${raiders > 1 ? 's' : ''} left</div>`);
     const evh = ev.join(''); const ee = $('#events'); if (ee.innerHTML !== evh) ee.innerHTML = evh;
@@ -181,12 +188,14 @@ export class UI {
       seen.add(s.id);
       let el = this.labels.get(s.id);
       if (!el) { el = document.createElement('div'); el.className = 'slabel'; box.appendChild(el); this.labels.set(s.id, el); }
-      const hostile = me && game.sim && s.owner !== me.owner && !(s.owner === 'ai:merchant') && (s.pid ? true : true);
-      const cls = s.pid ? 'player' : s.role === 'merchant' ? 'merchant' : s.role === 'navy' ? 'navy' : 'pirate';
-      const html = `<div class="ln ${cls}">${s.tag === 'treasure' ? '💰 ' : ''}${esc(s.name)} <small>Lv ${s.level}</small></div><div class="lh"><i style="width:${(s.hull / s.stats.hull) * 100}%"></i></div>`;
+      const hostileTo = me && s.owner !== me.owner;
+      const fac = aiFaction(s.owner);
+      const cls = s.pid ? 'player' : s.role === 'fleet' ? (s.owner === game.pid ? 'fleet' : 'player') : s.role === 'merchant' ? 'merchant' : s.role === 'navy' ? 'navy' : fac === 'clan' ? 'clan' : 'pirate';
+      const sub = s.role === 'fleet' ? `${esc(game.W.players[s.owner]?.name || '')}'s fleet` : fac === 'clan' ? esc(game.W.ai?.[s.owner]?.name || '') : '';
+      const html = `<div class="ln ${cls}">${s.tag === 'treasure' ? '💰 ' : ''}${esc(s.name)} <small>Lv ${s.level}</small>${sub ? `<div class="lsub">${sub}</div>` : ''}</div><div class="lh"><i style="width:${(s.hull / s.stats.hull) * 100}%"></i></div>`;
       if (el._h !== html) { el.innerHTML = html; el._h = html; }
       el.style.transform = `translate(${((v.x + 1) / 2) * innerWidth}px, ${((1 - v.y) / 2) * innerHeight}px) translate(-50%,-100%) scale(${Math.max(0.6, 1 - d / 1400)})`;
-      el.style.opacity = hostile ? 1 : 0.85;
+      el.style.opacity = hostileTo ? 1 : 0.85;
     }
     for (const [id, el] of this.labels) if (!seen.has(id)) { el.remove(); this.labels.delete(id); }
   }
@@ -206,7 +215,7 @@ export class UI {
     { const [x, y] = HP(0, 0); g.strokeStyle = 'rgba(120,220,255,0.35)'; g.setLineDash([3, 3]); g.beginPath(); g.arc(x, y, HAVEN_R * k, 0, 7); g.stroke(); g.setLineDash([]); }
     for (const b of game.W.bases) {
       const [x, y] = P(b.x, b.z);
-      g.fillStyle = !b.owner ? '#e9e4d4' : b.owner === game.pid ? '#4ad9ff' : b.owner.startsWith('ai:') ? '#c03a2a' : `hsl(${game.W.players[b.owner]?.color || 0},70%,55%)`;
+      g.fillStyle = baseColor(game, b);
       g.beginPath(); g.arc(x, y, Math.max(3, baseRadius(b) * k), 0, 7); g.fill();
       if (shielded(game.W, b.owner)) { g.strokeStyle = '#7cc8ff'; g.beginPath(); g.arc(x, y, Math.max(5, baseRadius(b) * k + 3), 0, 7); g.stroke(); }
     }
@@ -214,7 +223,7 @@ export class UI {
     for (const s of game.sim.ships.values()) {
       if (s === me || s.sink > 0) continue;
       const [x, y] = P(s.x, s.z);
-      g.fillStyle = s.pid ? '#4ad9ff' : s.role === 'merchant' ? '#e8d27a' : s.role === 'navy' ? '#6f8cff' : '#ff5a4a';
+      g.fillStyle = s.pid ? '#4ad9ff' : s.role === 'fleet' ? (s.owner === game.pid ? '#7dffb0' : '#4ad9ff') : s.role === 'merchant' ? '#e8d27a' : s.role === 'navy' ? '#6f8cff' : aiFaction(s.owner) === 'clan' ? '#ff2a6a' : '#ff5a4a';
       if (s.tag === 'treasure') g.fillStyle = '#ffd34a';
       g.beginPath(); g.arc(x, y, s.tag === 'treasure' ? 4.5 : 3, 0, 7); g.fill();
     }
@@ -261,7 +270,7 @@ export class UI {
   }
   claimPrompt(game, site) {
     const first = !game.W.bases.some((b) => b.owner === game.pid);
-    this.modal(`Claim ${esc(site.name)}?`, `<p>This island is unclaimed. Raise your flag to found a base: build docks, a shipyard, production and defences — the island grows as you build.</p><p>${first ? '<b>Your first island is free.</b>' : 'Claiming costs <b>300 gold</b>.'}</p>`, [
+    this.modal(`Claim ${esc(site.name)}?`, `<p>This island is unclaimed. Raise your flag to found a base: build docks, a shipyard, production and defences — the island grows as you build.</p><p>${first ? '<b>Your first island is free.</b>' : `A colony charter costs <b>${claimFee(game.W.bases.filter((b) => b.owner === game.pid).length)} gold</b>.`}</p>`, [
       { label: 'Raise the flag', primary: true, fn: async () => { const r = await game.act({ type: 'claim', base: site.id }); this.toast(r.err || `${site.name} is yours!`, r.err ? 'bad' : 'good'); if (!r.err) sfx.fanfare(); } },
       { label: 'Not now' },
     ]);
@@ -272,7 +281,8 @@ export class UI {
         <div><h4>Sailing</h4><p><kbd>W</kbd>/<kbd>S</kbd> raise / lower sails · <kbd>A</kbd>/<kbd>D</kbd> steer · right-drag orbit camera · wheel zoom · <kbd>C</kbd> reset camera</p></div>
         <div><h4>Gunnery</h4><p>Move the mouse over the water: a firing sector appears on the side you're aiming at and a 3D arc shows exactly where your shot lands. <span class="g">Green</span> = valid, <span class="y">yellow</span> = reloading, <span class="r">red</span> = out of range / arc or blocked by land. <kbd>Click</kbd> or <kbd>Space</kbd> fires the broadside.</p><p><kbd>1</kbd>–<kbd>4</kbd> / <kbd>Q</kbd> ammo: Round shot · Chainshot (sails) · Grapeshot (crew) · Explosive (hull + fire).</p></div>
         <div><h4>Crew</h4><p>Losing crew slows reloads and steering. Rehire at any harbour.</p></div>
-        <div><h4>Empire</h4><p><kbd>E</kbd> dock / claim islands · <kbd>F</kbd> (hold, stopped) harvest resource islets · <kbd>M</kbd> map. Build docks, shipyards, mills and defences at your base — the island grows as you build. Hold enemy bases' keeps at 0 and linger to conquer them.</p></div>
+        <div><h4>Empire</h4><p><kbd>E</kbd> dock · <kbd>F</kbd> (hold, stopped) harvest resource islets · <kbd>M</kbd> map. Wild islands are held by squatters: smash their stockade and hold position nearby to claim them (each new colony's charter costs more). Pirate clans hold fortresses and keep fortifying them — smash the keep, sink the defenders and hold position to conquer. Build docks, shipyards, mills and defences — the island and its village grow as you build.</p></div>
+        <div><h4>Fleet</h4><p><kbd>G</kbd> fleet command: send the ships you own (beyond your flagship) to escort you, guard an island, or attack an enemy, clan or wild island — they bombard it and capture it for you. Sunk fleet ships come home as wrecks to repair.</p></div>
         <div><h4>World</h4><p>Hunt the <b>Kraken</b> and <b>Treasure Flagships</b>, sink level-matched AI, trade on the player market (5% tax), sign treaties, set safe havens & entry fees. Offline captains' bases are shielded.</p></div>
         <div><h4>Multiplayer</h4><p>Share your 6-digit room code (top-left). Friends join from the title screen. Your browser saves the world.</p></div>
       </div>`, [{ label: 'Aye!', primary: true }], 'wide');
@@ -307,12 +317,20 @@ export class UI {
     if (!this.mapOpen) { el?.remove(); return; }
     el = document.createElement('div'); el.id = 'bigmap'; el.className = 'bigmap';
     el.innerHTML = `<div class="mapcard"><canvas id="mapc" width="900" height="900"></canvas><div class="maplegend"><h3>Sea Chart</h3>
-      <div><i style="background:#4ad9ff"></i>Your bases & captains</div><div><i style="background:#e9e4d4"></i>Unclaimed island</div><div><i style="background:#c03a2a"></i>Pirate hold (conquerable)</div><div><i style="background:#f2d58a"></i>Free Port (safe haven, market)</div>
+      <div><i style="background:#4ad9ff"></i>Your bases & captains · <i style="background:#7dffb0"></i>your fleet</div><div><i style="background:#c9b98a"></i>Wild island (squatters — claim it)</div><div><i style="background:#c03a2a"></i>Pirate clan fortress (conquerable)</div><div><i style="background:#f2d58a"></i>Free Port (safe haven, market)</div><div class="muted small">Click an island to send your fleet.</div>
       <div><i style="background:#5fbf5a"></i>Oak · <i style="background:#aaa"></i>Iron · <i style="background:#e8e0c0"></i>Canvas · <i style="background:#e8c64a"></i>Powder</div>
       <div><i style="background:#c23aff"></i>Kraken · <i style="background:#ffd34a"></i>Treasure / loot</div><div class="muted small">Ring = offline shield</div>
       <button class="btn" id="mapclose">Close (M)</button></div></div>`;
     this.root.appendChild(el);
     $('#mapclose').onclick = () => this.toggleMap(game);
+    const mc = $('#mapc');
+    mc.onclick = (e) => {
+      const rc = mc.getBoundingClientRect(), N = mc.width, k = N / (WORLD_R * 2.1);
+      const wx = ((e.clientX - rc.left) / rc.width * N - N / 2) / k, wz = ((e.clientY - rc.top) / rc.height * N - N / 2) / k;
+      const b = game.W.bases.map((b) => ({ b, d: Math.hypot(b.x - wx, b.z - wz) })).sort((a, c) => a.d - c.d)[0];
+      if (!b || b.d > Math.max(140, baseRadius(b.b) * 2)) return;
+      this.mapOrder(game, b.b);
+    };
     this.drawMap(game);
   }
   drawMap(game) {
@@ -332,20 +350,37 @@ export class UI {
     for (const b of game.W.bases) {
       const [x, y] = P(b.x, b.z);
       const own = b.owner && game.W.players[b.owner];
-      g.fillStyle = !b.owner ? '#e9e4d4' : b.owner === game.pid ? '#4ad9ff' : b.owner.startsWith('ai:') ? '#c03a2a' : `hsl(${own?.color || 0},70%,55%)`;
+      g.fillStyle = baseColor(game, b);
       g.beginPath(); g.arc(x, y, Math.max(4, baseRadius(b) * k), 0, 7); g.fill();
+      if (aiFaction(b.owner) === 'clan') { g.strokeStyle = '#000'; g.lineWidth = 2; g.stroke(); g.lineWidth = 1; }
       if (shielded(game.W, b.owner)) { g.strokeStyle = '#7cc8ff'; g.lineWidth = 2; g.beginPath(); g.arc(x, y, baseRadius(b) * k + 5, 0, 7); g.stroke(); g.lineWidth = 1; }
       if (b.haven?.safe) { g.strokeStyle = 'rgba(120,220,255,0.4)'; g.setLineDash([3, 3]); g.beginPath(); g.arc(x, y, HAVEN_R * 0.75 * k, 0, 7); g.stroke(); g.setLineDash([]); }
-      g.fillStyle = '#fff'; g.fillText(b.name + (own ? ` (${own.name})` : b.owner?.startsWith('ai:') ? ' (pirates)' : ''), x, y - baseRadius(b) * k - 5);
+      if (b.owner === 'ai:wild') continue;
+      const clan = game.W.ai?.[b.owner];
+      g.fillStyle = clan ? '#ffb0a0' : '#fff'; g.fillText(b.name + (own ? ` (${own.name})` : clan ? ` ☠ ${clan.name} lv ${clan.level || 1}` : ''), x, y - baseRadius(b) * k - 5);
     }
     for (const s of game.sim.ships.values()) {
       if (s.sink > 0) continue;
       const [x, y] = P(s.x, s.z);
       if (s.pid) { g.fillStyle = s.pid === game.pid ? '#fff' : '#4ad9ff'; g.beginPath(); g.arc(x, y, s.pid === game.pid ? 6 : 4, 0, 7); g.fill(); g.fillText(game.W.players[s.pid]?.name || '', x, y + 16); }
+      else if (s.role === 'fleet' && s.owner === game.pid) { g.fillStyle = '#7dffb0'; g.beginPath(); g.arc(x, y, 3.5, 0, 7); g.fill(); }
       else if (s.tag === 'treasure') { g.fillStyle = '#ffd34a'; g.beginPath(); g.arc(x, y, 6, 0, 7); g.fill(); g.fillText('Treasure Flagship', x, y + 16); }
     }
     const kr = game.sim.kraken; if (kr && kr.hp > 0) { const [x, y] = P(kr.x, kr.z); g.fillStyle = '#c23aff'; g.beginPath(); g.arc(x, y, 8, 0, 7); g.fill(); g.fillStyle = '#fff'; g.fillText('KRAKEN', x, y + 20); }
     for (const cr of game.sim.crates) if (cr.big) { const [x, y] = P(cr.x, cr.z); g.fillStyle = '#ffd34a'; g.fillRect(x - 3, y - 3, 6, 6); }
+  }
+
+  mapOrder(game, b) {
+    const W = game.W, p = game.profile();
+    const mine = b.owner === game.pid;
+    const canAtk = b.owner && !mine && hostile(W, game.pid, b.owner) && !shielded(W, b.owner);
+    const idle = p.fleet.filter((s) => s.uid !== p.flag && !s.wrecked).length;
+    const who = b.owner === 'ai:wild' ? `held by squatters (level ${b.lvl || 1}) — claim charter ${claimFee(W.bases.filter((x) => x.owner === game.pid).length)} gold` : W.ai?.[b.owner] ? `fortress of ${W.ai[b.owner].name}` : mine ? 'your island' : W.players[b.owner] ? `held by ${W.players[b.owner].name}` : 'unclaimed';
+    this.modal(esc(b.name), `<p>${esc(who)} · ${b.buildings.length} structure${b.buildings.length === 1 ? '' : 's'}.</p><p class="muted small">${idle ? `You have ${idle} ship${idle > 1 ? 's' : ''} that can sail (${fleetCap(p)} at sea at once).` : 'You have no fleet ships yet — buy one at the Shipwright.'}</p>`, [
+      ...(canAtk && idle ? [{ label: '⚔ Send fleet to attack', primary: true, fn: async () => { const r = await game.act({ type: 'deployAll', mode: 'attack', base: b.id, redirect: true }); this.toast(r.err || 'Your fleet sets sail!', r.err ? 'bad' : 'good'); } }] : []),
+      ...(mine && idle ? [{ label: 'Send fleet to guard', primary: true, fn: async () => { const r = await game.act({ type: 'deployAll', mode: 'guard', base: b.id, redirect: true }); this.toast(r.err || 'Your fleet stands guard.', r.err ? 'bad' : 'good'); } }] : []),
+      { label: 'Close' },
+    ]);
   }
 
   // ------------------------------------------------------------------ port panel
@@ -369,6 +404,7 @@ export class UI {
     const own = site.kind === 'base' && game.W.bases.find((b) => b.id === site.id)?.owner === game.pid;
     const T = [];
     if (!this.remote) { T.push(['harbor', 'Harbour'], ['ships', 'Shipwright'], ['fleet', 'Fleet'], ['upgrades', 'Upgrades'], ['craft', 'Crafting'], ['market', 'Market']); if (own) T.push(['build', 'Build'], ['haven', 'Haven']); }
+    if (this.remote) T.push(['fleet', 'Fleet Command']);
     T.push(['diplomacy', 'Diplomacy']);
     return T;
   }
@@ -380,7 +416,7 @@ export class UI {
     if (!tabs.some(([k]) => k === this.tab)) this.tab = tabs[0][0];
     this.lastSig = this.panelSig(game);
     const me = game.me(); const p = game.profile();
-    const title = this.remote ? 'Diplomacy' : esc(me?.docked?.name || 'Harbour');
+    const title = this.remote ? (this.tab === 'fleet' ? 'Fleet Command' : 'Diplomacy') : esc(me?.docked?.name || 'Harbour');
     const keepScroll = this.panel.querySelector('.pbody')?.scrollTop || 0;
     this.panel.innerHTML = `<div class="port"><div class="phead"><h2>${title}</h2><div class="ptabs">${tabs.map(([k, n]) => `<button class="tab ${k === this.tab ? 'on' : ''}" data-tab="${k}">${n}${k === 'upgrades' && p.points ? ` <b class="badge">${p.points}</b>` : ''}${k === 'diplomacy' && game.W.proposals.some((x) => x.to === game.pid) ? ' <b class="badge">!</b>' : ''}</button>`).join('')}</div><button class="btn close" id="pclose">${this.remote ? 'Close' : 'Set Sail ⛵'}</button></div><div class="pres">${RES.map((r) => `<span class="res res-${r}">${RES_ICON[r]} ${fmt(p.inv[r] || 0)}</span>`).join('')}${['chain', 'grape', 'explosive'].map((a) => `<span class="res"><span class="ball b-${a}"></span> ${p.inv[a] || 0}</span>`).join('')}</div><div class="pbody" id="pbody"></div></div>`;
     this.panel.querySelectorAll('[data-tab]').forEach((b) => (b.onclick = () => { this.tab = b.dataset.tab; sfx.ui(); if (this.preview) { this.preview.dispose(); this.preview = null; } this.renderPanel(game); }));
@@ -426,7 +462,7 @@ export class UI {
     const hasYard = b && b.owner === game.pid && b.buildings.some((x) => x.type === 'shipyard' && x.hp > 0);
     body.innerHTML = `
       <h3>Shipwright — standard hulls</h3>
-      <div class="shipgrid">${TIERS.map((T) => { const st = shipStats({ tier: T.id, side: T.side, size: 1 }); const locked = p.level < T.level; return `<div class="shipcard ${locked ? 'locked' : ''}"><h4>${T.name}</h4><div class="muted">${T.side} cannon${T.side > 1 ? 's' : ''} per side · ${T.masts} mast${T.masts > 1 ? 's' : ''}</div><div class="mini">Hull ${st.hull} · Speed ${st.speed.toFixed(1)} · Crew ${st.crew}</div><div class="cost">${T.cost.gold ? costText(T.cost) : 'free'}</div><button class="btn" data-buy="${T.id}" ${locked || !T.cost.gold || !canAfford(p.inv, T.cost) ? 'disabled' : ''}>${locked ? `Level ${T.level}` : !T.cost.gold ? 'Starter' : 'Buy'}</button></div>`; }).join('')}</div>
+      <div class="shipgrid">${TIERS.map((T) => { const st = shipStats({ tier: T.id, side: T.side, size: 1 }); const locked = p.level < T.level; return `<div class="shipcard ${locked ? 'locked' : ''}"><h4>${T.name}</h4><div class="muted">${T.side} cannon${T.side > 1 ? 's' : ''} per side (up to ${T.maxSide}) · ${T.masts} mast${T.masts > 1 ? 's' : ''}</div><div class="mini">Hull ${st.hull} · Speed ${st.speed.toFixed(1)} · Crew ${st.crew}</div><div class="cost">${T.cost.gold ? costText(T.cost) : 'free'}</div><button class="btn" data-buy="${T.id}" ${locked || !T.cost.gold || !canAfford(p.inv, T.cost) ? 'disabled' : ''}>${locked ? `Level ${T.level}` : !T.cost.gold ? 'Starter' : 'Buy'}</button></div>`; }).join('')}</div>
       <h3>Custom Shipyard ${hasYard ? '' : '<span class="muted small">— build a Shipyard on your base to design custom ships</span>'}</h3>
       ${hasYard ? this.builderHTML(p) : ''}`;
     body.querySelectorAll('[data-buy]').forEach((bt) => (bt.onclick = () => this.doAct(game, { type: 'buyShip', tier: bt.dataset.buy }, 'New ship added to your fleet — make it your flagship in Fleet.')));
@@ -471,16 +507,60 @@ export class UI {
     upd();
   }
   tab_fleet(game, body) {
-    const p = game.profile();
-    body.innerHTML = `<div class="fleet">${p.fleet.map((s) => { const st = shipStats(s, p.upg); return `<div class="fship ${s.uid === p.flag ? 'flag' : ''}"><div class="swatch" style="background:${s.hullColor};border-color:${s.trimColor}"></div><div class="finfo"><b>${esc(s.name)}</b> <span class="muted">${tierById(s.tier).name}${s.custom ? ' · custom' : ''}</span><div class="mini">${st.side} guns/side · hull ${st.hull} · speed ${st.speed.toFixed(1)} · crew ${st.crew}</div></div>${s.uid === p.flag ? '<span class="tagflag">Flagship</span>' : `<button class="btn" data-flag="${s.uid}">Make flagship</button>`}<button class="btn tiny" data-ren="${s.uid}">Rename</button></div>`; }).join('')}</div><p class="muted small">Sell ships on the Market tab. Your flagship is the ship you sail.</p>`;
+    const p = game.profile(), W = game.W, me = game.me();
+    const out = p.fleet.filter((s) => s.out).length, cap = fleetCap(p);
+    const from = me || { x: 0, z: 0 };
+    const dist = (b) => Math.round(Math.hypot(b.x - from.x, b.z - from.z));
+    const targets = W.bases.filter((b) => b.owner && b.owner !== game.pid && hostile(W, game.pid, b.owner) && !shielded(W, b.owner)).sort((a, b) => dist(a) - dist(b)).slice(0, 40);
+    const mine = W.bases.filter((b) => b.owner === game.pid);
+    const ownerLabel = (b) => b.owner === 'ai:wild' ? `squatters lv ${b.lvl || 1}` : W.ai?.[b.owner]?.name || W.players[b.owner]?.name || '';
+    this.fleetTarget ??= targets[0]?.id || '';
+    this.fleetGuard ??= mine[0]?.id || '';
+    const tgtSel = `<select id="fl-tgt">${targets.map((b) => `<option value="${b.id}" ${b.id === this.fleetTarget ? 'selected' : ''}>${esc(b.name)} — ${esc(ownerLabel(b))} · ${dist(b)} m</option>`).join('') || '<option value="">(no targets)</option>'}</select>`;
+    const guardSel = `<select id="fl-guard">${mine.map((b) => `<option value="${b.id}" ${b.id === this.fleetGuard ? 'selected' : ''}>${esc(b.name)}</option>`).join('') || '<option value="">(no islands)</option>'}</select>`;
+    const row = (s) => {
+      const st = shipStats(s, p.upg);
+      const live = game.sim.ships.get('f:' + s.uid);
+      const flag = s.uid === p.flag;
+      const status = flag ? '<span class="tagflag">Flagship</span>' : s.wrecked ? '<span class="bad">Wrecked</span>' : s.out ? `<span class="good">At sea — ${live?.ai?.mode || 'sailing'}${live?.ai?.base ? ': ' + esc(W.bases.find((b) => b.id === live.ai.base)?.name || '') : ''}</span>${live ? ` <span class="muted">${Math.round((live.hull / live.stats.hull) * 100)}% hull</span>` : ''}` : '<span class="muted">In harbour</span>';
+      let btns = '';
+      if (!flag && !s.wrecked) btns += `<button class="btn tiny" data-dep="${s.uid}" data-m="escort">Escort me</button><button class="btn tiny" data-dep="${s.uid}" data-m="attack">Attack target</button><button class="btn tiny" data-dep="${s.uid}" data-m="guard">Guard island</button>`;
+      if (s.out) btns += `<button class="btn tiny" data-rec="${s.uid}">Recall</button>`;
+      if (s.wrecked || s.hp != null) btns += `<button class="btn tiny" data-fix="${s.uid}" ${me?.docked ? '' : 'disabled title="Dock in a harbour"'}>Repair</button>`;
+      if (!flag && !this.remote && !s.out && !s.wrecked) btns += `<button class="btn tiny" data-flag="${s.uid}">Make flagship</button>`;
+      if (!this.remote) btns += `<button class="btn tiny" data-ren="${s.uid}">Rename</button>`;
+      return `<div class="fship ${flag ? 'flag' : ''}"><div class="swatch" style="background:${s.hullColor};border-color:${s.trimColor}"></div><div class="finfo"><b>${esc(s.name)}</b> <span class="muted">${tierById(s.tier).name}${s.custom ? ' · custom' : ''}</span><div class="mini">${st.side} guns/side · hull ${st.hull} · speed ${st.speed.toFixed(1)} · crew ${st.crew}</div><div class="mini">${status}</div></div><div class="fbtns">${btns}</div></div>`;
+    };
+    body.innerHTML = `<div class="fleetcmd"><div class="card"><h3>Fleet orders</h3>
+        <p class="muted small">Ships you own (other than your flagship) sail as AI captains under your colours. <b>${out}/${cap}</b> at sea (more with levels and the Commodore upgrade). They share your upgrades, pick up loot for you and capture what they conquer.</p>
+        <label>Attack target ${tgtSel}</label><label>Guard island ${guardSel}</label>
+        <div class="row"><button class="btn primary" id="fl-all-atk">⚔ Send all idle ships to attack</button><button class="btn" id="fl-all-esc">Escort me</button><button class="btn" id="fl-all-grd">Guard island</button><button class="btn" id="fl-recall">Recall all</button></div></div>
+      <div class="fleet">${p.fleet.map(row).join('')}</div>
+      <p class="muted small">Buy ships at the Shipwright or design them in your Shipyard, then send them out here. Sell ships on the Market tab.</p></div>`;
+    const tsel = $('#fl-tgt', body), gsel = $('#fl-guard', body);
+    tsel.onchange = () => { this.fleetTarget = tsel.value; };
+    gsel.onchange = () => { this.fleetGuard = gsel.value; };
+    const order = (mode) => (mode === 'attack' ? { mode, base: tsel.value } : mode === 'guard' ? { mode, base: gsel.value } : { mode });
+    const ok = { escort: 'Ship falls in behind you.', attack: 'Ship is sailing to attack!', guard: 'Ship is standing guard.' };
+    body.querySelectorAll('[data-dep]').forEach((b) => (b.onclick = () => this.doAct(game, { type: 'deploy', uid: b.dataset.dep, ...order(b.dataset.m) }, ok[b.dataset.m])));
+    body.querySelectorAll('[data-rec]').forEach((b) => (b.onclick = () => this.doAct(game, { type: 'recall', uid: b.dataset.rec }, 'Recalled to harbour.')));
+    body.querySelectorAll('[data-fix]').forEach((b) => (b.onclick = () => this.doAct(game, { type: 'repairFleet', uid: b.dataset.fix }, 'Ship repaired.')));
     body.querySelectorAll('[data-flag]').forEach((b) => (b.onclick = () => this.doAct(game, { type: 'flagship', uid: b.dataset.flag }, 'Flagship changed.')));
     body.querySelectorAll('[data-ren]').forEach((b) => (b.onclick = () => { const n = prompt('New name?'); if (n) this.doAct(game, { type: 'renameShip', uid: b.dataset.ren, name: n }); }));
+    $('#fl-all-atk', body).onclick = () => this.doAct(game, { type: 'deployAll', ...order('attack'), redirect: true }, 'Your fleet sets sail to attack!');
+    $('#fl-all-esc', body).onclick = () => this.doAct(game, { type: 'deployAll', mode: 'escort', redirect: true }, 'Your fleet forms up on you.');
+    $('#fl-all-grd', body).onclick = () => this.doAct(game, { type: 'deployAll', ...order('guard'), redirect: true }, 'Your fleet stands guard.');
+    $('#fl-recall', body).onclick = () => this.doAct(game, { type: 'recallAll' }, 'Fleet recalled.');
   }
   tab_upgrades(game, body) {
     const p = game.profile();
-    body.innerHTML = `<p>Level <b>${p.level}</b> · XP ${p.xp}/${XP_PER_LEVEL(p.level)} · <b>${p.points}</b> upgrade point${p.points === 1 ? '' : 's'} to spend. Upgrades apply to every ship you sail.</p>
-      <div class="upgrades">${Object.entries(UPGRADES).map(([k, U]) => { const r = p.upg[k] || 0; return `<div class="upg"><div><b>${U.name}</b><div class="muted small">${U.desc}</div></div><div class="ranks">${Array.from({ length: U.max }, (_, i) => `<i class="${i < r ? 'on' : ''}"></i>`).join('')}</div><button class="btn" data-up="${k}" ${r >= U.max || !p.points ? 'disabled' : ''}>+</button></div>`; }).join('')}</div>`;
+    const cats = {};
+    for (const [k, U] of Object.entries(UPGRADES)) (cats[U.cat] ||= []).push([k, U]);
+    const spent = Object.values(p.upg).reduce((a, b) => a + b, 0);
+    body.innerHTML = `<p>Level <b>${p.level}</b> · XP ${p.xp}/${XP_PER_LEVEL(p.level)} · <b>${p.points}</b> upgrade point${p.points === 1 ? '' : 's'} to spend · ${spent}/${UPGRADE_TOTAL} ranks bought. Upgrades apply to every ship you sail and your fleet.</p>
+      ${Object.entries(cats).map(([cat, list]) => `<h4>${cat}</h4><div class="upgrades">${list.map(([k, U]) => { const r = p.upg[k] || 0; return `<div class="upg"><div><b>${U.name}</b> <span class="muted small">${r}/${U.max}</span><div class="muted small">${U.desc}</div><div class="ubar"><i style="width:${(r / U.max) * 100}%"></i></div></div><div class="ubtn"><button class="btn" data-up="${k}" ${r >= U.max || !p.points ? 'disabled' : ''}>+1</button><button class="btn tiny" data-up5="${k}" ${r >= U.max || p.points < 2 ? 'disabled' : ''}>+5</button></div></div>`; }).join('')}</div>`).join('')}`;
     body.querySelectorAll('[data-up]').forEach((b) => (b.onclick = () => this.doAct(game, { type: 'upgrade', key: b.dataset.up }, 'Upgrade installed.')));
+    body.querySelectorAll('[data-up5]').forEach((b) => (b.onclick = () => this.doAct(game, { type: 'upgrade', key: b.dataset.up5, n: 5 }, 'Upgrades installed.')));
   }
   tab_craft(game, body) {
     const p = game.profile();
@@ -504,9 +584,9 @@ export class UI {
           <label>Price each <input type="number" id="mo-price" min="1" value="10"></label>
           <button class="btn primary" id="mo-go">Place order</button></div>
         <div class="card"><h3>Your orders</h3>${mine.length ? mine.map((o) => `<div class="ord"><span class="${o.side}">${o.side.toUpperCase()}</span> ${o.item === 'ship' ? esc(o.ship?.name) : `${o.qty} ${ITEM_NAME[o.item]}`} @ ${o.price} <button class="btn tiny" data-cancel="${o.id}">Cancel</button></div>`).join('') : '<p class="muted">None.</p>'}</div>
-        <div class="card"><h3>Ships for sale</h3>${ships.length ? ships.map((o) => `<div class="ord">${esc(o.ship?.name)} <span class="muted">${tierById(o.ship?.tier).name} · ${o.ship?.side} guns/side · by ${esc(W.players[o.owner]?.name || 'NPC')}</span> <b>${o.price}g</b> ${o.owner === game.pid ? '' : `<button class="btn tiny" data-bl="${o.id}">Buy</button>`}</div>`).join('') : '<p class="muted">No ships listed.</p>'}
+        <div class="card"><h3>Ships for sale</h3>${ships.length ? ships.map((o) => `<div class="ord">${esc(o.ship?.name)} <span class="muted">${tierById(o.ship?.tier).name} · ${o.ship?.side} guns/side · by ${esc(traderName(W, o.owner))}</span> <b>${o.price}g</b> ${o.owner === game.pid ? '' : `<button class="btn tiny" data-bl="${o.id}">Buy</button>`}</div>`).join('') : '<p class="muted">No ships listed.</p>'}
           <h4>List one of yours</h4><select id="ms-ship">${p.fleet.filter((s) => s.uid !== p.flag).map((s) => `<option value="${s.uid}">${esc(s.name)} (${tierById(s.tier).name})</option>`).join('') || '<option value="">(no spare ships)</option>'}</select><input type="number" id="ms-price" min="1" value="1000"><button class="btn" id="ms-go">List ship</button></div>
-        <div class="card"><h3>Recent trades</h3>${W.trades.slice(-8).reverse().map((t) => `<div class="small">${t.q} ${ITEM_NAME[t.item] || t.item} @ ${t.px}</div>`).join('') || '<p class="muted">No trades yet.</p>'}</div>
+        <div class="card"><h3>Recent trades</h3>${W.trades.slice(-10).reverse().map((t) => `<div class="small">${t.q} ${ITEM_NAME[t.item] || t.item} @ ${t.px} <span class="muted">${esc(traderName(W, t.seller))} → ${esc(traderName(W, t.buyer))}</span></div>`).join('') || '<p class="muted">No trades yet.</p>'}</div>
       </div>`;
     body.querySelectorAll('[data-ib]').forEach((b) => (b.onclick = () => this.doAct(game, { type: 'instantBuy', item: b.dataset.ib, qty: +$('#mq-' + b.dataset.ib).value }, 'Bought.')));
     body.querySelectorAll('[data-is]').forEach((b) => (b.onclick = () => this.doAct(game, { type: 'instantSell', item: b.dataset.is, qty: +$('#mq-' + b.dataset.is).value }, 'Sold (5% tax paid).')));
@@ -562,6 +642,14 @@ export class UI {
     body.querySelectorAll('[data-acc]').forEach((b) => (b.onclick = () => this.doAct(game, { type: 'answer', id: b.dataset.acc, accept: true }, 'Treaty signed.')));
     body.querySelectorAll('[data-rej]').forEach((b) => (b.onclick = () => this.doAct(game, { type: 'answer', id: b.dataset.rej, accept: false })));
   }
+}
+
+function baseColor(game, b) {
+  if (!b.owner) return '#e9e4d4';
+  if (b.owner === game.pid) return '#4ad9ff';
+  if (b.owner === 'ai:wild') return '#c9b98a';
+  if (b.owner.startsWith('ai:')) return '#c03a2a';
+  return `hsl(${game.W.players[b.owner]?.color || 0},70%,55%)`;
 }
 
 /** Small separate renderer for the custom-ship builder preview. */

@@ -454,7 +454,7 @@ export class Game {
     const col = !valid ? 0xff3b30 : reloading ? 0xffc23a : onTarget ? 0x2bff5a : 0x7dff8f;
     this.arcMat.color.setHex(col); this.ring.material.color.setHex(col);
     sm.material.color.setHex(valid ? 0x7dff8f : 0xff6a5a);
-    sm.material.opacity = valid ? 0.24 : 0.14;
+    sm.material.opacity = valid ? 0.24 : 0.07;
     if (pts.length > 2) {
       const curve = new THREE.CatmullRomCurve3(pts);
       this.arc.geometry.dispose();
@@ -574,7 +574,7 @@ export class Game {
     if (me) {
       const v = this.views.get(me.id);
       const L = me.stats.len;
-      const dist = (L * 1.25 + 30) * this.cam.zoom;
+      const dist = (L * 1.45 + 32) * this.cam.zoom;
       if (!this.cam.init) { this.cam.yaw = me.yaw; this.cam.init = true; }
       // edge-look: pushing the cursor toward a screen side swings the camera over that broadside
       const nx = this.mouse.inside && !this.ui.blocking() && !this.mouse.rmb && me.sink === 0 ? this.mouse.nx : 0;

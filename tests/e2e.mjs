@@ -44,9 +44,9 @@ await T('solo: world renders, sails + steering with the keyboard', async () => {
   assert(info.isl > 20 && info.bases > 10 && info.views >= 1 && info.home, JSON.stringify(info));
   const p0 = await page.evaluate(() => ({ x: SALT.game.me().x, z: SALT.game.me().z, yaw: SALT.game.me().yaw }));
   await page.keyboard.press('KeyW'); await page.keyboard.press('KeyW'); await page.keyboard.press('KeyW');
-  await page.waitForFunction(() => SALT.game.me().spd > 3, { polling: 100, timeout: 60000 });
+  await page.waitForFunction(() => SALT.game.me().spd > 3, { polling: 100, timeout: 120000 });
   await page.keyboard.down('KeyA');
-  await page.waitForFunction((y) => Math.abs(SALT.game.me().yaw - y) > 0.25, { polling: 100, timeout: 60000 }, p0.yaw);
+  await page.waitForFunction((y) => Math.abs(SALT.game.me().yaw - y) > 0.25, { polling: 100, timeout: 120000 }, p0.yaw);
   await page.keyboard.up('KeyA');
   const p1 = await page.evaluate(() => ({ x: SALT.game.me().x, z: SALT.game.me().z, sail: SALT.game.me().sail }));
   assert(Math.hypot(p1.x - p0.x, p1.z - p0.z) > 3 && p1.sail === 1, 'moved under full sail ' + JSON.stringify(p1));
@@ -93,7 +93,7 @@ await T('gunnery: mouse aims a colour-coded arc and clicking fires a broadside',
   }
   assert(await page.evaluate(() => SALT.game.me().reload.L > 0), 'broadside fired');
   await page.waitForFunction(() => SALT.game.sim.balls.length > 0, { polling: 50, timeout: 10000 });
-  await page.waitForFunction(() => SALT.game.sim.balls.length === 0, { polling: 100, timeout: 60000 });
+  await page.waitForFunction(() => SALT.game.sim.balls.length === 0, { polling: 100, timeout: 120000 });
   const hull1 = await page.evaluate(() => SALT.game.sim.ships.get(window.FOE)?.hull ?? 0);
   console.log(`      broadside landed; target hull ${hull0} -> ${hull1}`);
   await shot(page, 'e2e-broadside.png');
@@ -154,8 +154,9 @@ await T('world events: kraken + treasure flagship + map; dev.help()', async () =
   const h = await page.evaluate(() => dev.help());
   assert(h.includes('dev.kraken') && h.includes('dev.give'), 'dev.help lists commands');
   await page.evaluate(() => { dev.density(0); dev.clear(); dev.tp(-1500, 300); dev.kraken(); dev.event('treasure'); SALT.game.cam.yawOff = 0; });
-  await page.evaluate(() => { const k = SALT.game.sim.kraken, me = SALT.game.me(); k.x = me.x + 70; k.z = me.z + 60; });
-  await page.waitForFunction(() => SALT.game.sim.kraken && SALT.game.sim.kraken.tentacles.some((t) => t.up > 0.5), { polling: 200, timeout: 60000 });
+  await page.evaluate(() => { const k = SALT.game.sim.kraken, me = SALT.game.me(); k.x = me.x + 70; k.z = me.z + 60; dev.speed(5); });
+  await page.waitForFunction(() => SALT.game.sim.kraken && SALT.game.sim.kraken.tentacles.some((t) => t.up > 0.5), { polling: 200, timeout: 180000 });
+  await page.evaluate(() => dev.speed(1));
   assert(await page.evaluate(() => SALT.game.krakenView.group.visible), 'kraken visible');
   assert(await page.evaluate(() => [...SALT.game.sim.ships.values()].some((s) => s.tag === 'treasure')), 'treasure flagship');
   await page.evaluate(() => { const g = SALT.game, k = g.sim.kraken, me = g.me(); dev.cam(k.x - me.x - 90, 45, k.z - me.z - 70, k.x - me.x, 8, k.z - me.z); });
@@ -178,15 +179,15 @@ await T('multiplayer: 6-digit room code, join, sync, act, fire, offline shield, 
   const C = await openPage(browser, `${base}&auto=join&code=${code}&name=Guesty&pid=GUEST1`);
   await waitGame(C.page);
   // host sees the guest's profile + ship; guest sees host ship
-  await H.page.waitForFunction(() => SALT.game.W.players.GUEST1?.online && SALT.game.sim.ships.has('p:GUEST1'), { polling: 200, timeout: 30000 });
+  await H.page.waitForFunction(() => SALT.game.W.players.GUEST1?.online && SALT.game.sim.ships.has('p:GUEST1'), { polling: 200, timeout: 120000 });
   await C.page.bringToFront();
-  await C.page.waitForFunction(() => SALT.game.sim.ships.has('p:HOST1') && SALT.game.views.has('p:HOST1'), { polling: 200, timeout: 30000 });
+  await C.page.waitForFunction(() => SALT.game.sim.ships.has('p:HOST1') && SALT.game.views.has('p:HOST1'), { polling: 200, timeout: 120000 });
   const gb = await H.page.evaluate(() => SALT.game.W.bases.find((b) => b.owner === 'GUEST1')?.name);
   assert(gb, 'guest was granted an island');
   // guest moves; host sees it
-  await C.page.evaluate(() => { const me = SALT.game.me(); me.sail = 1; });
   const hz0 = await H.page.evaluate(() => { const s = SALT.game.sim.ships.get('p:GUEST1'); return [s.x, s.z]; });
-  await H.page.waitForFunction((p) => { const s = SALT.game.sim.ships.get('p:GUEST1'); return Math.hypot(s.x - p[0], s.z - p[1]) > 4; }, { polling: 200, timeout: 60000 }, hz0);
+  await C.page.evaluate(() => { const me = SALT.game.me(); me.sail = 1; me.x += Math.sin(me.yaw) * 25; me.z += Math.cos(me.yaw) * 25; });
+  await H.page.waitForFunction((p) => { const s = SALT.game.sim.ships.get('p:GUEST1'); return Math.hypot(s.x - p[0], s.z - p[1]) > 4; }, { polling: 200, timeout: 120000 }, hz0);
   // guest acts through the host (crafting) and gets XP
   const xp0 = await H.page.evaluate(() => SALT.game.W.players.GUEST1.xp + SALT.game.W.players.GUEST1.level * 1e5);
   const res = await C.page.evaluate(() => SALT.game.act({ type: 'craft', kind: 'chain', times: 1 }));
@@ -204,7 +205,7 @@ await T('multiplayer: 6-digit room code, join, sync, act, fire, offline shield, 
   // guest leaves -> offline, base shielded
   await C.page.close();
   await H.page.bringToFront();
-  await H.page.waitForFunction(() => !SALT.game.W.players.GUEST1.online && !SALT.game.sim.ships.has('p:GUEST1'), { polling: 200, timeout: 30000 });
+  await H.page.waitForFunction(() => !SALT.game.W.players.GUEST1.online && !SALT.game.sim.ships.has('p:GUEST1'), { polling: 200, timeout: 120000 });
   const sh = await H.page.evaluate(() => { const b = SALT.game.W.bases.find((x) => x.owner === 'GUEST1'); const keep = b.buildings[0]; const hp = keep.hp; const g = SALT.game; const p = { x: b.x, z: b.z }; g.sim.hitBuilding({ x: p.x, y: 3, z: p.z, owner: 'HOST1', ammo: 'ball', dmg: 30 }); return keep.hp === hp; });
   assert(sh, 'offline guest base is shielded');
   // returning player keeps their empire

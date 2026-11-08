@@ -148,4 +148,13 @@ label { display: block; margin: 6px 0; }
 @media (max-width: 800px) { .mapcard { flex-direction: column; } .mapcard canvas { width: 90vw; height: 90vw; } }
 .devcon { position: fixed; left: 16px; right: 16px; top: 16px; z-index: 99; background: rgba(0,0,0,.85); border: 1px solid var(--gold); border-radius: 10px; padding: 8px; }
 .devcon input { width: 100%; font: 14px monospace; } .devcon pre { margin: 6px 0 0; font: 12px monospace; color: #9be7ff; white-space: pre-wrap; max-height: 40vh; overflow: auto; }
-@media (max-width: 900px) { .shippanel { width: calc(100vw - 28px); bottom: 240px; } .minimap { width: 150px; height: 150px; } .resbar { top: 120px; } .toasts { width: 240px; } .prompt { bottom: 410px; } }
+@media (max-width: 900px) {
+  .shippanel { width: calc(100vw - 16px); bottom: 8px; padding: 8px 10px; }
+  .minimap { width: 130px; height: 130px; bottom: 178px; right: 8px; }
+  .hotkeys { bottom: 312px; right: 8px; width: 200px; }
+  .prompt { bottom: 178px; left: 8px; transform: none; max-width: calc(100vw - 160px); }
+  .resbar { top: 122px; left: 8px; transform: none; flex-wrap: wrap; max-width: calc(100vw - 16px); }
+  .events { top: 168px; }
+  .toasts { width: 220px; top: 8px; right: 8px; }
+  .captain { top: 8px; left: 8px; } .room { top: 80px; left: 8px; }
+}

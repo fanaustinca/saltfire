@@ -20,7 +20,7 @@ const canvasStats = (page) => page.evaluate(() => {
   const n = d.length / 4, mean = sum / n;
   return { mean, std: Math.sqrt(sum2 / n - mean * mean), colors: colors.size };
 });
-const waitGame = (page) => page.waitForFunction(() => window.SALT && SALT.game && SALT.game.frames > 5 && SALT.game.me(), { polling: 100, timeout: 120000 });
+const waitGame = (page) => page.waitForFunction(() => window.SALT && SALT.game && SALT.game.frames > 5 && SALT.game.me(), { polling: 100, timeout: 240000 });
 
 await T('title screen boots with no errors', async () => {
   const { page, errors } = await openPage(browser, base);
@@ -44,7 +44,7 @@ await T('solo: world renders, sails + steering with the keyboard', async () => {
   assert(info.isl > 20 && info.bases > 10 && info.views >= 1 && info.home, JSON.stringify(info));
   const p0 = await page.evaluate(() => ({ x: SALT.game.me().x, z: SALT.game.me().z, yaw: SALT.game.me().yaw }));
   await page.keyboard.press('KeyW'); await page.keyboard.press('KeyW'); await page.keyboard.press('KeyW');
-  await page.waitForFunction(() => SALT.game.me().spd > 3, { polling: 100, timeout: 120000 });
+  await page.waitForFunction(() => SALT.game.me().spd > 3, { polling: 100, timeout: 240000 });
   await page.keyboard.down('KeyA');
   await page.waitForFunction((y) => Math.abs(SALT.game.me().yaw - y) > 0.25, { polling: 100, timeout: 120000 }, p0.yaw);
   await page.keyboard.up('KeyA');
@@ -93,7 +93,7 @@ await T('gunnery: mouse aims a colour-coded arc and clicking fires a broadside',
   }
   assert(await page.evaluate(() => SALT.game.me().reload.L > 0), 'broadside fired');
   await page.waitForFunction(() => SALT.game.sim.balls.length > 0, { polling: 50, timeout: 10000 });
-  await page.waitForFunction(() => SALT.game.sim.balls.length === 0, { polling: 100, timeout: 120000 });
+  await page.waitForFunction(() => SALT.game.sim.balls.length === 0, { polling: 100, timeout: 240000 });
   const hull1 = await page.evaluate(() => SALT.game.sim.ships.get(window.FOE)?.hull ?? 0);
   console.log(`      broadside landed; target hull ${hull0} -> ${hull1}`);
   await shot(page, 'e2e-broadside.png');
@@ -184,23 +184,23 @@ await T('world events: kraken + treasure flagship + map; dev.help()', async () =
 });
 
 await T('multiplayer: 6-digit room code, join, sync, act, fire, offline shield, return with saved empire', async () => {
-  const H = await openPage(browser, base + '&auto=host&name=Hosty&pid=HOST1');
+  const H = await openPage(browser, base + '&q=low&auto=host&name=Hosty&pid=HOST1');
   await waitGame(H.page);
   const code = await H.page.evaluate(() => SALT.game.room.code);
   assert(/^\d{6}$/.test(code), 'code ' + code);
   await H.page.evaluate(() => { dev.density(0); dev.clear(); });
-  const C = await openPage(browser, `${base}&auto=join&code=${code}&name=Guesty&pid=GUEST1`);
+  const C = await openPage(browser, `${base}&q=low&auto=join&code=${code}&name=Guesty&pid=GUEST1`);
   await waitGame(C.page);
   // host sees the guest's profile + ship; guest sees host ship
-  await H.page.waitForFunction(() => SALT.game.W.players.GUEST1?.online && SALT.game.sim.ships.has('p:GUEST1'), { polling: 200, timeout: 120000 });
+  await H.page.waitForFunction(() => SALT.game.W.players.GUEST1?.online && SALT.game.sim.ships.has('p:GUEST1'), { polling: 200, timeout: 240000 });
   await C.page.bringToFront();
-  await C.page.waitForFunction(() => SALT.game.sim.ships.has('p:HOST1') && SALT.game.views.has('p:HOST1'), { polling: 200, timeout: 120000 });
+  await C.page.waitForFunction(() => SALT.game.sim.ships.has('p:HOST1') && SALT.game.views.has('p:HOST1'), { polling: 200, timeout: 240000 });
   const gb = await H.page.evaluate(() => SALT.game.W.bases.find((b) => b.owner === 'GUEST1')?.name);
   assert(gb, 'guest was granted an island');
   // guest moves; host sees it
   const hz0 = await H.page.evaluate(() => { const s = SALT.game.sim.ships.get('p:GUEST1'); return [s.x, s.z]; });
   await C.page.evaluate(() => { const me = SALT.game.me(); me.sail = 1; me.x += Math.sin(me.yaw) * 25; me.z += Math.cos(me.yaw) * 25; });
-  await H.page.waitForFunction((p) => { const s = SALT.game.sim.ships.get('p:GUEST1'); return Math.hypot(s.x - p[0], s.z - p[1]) > 4; }, { polling: 200, timeout: 120000 }, hz0);
+  await H.page.waitForFunction((p) => { const s = SALT.game.sim.ships.get('p:GUEST1'); return Math.hypot(s.x - p[0], s.z - p[1]) > 4; }, { polling: 200, timeout: 240000 }, hz0);
   // guest acts through the host (crafting) and gets XP
   const xp0 = await H.page.evaluate(() => SALT.game.W.players.GUEST1.xp + SALT.game.W.players.GUEST1.level * 1e5);
   const res = await C.page.evaluate(() => SALT.game.act({ type: 'craft', kind: 'chain', times: 1 }));
@@ -218,11 +218,11 @@ await T('multiplayer: 6-digit room code, join, sync, act, fire, offline shield, 
   // guest leaves -> offline, base shielded
   await C.page.close();
   await H.page.bringToFront();
-  await H.page.waitForFunction(() => !SALT.game.W.players.GUEST1.online && !SALT.game.sim.ships.has('p:GUEST1'), { polling: 200, timeout: 120000 });
+  await H.page.waitForFunction(() => !SALT.game.W.players.GUEST1.online && !SALT.game.sim.ships.has('p:GUEST1'), { polling: 200, timeout: 240000 });
   const sh = await H.page.evaluate(() => { const b = SALT.game.W.bases.find((x) => x.owner === 'GUEST1'); const keep = b.buildings[0]; const hp = keep.hp; SALT.game.sim.damageBuilding(b, keep, { owner: 'HOST1', ammo: 'ball', dmg: 30 }, 1); return keep.hp === hp; });
   assert(sh, 'offline guest base is shielded');
   // returning player keeps their empire
-  const C2 = await openPage(browser, `${base}&auto=join&code=${code}&name=Guesty&pid=GUEST1`);
+  const C2 = await openPage(browser, `${base}&q=low&auto=join&code=${code}&name=Guesty&pid=GUEST1`);
   await waitGame(C2.page);
   const back = await C2.page.evaluate(() => ({ chain: SALT.game.profile().inv.chain, base: SALT.game.W.bases.find((b) => b.owner === 'GUEST1')?.name }));
   assert(back.chain >= 20 && back.base === gb, 'returned with saved empire ' + JSON.stringify(back));

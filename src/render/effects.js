@@ -172,12 +172,12 @@ export class Effects {
     const L = s.stats.len, B = s.stats.beam;
     const fx = Math.sin(s.yaw), fz = Math.cos(s.yaw), rx = Math.cos(s.yaw), rz = -Math.sin(s.yaw);
     const k = Math.min(1, sp / 12);
-    if (Math.random() < 0.9) for (const side of [-1, 1]) {
+    if (Math.random() < 0.5) for (const side of [-1, 1]) {
       const x = s.x + fx * L * 0.42 + rx * side * B * 0.35, z = s.z + fz * L * 0.42 + rz * side * B * 0.35;
-      this.foam.add(x, z, B * 0.4, B * (1.4 + k), 2.2 + k * 2, 0.09 * k, s.yaw, 1.8);
+      this.foam.add(x, z, B * 0.4, B * (1.4 + k), 2.2 + k * 2, 0.05 * k, s.yaw, 1.8);
     }
     const sx = s.x - fx * L * 0.48, sz = s.z - fz * L * 0.48;
-    this.foam.add(sx + (Math.random() - 0.5) * B * 0.4, sz + (Math.random() - 0.5) * B * 0.4, B * 0.6, B * (1.8 + k * 1.2), 5 + k * 4, 0.1 * k, s.yaw, 1.5);
+    if (Math.random() < 0.35) this.foam.add(sx + (Math.random() - 0.5) * B * 0.5, sz + (Math.random() - 0.5) * B * 0.5, B * 0.5, B * (1.8 + k * 1.4), 5 + k * 4, 0.03 * k, s.yaw, 1.6);
     if (Math.random() < k * 0.4) this.smoke.add({ x: s.x + fx * L * 0.45, y: heightAt(s.x, s.z, t) + 0.5, z: s.z + fz * L * 0.45, vx: rx * (Math.random() - 0.5) * 5, vy: 2 + Math.random() * 2, vz: rz * (Math.random() - 0.5) * 5, age: 0, life: 0.7, s0: 1, s1: 2.5, a: 0.5, c: new THREE.Color(0xffffff), g: 9 });
   }
   update(dt, t, balls) {

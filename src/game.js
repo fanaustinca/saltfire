@@ -291,9 +291,15 @@ export class Game {
       case 'fire': {
         const s = f.ship ? this.sim.ships.get(f.ship) : null;
         if (!local && f.ship !== 'p:' + this.pid) for (const b of f.balls) this.sim.spawnBall(null, { x: b[0], y: b[1], z: b[2], vx: b[3], vy: b[4], vz: b[5], delay: b[6], ammo: f.ammo, shooter: f.ship || 'base', owner: s?.owner || 'base' });
-        for (const b of f.balls) {
-          const len = Math.hypot(b[3], b[5]) || 1;
-          setTimeout(() => this.fx.muzzle(b[0], b[1], b[2], b[3] / len, b[5] / len, 1), (b[6] || 0) * 1000);
+        // big broadsides: fewer smoke puffs per gun (the cloud merges anyway), one flash per few guns,
+        // and nothing at all for far-off battles beyond what you can see
+        const n = f.balls.length, dist = this.distTo(f.balls[0][0], f.balls[0][2]);
+        if (dist < 2600) {
+          const k = Math.max(0.25, Math.min(1, 3 / Math.sqrt(n))) * (dist > 1200 ? 0.5 : 1);
+          f.balls.forEach((b, i) => {
+            const len = Math.hypot(b[3], b[5]) || 1;
+            setTimeout(() => this.fx.muzzle(b[0], b[1], b[2], b[3] / len, b[5] / len, i % Math.max(1, Math.round(n / 4)) === 0 ? 1 : 0, k), (b[6] || 0) * 1000);
+          });
         }
         sfx.cannon(this.distTo(f.balls[0][0], f.balls[0][2]), f.balls.length);
         break;

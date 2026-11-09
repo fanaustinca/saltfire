@@ -16,7 +16,7 @@ const world = (seed = 42) => { const W = E.newWorld(seed); generateIslands(W); r
 const rng = (s = 1) => () => ((s = (s * 16807) % 2147483647) / 2147483647);
 
 T('ship tiers match the spec cannon counts', () => {
-  const want = { sloop: 1, schooner: 1, brigantine: 2, frigate: 3, galleon: 5, manowar: 10, leviathan: 20 };
+  const want = { sloop: 1, schooner: 1, brigantine: 2, frigate: 3, galleon: 5, manowar: 10, leviathan: 30 };
   for (const t of TIERS) ok(t.side === want[t.id], t.id);
   for (const t of TIERS) { const st = E.shipStats(E.shipSpec(t.id)); const g = gunLayout(st); ok(g.filter((x) => x.side === 'L').length === t.side && g.filter((x) => x.side === 'R').length === t.side, 'layout ' + t.id); }
 });
@@ -76,7 +76,7 @@ T('custom shipyard respects tier limits and costs', () => {
   ok(typeof E.buildCustomShip(W, p, base.id, { tier: 'frigate', side: 5 }) === 'string', 'needs shipyard');
   ok(typeof E.build(W, p, base.id, 'dock') === 'object'); ok(typeof E.build(W, p, base.id, 'shipyard') === 'object');
   const s = E.buildCustomShip(W, p, base.id, { tier: 'frigate', side: 99, size: 1.2, name: 'Vengeance', hullColor: '#223344' });
-  ok(typeof s === 'object' && s.side === 7 && s.size === 1.2 && s.custom && s.name === 'Vengeance');
+  ok(typeof s === 'object' && s.side === 8 && s.size === 1.2 && s.custom && s.name === 'Vengeance');
   ok(typeof E.buildCustomShip(W, p, base.id, { tier: 'manowar', side: 10 }) === 'string', 'level gate');
 });
 T('base growth: buildings enlarge the island', () => {
@@ -273,9 +273,13 @@ T('save round-trip: world JSON survives serialisation', () => {
   const W = world(); const sim = new Sim(W, { rand: rng(13) }); joinPlayer(sim, 'u', 'U'); E.npcRestock(W, rng(1));
   const W2 = JSON.parse(JSON.stringify(W)); ok(W2.players.u && W2.bases.length === W.bases.length && W2.market.length === W.market.length);
 });
-T('leviathan: flagship-only floating palace with up to 40 guns a side', () => {
-  const lv = E.shipStats(E.shipSpec('leviathan'), { side: 20 });
-  ok(lv.side === 40 && gunLayout(lv).filter((g) => g.side === 'L').length === 40, 'side ' + lv.side);
+T('leviathan: flagship-only ship of the line; cannon limit grows with hull size (30 @85% .. 60 @120%)', () => {
+  const at = (size) => E.shipStats(E.shipSpec('leviathan', { size }), { side: 30 });
+  ok(at(0.85).side === 30 && at(1.2).side === 60 && at(1).side > 40 && at(1).side < 50, `sides ${at(0.85).side}/${at(1).side}/${at(1.2).side}`);
+  const lv = at(1.2);
+  ok(gunLayout(lv).filter((g) => g.side === 'L').length === 60, 'all 60 mounted');
+  ok(E.shipSpec('leviathan', { side: 99, size: 0.85 }).side === 30, 'shipyard clamps to the size limit');
+  ok(E.shipStats(E.shipSpec('frigate', { size: 1.2 }), { side: 30 }).side === 8 && E.shipStats(E.shipSpec('frigate', { size: 0.85 }), { side: 30 }).side === 6, 'other tiers scale too');
   const mow = E.shipStats(E.shipSpec('manowar'));
   ok(lv.hull > mow.hull * 2.5 && lv.armor < 0.7 && lv.len > mow.len * 1.4, 'tougher + bigger');
   // guns never sit under water, even on the lowest of the four decks

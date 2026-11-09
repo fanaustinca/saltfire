@@ -1,7 +1,7 @@
 // Pure economy + progression logic over the persistent world state `W`.
 // Host-authoritative: every function here is called on the host (or in solo) and is unit-tested.
 import {
-  RES, AMMO_ORDER, RECIPES, TIERS, tierById, UPGRADES, XP_PER_LEVEL, MAX_LEVEL, BUILDINGS,
+  RES, AMMO_ORDER, RECIPES, TIERS, tierById, maxSideFor, UPGRADES, XP_PER_LEVEL, MAX_LEVEL, BUILDINGS,
   MARKET_TAX, LAND_SLOTS, PROD_PERIOD, BASE_RELOAD, rangeFor, MUZZLE, FLEET_BASE,
 } from './config.js';
 
@@ -32,7 +32,7 @@ export function shipSpec(tier, o = {}) {
   const T = tierById(tier);
   return {
     uid: o.uid || uid('s'), tier: T.id, name: o.name || T.name,
-    side: clampInt(o.side ?? T.side, T.minSide, T.maxSide),
+    side: clampInt(o.side ?? T.side, T.minSide, maxSideFor(T, clamp(o.size ?? 1, 0.85, 1.2))),
     size: clamp(o.size ?? 1, 0.85, 1.2),
     hullColor: o.hullColor || T.look?.hullColor || '#5a3a22', trimColor: o.trimColor || T.look?.trimColor || '#c9a227',
     sailColor: o.sailColor || T.look?.sailColor || '#efe6cf', emblem: o.emblem ?? 0,
@@ -48,7 +48,7 @@ export function shipStats(spec, upg = {}) {
   const T = tierById(spec.tier);
   const s = spec.size || 1;
   const u = (k) => Math.min(UPGRADES[k].max, upg[k] || 0) * UPGRADES[k].per;
-  const side = Math.min(T.maxSide, (spec.side ?? T.side) + (upg.side || 0));
+  const side = Math.min(maxSideFor(T, s), (spec.side ?? T.side) + (upg.side || 0));
   const rangeK = 1 + u('range');
   return {
     tier: T.id, name: spec.name,
@@ -130,8 +130,8 @@ export function buildCustomShip(W, p, baseId, o) {
   if (!b.buildings.some((x) => x.type === 'shipyard' && x.hp > 0)) return 'Build a Shipyard first';
   const T = tierById(o.tier);
   if (p.level < T.level) return `Requires level ${T.level}`;
-  const side = clampInt(o.side, T.minSide, T.maxSide);
   const size = clamp(o.size || 1, 0.85, 1.2);
+  const side = clampInt(o.side, T.minSide, maxSideFor(T, size));
   const cost = customCost(T.id, side, size);
   if (!pay(p.inv, cost)) return 'Not enough oak, iron, canvas or gold';
   const s = shipSpec(T.id, { ...o, side, size, custom: true, name: String(o.name || 'Unnamed').slice(0, 24) });

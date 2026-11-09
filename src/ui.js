@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import {
   RES, RES_LABEL, RES_ICON, AMMO, AMMO_ORDER, RECIPES, TIERS, tierById, UPGRADES, UPGRADE_TOTAL, XP_PER_LEVEL, BUILDINGS,
-  MARKET_ITEMS, MARKET_TAX, TREATY_TYPES, HAVEN_R, WORLD_R, VERSION, LAND_SLOTS, claimFee, FIELD_REPAIR, TRAILS,
+  MARKET_ITEMS, MARKET_TAX, TREATY_TYPES, HAVEN_R, WORLD_R, VERSION, LAND_SLOTS, claimFee, FIELD_REPAIR, TRAILS, maxSideFor,
 } from './config.js';
 import { shipStats, customCost, costText, canAfford, bestAsk, bestBid, crewEff, treatyBetween, shielded, landSlotsUsed, flagship, hostile, fleetCap, traderName, aiFaction } from './economy.js';
 import { SAIL_NAMES, SAIL_STEPS, DOCK_SPEED } from './sim.js';
@@ -483,7 +483,7 @@ export class UI {
     const hasYard = b && b.owner === game.pid && b.buildings.some((x) => x.type === 'shipyard' && x.hp > 0);
     body.innerHTML = `
       <h3>Shipwright — standard hulls</h3>
-      <div class="shipgrid">${TIERS.map((T) => { const st = shipStats({ tier: T.id, side: T.side, size: 1 }); const locked = p.level < T.level; return `<div class="shipcard ${locked ? 'locked' : ''}"><h4>${T.name}</h4><div class="muted">${T.side} cannon${T.side > 1 ? 's' : ''} per side (up to ${T.maxSide}) · ${T.masts} mast${T.masts > 1 ? 's' : ''}${T.flagshipOnly ? ' · <b class="y">flagship only</b>' : ''}</div><div class="mini">Hull ${st.hull} · Speed ${st.speed.toFixed(1)} · Crew ${st.crew}</div><div class="cost">${T.cost.gold ? costText(T.cost) : 'free'}</div><button class="btn" data-buy="${T.id}" ${locked || !T.cost.gold || !canAfford(p.inv, T.cost) ? 'disabled' : ''}>${locked ? `Level ${T.level}` : !T.cost.gold ? 'Starter' : 'Buy'}</button></div>`; }).join('')}</div>
+      <div class="shipgrid">${TIERS.map((T) => { const st = shipStats({ tier: T.id, side: T.side, size: 1 }); const locked = p.level < T.level; return `<div class="shipcard ${locked ? 'locked' : ''}"><h4>${T.name}</h4><div class="muted">${T.side} cannon${T.side > 1 ? 's' : ''} per side (up to ${maxSideFor(T, 1)}${T.sizeGuns ? `, ${T.sizeGuns[1]} at 120% size` : ''}) · ${T.masts} mast${T.masts > 1 ? 's' : ''}${T.flagshipOnly ? ' · <b class="y">flagship only</b>' : ''}</div><div class="mini">Hull ${st.hull} · Speed ${st.speed.toFixed(1)} · Crew ${st.crew}</div><div class="cost">${T.cost.gold ? costText(T.cost) : 'free'}</div><button class="btn" data-buy="${T.id}" ${locked || !T.cost.gold || !canAfford(p.inv, T.cost) ? 'disabled' : ''}>${locked ? `Level ${T.level}` : !T.cost.gold ? 'Starter' : 'Buy'}</button></div>`; }).join('')}</div>
       <h3>Custom Shipyard ${hasYard ? '' : '<span class="muted small">— build a Shipyard on your base to design custom ships</span>'}</h3>
       ${hasYard ? this.builderHTML(p) : ''}`;
     body.querySelectorAll('[data-buy]').forEach((bt) => (bt.onclick = () => this.doAct(game, { type: 'buyShip', tier: bt.dataset.buy }, 'New ship added to your fleet — make it your flagship in Fleet.')));
@@ -511,7 +511,7 @@ export class UI {
     let first = true;
     const upd = () => {
       const T = tierById(g('cb-tier').value);
-      const sl = g('cb-side'); sl.min = T.minSide; sl.max = T.maxSide; if (first && S) sl.value = S.side; if (+sl.value < T.minSide || +sl.value > T.maxSide) sl.value = T.side;
+      const mx = maxSideFor(T, +g('cb-size').value || 1); const sl = g('cb-side'); sl.min = T.minSide; sl.max = mx; if (first && S) sl.value = S.side; if (+sl.value < T.minSide) sl.value = T.side; if (+sl.value > mx) sl.value = mx;
       first = false;
       const o = read();
       this.builderState = o;

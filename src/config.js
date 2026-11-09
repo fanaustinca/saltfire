@@ -1,7 +1,7 @@
 // Game data: ship tiers, upgrades, ammo, resources, buildings, recipes.
 // Everything balance-related lives here so logic tests and the dev console can read it.
 
-export const VERSION = '2.1.0';
+export const VERSION = '2.2.0';
 
 export const RES = ['gold', 'oak', 'iron', 'canvas', 'powder'];
 export const RES_LABEL = { gold: 'Gold', oak: 'Oak', iron: 'Iron', canvas: 'Canvas', powder: 'Powder' };
@@ -27,24 +27,31 @@ export const RECIPES = {
 // Ship tiers. `side` = cannons per broadside (spec), `minSide`/`maxSide` = shipyard/upgrade range.
 // len/beam in metres, speed m/s at full sail, turn rad/s. Every tier has its own hull design (layout.js).
 export const TIERS = [
-  { id: 'sloop',      name: 'Sloop',       side: 1,  minSide: 1, maxSide: 2,  len: 16, beam: 4.4, depth: 2.3, masts: 1, rig: 'sloop',      speed: 23,   turn: 0.72, hull: 260,  sails: 120, crew: 18,  decks: 1, level: 1,  cost: { gold: 0 } },
+  { id: 'sloop',      name: 'Sloop',       side: 1,  minSide: 1, maxSide: 2,  len: 16, beam: 4.4, depth: 2.3, masts: 1, rig: 'sloop',      speed: 23,   turn: 0.72, hull: 260,  sails: 120, crew: 18,  decks: 1, level: 1,  look: { hullColor: '#6b4a2e', trimColor: '#e6dcc4', sailColor: '#efe6cf' }, cost: { gold: 0 } },
   { id: 'schooner',   name: 'Schooner',    side: 1,  minSide: 1, maxSide: 3,  len: 24, beam: 5.2, depth: 2.7, masts: 2, rig: 'schooner',   speed: 25,   turn: 0.6,  hull: 380,  sails: 170, crew: 26,  decks: 1, level: 3,  cost: { gold: 600, oak: 40, iron: 10, canvas: 20 } },
   { id: 'brigantine', name: 'Brigantine',  side: 2,  minSide: 2, maxSide: 4,  len: 30, beam: 7.4, depth: 3.5, masts: 2, rig: 'brigantine', speed: 21.5, turn: 0.5,  hull: 560,  sails: 240, crew: 45,  decks: 1, level: 6,  cost: { gold: 1500, oak: 90, iron: 30, canvas: 45 } },
-  { id: 'frigate',    name: 'Frigate',     side: 3,  minSide: 3, maxSide: 7,  len: 42, beam: 10.2, depth: 4.6, masts: 3, rig: 'ship',      speed: 20,   turn: 0.42, hull: 900,  sails: 340, crew: 80,  decks: 1, level: 10, cost: { gold: 3600, oak: 180, iron: 70, canvas: 90 } },
-  { id: 'galleon',    name: 'Galleon',     side: 5,  minSide: 4, maxSide: 10, len: 50, beam: 13.2, depth: 6.0, masts: 4, rig: 'galleon',   speed: 17,   turn: 0.32, hull: 1500, sails: 440, crew: 150, decks: 2, level: 15, cost: { gold: 7500, oak: 320, iron: 140, canvas: 150 } },
-  { id: 'manowar',    name: 'Man of War',  side: 10, minSide: 8, maxSide: 20, len: 74, beam: 18.5, depth: 9.6, masts: 3, rig: 'line',     speed: 15,   turn: 0.24, hull: 3400, sails: 700, crew: 340, decks: 3, level: 22, cost: { gold: 16000, oak: 600, iron: 300, canvas: 260 } },
-  // A floating palace. Flagship only: it never sails in a fleet and no AI captain can own one.
-  { id: 'leviathan',  name: 'Leviathan',   side: 20, minSide: 16, maxSide: 40, len: 118, beam: 31, depth: 15, masts: 4, rig: 'palace',  speed: 13.5, turn: 0.17, hull: 9500, sails: 1500, crew: 900, decks: 4, level: 40, armor: 0.62, flagshipOnly: true, look: { hullColor: '#1d1a2a', trimColor: '#e3b341', sailColor: '#f6f0de' }, cost: { gold: 60000, oak: 1800, iron: 1000, canvas: 700, powder: 200 } },
+  { id: 'frigate',    name: 'Frigate',     side: 3,  minSide: 3, maxSide: 7,  len: 42, beam: 10.2, depth: 4.6, masts: 3, rig: 'ship',      speed: 20,   turn: 0.42, hull: 900,  sails: 340, crew: 80,  decks: 1, level: 10, look: { hullColor: '#1b1a18', trimColor: '#d9a63a', sailColor: '#f2ede0' }, cost: { gold: 3600, oak: 180, iron: 70, canvas: 90 } },
+  { id: 'galleon',    name: 'Galleon',     side: 5,  minSide: 4, maxSide: 10, len: 50, beam: 13.2, depth: 6.0, masts: 4, rig: 'galleon',   speed: 17,   turn: 0.32, hull: 1500, sails: 440, crew: 150, decks: 2, level: 15, look: { hullColor: '#4a2a16', trimColor: '#d4a73a', sailColor: '#ead9ae' }, cost: { gold: 7500, oak: 320, iron: 140, canvas: 150 } },
+  { id: 'manowar',    name: 'Man of War',  side: 10, minSide: 8, maxSide: 20, len: 74, beam: 18.5, depth: 9.6, masts: 3, rig: 'line',     speed: 15,   turn: 0.24, hull: 3400, sails: 700, crew: 340, decks: 3, level: 22, look: { hullColor: '#191715', trimColor: '#e2b84a', sailColor: '#f4f0e4' }, cost: { gold: 16000, oak: 600, iron: 300, canvas: 260 } },
+  // The Leviathan: a monstrous five-decked ironclad ship of the line. Flagship only: it never sails in a fleet and no AI captain can own one.
+  { id: 'leviathan',  name: 'Leviathan',   side: 30, minSide: 24, maxSide: 60, sizeGuns: [30, 60], len: 112, beam: 30, depth: 17, masts: 4, rig: 'leviathan', speed: 13.5, turn: 0.17, hull: 11000, sails: 1700, crew: 1100, decks: 5, level: 40, armor: 0.6, flagshipOnly: true, look: { hullColor: '#141210', trimColor: '#c4932e', sailColor: '#ece6d6' }, cost: { gold: 60000, oak: 1800, iron: 1000, canvas: 700, powder: 200 } },
 ];
 /** Highest tier index an AI captain (or a fleet ship) may sail: everything but the flagship-only Leviathan. */
 export const AI_TOP_TIER = 5;
 export const tierById = (id) => TIERS.find((t) => t.id === id) || TIERS[0];
+/** Most cannons per side a hull of this tier can carry at a given size (85%..120%). Bigger hulls fit more:
+ *  a Leviathan carries 30 a side at 85% and 60 at 120%; other tiers scale their limit with size. */
+export function maxSideFor(T, size = 1) {
+  if (typeof T === 'string') T = tierById(T);
+  if (T.sizeGuns) { const [lo, hi] = T.sizeGuns; return Math.round(lo + (hi - lo) * Math.max(0, Math.min(1, (size - 0.85) / 0.35))); }
+  return Math.max(T.minSide, Math.round(T.maxSide * size));
+}
 export const tierIndex = (id) => Math.max(0, TIERS.findIndex((t) => t.id === id));
 
 // Upgrades bought with level points. Lots of ranks so points stay useful all the way to level 200
 // (≈230 ranks in total). `per` is the effect per rank (see economy.shipStats).
 export const UPGRADES = {
-  side:     { name: 'Extra Broadside',  desc: '+1 cannon per side per rank (up to the hull\'s limit — a Man of War carries 20, a Leviathan 40).', max: 20, per: 1, cat: 'Guns' },
+  side:     { name: 'Extra Broadside',  desc: '+1 cannon per side per rank (up to the hull\'s limit, which grows with hull size — a Man of War carries 20, a 120% Leviathan 60).', max: 30, per: 1, cat: 'Guns' },
   bow:      { name: 'Bow Chasers',      desc: '+1 forward-firing cannon per rank.', max: 4, per: 1, cat: 'Guns' },
   stern:    { name: 'Stern Chasers',    desc: '+1 rear-firing cannon per rank.', max: 4, per: 1, cat: 'Guns' },
   reload:   { name: 'Drilled Gunners',  desc: '+4% firing rate per rank.', max: 20, per: 0.04, cat: 'Guns' },

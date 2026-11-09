@@ -14,53 +14,102 @@ function init() {
   master.connect(comp).connect(ctx.destination);
   ambience();
   if (musicOn) startMusic();
+  buildBank();
   return ctx;
 }
 addEventListener('pointerdown', () => { init(); if (ctx?.state === 'suspended') ctx.resume(); }, { capture: true });
 addEventListener('keydown', () => { init(); if (ctx?.state === 'suspended') ctx.resume(); }, { capture: true });
 
-let noiseBuf = null;
-function noise() {
-  if (noiseBuf) return noiseBuf;
-  noiseBuf = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
-  const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
-  return noiseBuf;
+// ---- synthesis helpers (work on a live or an offline context)
+const noiseBufs = new WeakMap();
+function noiseFor(c) {
+  let b = noiseBufs.get(c);
+  if (b) return b;
+  b = c.createBuffer(1, c.sampleRate * 2, c.sampleRate);
+  const d = b.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  noiseBufs.set(c, b);
+  return b;
 }
+const noise = () => noiseFor(ctx);
 const att = (d) => Math.max(0.03, 1 / (1 + (d || 0) / 120));
-function burst({ dur = 0.5, f = 800, q = 0.7, type = 'lowpass', gain = 0.5, sweep = null, delay = 0 }) {
-  if (!ctx) return;
-  const t = ctx.currentTime + delay;
-  const src = ctx.createBufferSource(); src.buffer = noise(); src.playbackRate.value = 0.7 + Math.random() * 0.6;
-  const fl = ctx.createBiquadFilter(); fl.type = type; fl.frequency.setValueAtTime(f, t); fl.Q.value = q;
+function burst({ dur = 0.5, f = 800, q = 0.7, type = 'lowpass', gain = 0.5, sweep = null, delay = 0 }, c = ctx, dest = master) {
+  if (!c) return;
+  const t = (c === ctx ? c.currentTime : 0) + delay;
+  const src = c.createBufferSource(); src.buffer = noiseFor(c); src.playbackRate.value = 0.7 + Math.random() * 0.6;
+  const fl = c.createBiquadFilter(); fl.type = type; fl.frequency.setValueAtTime(f, t); fl.Q.value = q;
   if (sweep) fl.frequency.exponentialRampToValueAtTime(sweep, t + dur);
-  const g = ctx.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(gain, t + 0.008); g.gain.exponentialRampToValueAtTime(0.0008, t + dur);
-  src.connect(fl).connect(g).connect(master);
+  const g = c.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(gain, t + 0.008); g.gain.exponentialRampToValueAtTime(0.0008, t + dur);
+  src.connect(fl).connect(g).connect(dest);
   src.start(t, Math.random()); src.stop(t + dur + 0.05);
 }
-function tone({ f = 440, dur = 0.2, type = 'sine', gain = 0.2, slide = null, delay = 0 }) {
-  if (!ctx) return;
-  const t = ctx.currentTime + delay;
-  const o = ctx.createOscillator(); o.type = type; o.frequency.setValueAtTime(f, t);
+function tone({ f = 440, dur = 0.2, type = 'sine', gain = 0.2, slide = null, delay = 0 }, c = ctx, dest = master) {
+  if (!c) return;
+  const t = (c === ctx ? c.currentTime : 0) + delay;
+  const o = c.createOscillator(); o.type = type; o.frequency.setValueAtTime(f, t);
   if (slide) o.frequency.exponentialRampToValueAtTime(slide, t + dur);
-  const g = ctx.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(gain, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0008, t + dur);
-  o.connect(g).connect(master); o.start(t); o.stop(t + dur + 0.05);
+  const g = c.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(gain, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0008, t + dur);
+  o.connect(g).connect(dest); o.start(t); o.stop(t + dur + 0.05);
+}
+
+// ---- pre-rendered sample bank: heavy sounds are synthesised ONCE (offline) into buffers, then each
+// play is a single buffer source + gain. Hundreds of hits in a battle no longer build hundreds of
+// filter/oscillator graphs, which is what made the audio crackle and drop out.
+const BANK = {};
+const RECIPES = {
+  cannon: { dur: 1.6, n: 4, fn: (c, d) => { burst({ dur: 1.4, f: 900, sweep: 90, gain: 0.55 }, c, d); tone({ f: 70 + Math.random() * 15, slide: 32, dur: 0.6, gain: 0.6 }, c, d); } },
+  volley: { dur: 1.9, n: 3, fn: (c, d) => { for (let i = 0; i < 4; i++) { const dl = i * 0.07 + Math.random() * 0.03; burst({ dur: 1.4, f: 900, sweep: 90, gain: 0.42, delay: dl }, c, d); tone({ f: 66 + Math.random() * 18, slide: 30, dur: 0.6, gain: 0.45, delay: dl }, c, d); } } },
+  splash: { dur: 0.8, n: 3, fn: (c, d) => burst({ dur: 0.7, f: 2400, sweep: 500, type: 'bandpass', q: 0.6, gain: 0.25 }, c, d) },
+  crack: { dur: 0.3, n: 3, fn: (c, d) => { burst({ dur: 0.25, f: 1800, type: 'highpass', gain: 0.35 }, c, d); tone({ f: 140, slide: 60, dur: 0.18, type: 'square', gain: 0.08 }, c, d); } },
+  boom: { dur: 2.3, n: 2, fn: (c, d) => { burst({ dur: 2.2, f: 600, sweep: 40, gain: 0.8 }, c, d); tone({ f: 50, slide: 25, dur: 1.2, gain: 0.7 }, c, d); } },
+  chop: { dur: 0.15, n: 2, fn: (c, d) => burst({ dur: 0.12, f: 1200, type: 'bandpass', q: 3, gain: 0.25 }, c, d) },
+};
+async function buildBank() {
+  const OC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  if (!OC) return;
+  for (const [k, R] of Object.entries(RECIPES)) {
+    BANK[k] = [];
+    for (let i = 0; i < R.n; i++) {
+      try { const oc = new OC(1, Math.ceil(ctx.sampleRate * R.dur), ctx.sampleRate); R.fn(oc, oc.destination); BANK[k].push(await oc.startRendering()); } catch { /* */ }
+    }
+  }
+}
+// voice limiting + per-kind rate limiting
+const MAX_VOICES = 28;
+let voices = 0;
+const lastAt = {};
+function play(kind, gain, delay = 0, rate = 1) {
+  if (!ctx || gain < 0.035) return; // too far away to matter
+  const now = ctx.currentTime;
+  // the same kind of sound within 40 ms just merges into the one already playing
+  const minGap = kind === 'cannon' || kind === 'volley' ? 0.03 : 0.05;
+  const key = kind + Math.round(delay * 10);
+  if (lastAt[key] && now - lastAt[key] < minGap) return;
+  if (voices >= MAX_VOICES && gain < 0.4) return;
+  const bufs = BANK[kind];
+  if (!bufs?.length) { RECIPES[kind].fn(ctx, master); return; } // bank still rendering: synthesise live
+  lastAt[key] = now;
+  const src = ctx.createBufferSource(); src.buffer = bufs[Math.floor(Math.random() * bufs.length)];
+  src.playbackRate.value = rate * (0.92 + Math.random() * 0.16);
+  const g = ctx.createGain(); g.gain.value = Math.min(1.2, gain);
+  src.connect(g).connect(master);
+  voices++; src.onended = () => { voices--; g.disconnect(); };
+  src.start(now + delay);
 }
 
 export const sfx = {
   cannon(d = 0, n = 1) {
     if (!init()) return;
-    const a = att(d);
-    for (let i = 0; i < Math.min(n, 6); i++) {
-      const dl = i * 0.07 + Math.random() * 0.03 + d / 340;
-      burst({ dur: 1.4, f: 900, sweep: 90, gain: 0.55 * a, delay: dl });
-      tone({ f: 70 + Math.random() * 15, slide: 32, dur: 0.6, gain: 0.6 * a, delay: dl });
-    }
+    const a = att(d), dl = d / 340;
+    if (n <= 2) { for (let i = 0; i < n; i++) play('cannon', a, dl + i * 0.08); return; }
+    // a big broadside is a rolling volley: a couple of pre-mixed layers, louder with more guns
+    const layers = Math.min(3, Math.ceil(n / 6));
+    for (let i = 0; i < layers; i++) play('volley', a * Math.min(1.5, 0.8 + n * 0.02), dl + i * 0.22, 1 - i * 0.04);
   },
-  splash(d = 0) { if (!init()) return; burst({ dur: 0.7, f: 2400, sweep: 500, type: 'bandpass', q: 0.6, gain: 0.25 * att(d), delay: d / 340 }); },
-  crack(d = 0) { if (!init()) return; burst({ dur: 0.25, f: 1800, type: 'highpass', gain: 0.35 * att(d), delay: d / 340 }); tone({ f: 140, slide: 60, dur: 0.18, type: 'square', gain: 0.08 * att(d), delay: d / 340 }); },
-  boom(d = 0) { if (!init()) return; burst({ dur: 2.2, f: 600, sweep: 40, gain: 0.8 * att(d), delay: d / 340 }); tone({ f: 50, slide: 25, dur: 1.2, gain: 0.7 * att(d) }); },
+  splash(d = 0) { if (!init()) return; play('splash', att(d), d / 340); },
+  crack(d = 0) { if (!init()) return; play('crack', att(d), d / 340); },
+  boom(d = 0) { if (!init()) return; play('boom', att(d), d / 340); },
   coin() { if (!init()) return; tone({ f: 1320, dur: 0.12, type: 'triangle', gain: 0.18 }); tone({ f: 1760, dur: 0.25, type: 'triangle', gain: 0.16, delay: 0.08 }); },
-  chop() { if (!init()) return; burst({ dur: 0.12, f: 1200, type: 'bandpass', q: 3, gain: 0.25 }); },
+  chop(d = 0) { if (!init()) return; play('chop', att(d)); },
   rope() { if (!init()) return; tone({ f: 180 + Math.random() * 40, slide: 120, dur: 0.35, type: 'sawtooth', gain: 0.04 }); burst({ dur: 0.3, f: 3000, type: 'bandpass', q: 2, gain: 0.08 }); },
   bell() { if (!init()) return; for (const [f, g] of [[880, 0.15], [1320, 0.06], [2210, 0.04]]) tone({ f, dur: 1.6, gain: g }); },
   click() { if (!init()) return; tone({ f: 900, dur: 0.05, type: 'square', gain: 0.05 }); },
@@ -70,6 +119,7 @@ export const sfx = {
   get volume() { return vol; },
   setMusic(on) { musicOn = on; if (on) startMusic(); else stopMusic(); save(); },
   get music() { return musicOn; },
+  get voices() { return voices; },
 };
 function save() { try { localStorage.setItem('saltfire-audio', JSON.stringify({ vol, music: musicOn })); } catch { /* */ } }
 

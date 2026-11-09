@@ -4,7 +4,9 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { rng } from '../worldgen.js';
 import { islandShape } from '../islandshape.js';
-import { buildingPos, baseRadius, dockAngle, baseShape } from '../basegeo.js';
+import { buildingPos, baseRadius, dockAngle, baseShape, pierSize } from '../basegeo.js';
+import { tierById } from '../config.js';
+import { flagship } from '../economy.js';
 import { BUILDINGS, HAVEN_R } from '../config.js';
 import { stone, planks, flagTex } from './textures.js';
 import { shielded } from '../economy.js';
@@ -29,8 +31,23 @@ function mats() {
     dmg: new THREE.MeshStandardMaterial({ color: 0x2a2420, roughness: 1 }),
     buoyR: new THREE.MeshStandardMaterial({ color: 0xd23a2a, roughness: 0.6 }),
     buoyW: new THREE.MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.6 }),
+    river: (() => { const t = flowTex(); const m = new THREE.MeshStandardMaterial({ color: 0x5ec4e0, map: t, roughness: 0.12, metalness: 0.15, transparent: true, opacity: 0.9, emissive: 0x0d4a5c, emissiveIntensity: 0.6, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 }); m.userData.tex = t; return m; })(),
+    path: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 }),
+    timber: new THREE.MeshStandardMaterial({ color: 0x3a2616, roughness: 0.85 }),
+    shingle: new THREE.MeshStandardMaterial({ color: 0x5e2a1c, roughness: 0.85 }),
   };
   return MAT;
+}
+
+/** Streaky flowing-water texture for rivers and waterfalls (scrolled every frame). */
+function flowTex() {
+  const c = document.createElement('canvas'); c.width = 64; c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = '#9fd8ea'; g.fillRect(0, 0, 64, 256);
+  for (let i = 0; i < 90; i++) { g.fillStyle = `rgba(255,255,255,${0.15 + Math.random() * 0.35})`; g.fillRect(Math.random() * 64, Math.random() * 256, 1 + Math.random() * 3, 8 + Math.random() * 40); }
+  for (let i = 0; i < 40; i++) { g.fillStyle = `rgba(20,90,120,${0.2 + Math.random() * 0.3})`; g.fillRect(Math.random() * 64, Math.random() * 256, 2 + Math.random() * 4, 10 + Math.random() * 30); }
+  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace;
+  return t;
 }
 
 // ------------------------------------------------------------------ terrain
@@ -243,7 +260,7 @@ function portTown(isl, T, r) {
   lh.traverse((o) => { o.castShadow = true; });
   g.add(lh);
   // piers all around
-  for (let k = 0; k < 4; k++) { const a = k * (Math.PI / 2) + 0.4; g.add(pier(Math.cos(a) * T.R * 0.95, Math.sin(a) * T.R * 0.95, a, 40)); }
+  for (let k = 0; k < 4; k++) { const a = k * (Math.PI / 2) + 0.4; g.add(pier(Math.cos(a) * T.R * 0.95, Math.sin(a) * T.R * 0.95, a, k % 2 ? 70 : 140, k % 2 ? 7 : 11)); }
   // market stalls + flags
   const stalls = [];
   for (let i = 0; i < 12; i++) { const a = (i / 12) * Math.PI * 2, d = T.R * 0.12; stalls.push({ x: Math.cos(a) * d, y: T.hAt(d, a), z: Math.sin(a) * d, s: 1, ry: -a }); }
@@ -252,11 +269,13 @@ function portTown(isl, T, r) {
   g.add(havenBuoys(HAVEN_R, 28));
   return g;
 }
-function pier(x, z, a, len) {
-  const parts = [];
-  const deck = colorize(new THREE.BoxGeometry(len, 0.6, 5).translate(len / 2, 1.6, 0), '#9a7048');
-  parts.push(deck);
-  for (let i = 0; i <= len; i += 5) for (const s of [-2.2, 2.2]) parts.push(colorize(new THREE.CylinderGeometry(0.3, 0.35, 6, 6).translate(i, -1.2, s), '#5a3e26'));
+function pier(x, z, a, len, w = 5) {
+  const parts = [], hw = w / 2;
+  parts.push(colorize(new THREE.BoxGeometry(len, 0.6, w).translate(len / 2, 1.6, 0), '#9a7048'));
+  parts.push(colorize(new THREE.BoxGeometry(10, 0.6, w * 3.2).translate(len - 5, 1.6, 0), '#9a7048'));
+  for (let i = 0; i <= len; i += 5) for (const s of [-hw + 0.3, hw - 0.3]) parts.push(colorize(new THREE.CylinderGeometry(0.3, 0.35, 6, 6).translate(i, -1.2, s), '#5a3e26'));
+  for (let i = 6; i <= len; i += 8) for (const s of [-hw + 0.5, hw - 0.5]) parts.push(colorize(new THREE.CylinderGeometry(0.28, 0.32, 1, 8).translate(i, 2.4, s), '#3a2a1a'));
+  for (let i = 10; i <= len; i += 20) { parts.push(colorize(new THREE.CylinderGeometry(0.1, 0.12, 3.4, 5).translate(i, 3.6, 0), '#2a1c12')); parts.push(colorize(new THREE.BoxGeometry(0.5, 0.6, 0.5).translate(i, 5.5, 0), '#ffd27a')); }
   const m = new THREE.Mesh(mergeGeometries(parts), mats().vc);
   m.position.set(x, 0, z); m.rotation.y = -a; m.castShadow = true; m.receiveShadow = true;
   return m;
@@ -271,10 +290,16 @@ function havenBuoys(R, n) {
 }
 
 // ------------------------------------------------------------------ bases (grow with buildings)
+/** The docks are sized for the owner's flagship (AI holds get a pier for big warships). */
+function shipLenFor(base, players) {
+  const p = players?.[base.owner];
+  if (p?.fleet?.length) { const sp = flagship(p); if (sp) return Math.round(tierById(sp.tier).len * (sp.size || 1)); }
+  return base.owner?.startsWith('ai:clan') ? 60 : 30;
+}
 export class BaseView {
   constructor(scene) { this.scene = scene; this.group = null; this.sig = ''; }
   update(base, W, players) {
-    const sig = JSON.stringify([base.owner, base.buildings.map((b) => [b.type, typeof b.slot === 'number' ? b.slot.toFixed(2) : b.slot, b.hp > 0]), base.haven?.safe, shielded(W, base.owner), players[base.owner]?.color]);
+    const sig = JSON.stringify([shipLenFor(base, players), base.owner, base.buildings.map((b) => [b.type, typeof b.slot === 'number' ? b.slot.toFixed(2) : b.slot, b.hp > 0]), base.haven?.safe, shielded(W, base.owner), players[base.owner]?.color]);
     if (sig === this.sig) return;
     this.sig = sig;
     if (this.group) { this.scene.remove(this.group); this.group.traverse((o) => { if (o.geometry && !o.geometry.userData.shared) o.geometry.dispose(); }); }
@@ -300,7 +325,7 @@ function buildBase(base, W, players) {
   const pcol = owner && players[owner] ? new THREE.Color().setHSL(players[owner].color / 360, 0.7, 0.5) : fac === 'clan' ? new THREE.Color().setHSL((W.ai?.[owner]?.color || 0) / 360, 0.7, 0.42) : null;
   for (const bd of base.buildings) {
     const p = buildingPos(base, bd);
-    const m = buildingModel(bd.type, bd.hp > 0, pcol, base, r);
+    const m = buildingModel(bd.type, bd.hp > 0, pcol, base, r, shipLenFor(base, players));
     m.position.set(p.x, bd.type === 'fort' || bd.type === 'dock' ? 0 : p.y - 0.3, p.z);
     m.rotation.y = bd.type === 'dock' ? -p.ang : -p.ang + Math.PI / 2;
     m.traverse((o) => { o.castShadow = true; o.receiveShadow = true; });
@@ -314,9 +339,19 @@ function buildBase(base, W, players) {
   const flagMap = !owner ? null : fac === 'wild' ? flagTex(7, '#6b6355', '#d8cfb8') : fac ? flagTex(0, '#0c0c0c', '#' + (pcol || C('#ddd')).getHexString()) : flagTex(6, '#' + (pcol || C('#888')).getHexString(), '#f4ecd8');
   const fmat = new THREE.MeshStandardMaterial({ side: THREE.DoubleSide, roughness: 0.9, map: flagMap, color: owner ? 0xffffff : 0xf4f4f4 });
   const flag = new THREE.Mesh(new THREE.PlaneGeometry(5, 3), fmat); flag.position.set(2.5, 14, 0); fg.add(flag);
-  if (core) { const p = buildingPos(base, core); fg.position.set(p.x, p.y + (core.type === 'keep' ? 21.5 : 8), p.z); }
+  if (core) { const p = buildingPos(base, core); fg.position.set(p.x, p.y + (core.type === 'keep' ? 13 : 8), p.z); }
   else fg.position.set(base.x, hAtW(base.x, base.z), base.z);
   g.add(fg);
+  // a river tumbling from the hills (over the sea cliff as a waterfall where there is one)
+  for (const mode of ['bay', 'cliff']) {
+    const rv = river(S, rng((base.seed || 3) * 13 + 5), avoid, mode);
+    if (rv) { rv.position.set(base.x, 0, base.z); g.add(rv); }
+  }
+  // dirt paths from the jetty up to every building
+  const pth = paths(base, S, avoid);
+  if (pth) { pth.position.set(base.x, 0, base.z); g.add(pth); }
+  const sc = scenery(base, S, r, fac, avoid);
+  sc.position.set(base.x, 0, base.z); g.add(sc);
   // the pirate cove village: shacks on the slopes, stilt huts and a boardwalk round the bay
   const vg = village(base, S, r, fac, avoid);
   vg.position.set(base.x, 0, base.z); g.add(vg);
@@ -329,6 +364,146 @@ function buildBase(base, W, players) {
   if (base.haven?.safe && owner && !fac) { const b = havenBuoys(HAVEN_R * 0.75, 20); b.position.set(base.x, 0, base.z); g.add(b); }
   if (shielded(W, owner)) g.add(shieldDome(base.x, base.z, R + 60));
   g.userData.T = T;
+  return g;
+}
+
+// ------------------------------------------------------------------ river, paths, scenery
+function river(S, r, avoid, mode = 'cliff') {
+  const R = S.R;
+  if (R < 55) return null;
+  // source: the highest ground on the island
+  let best = { h: -1 };
+  for (let k = 0.05; k < 0.75; k += 0.07) for (let a = 0; a < Math.PI * 2; a += 0.2) { const h = S.hAt(R * k, a); if (h > best.h) best = { h, x: Math.cos(a) * R * k, z: Math.sin(a) * R * k }; }
+  if (best.h < 8) return null;
+  // flow toward the sea cliff if there is one (waterfall!), otherwise roll down to the shore away from the docks
+  let cliffA = null, cm = 0.35;
+  for (let a = 0; a < Math.PI * 2; a += 0.1) { const c = S.cliff(a); if (c > cm) { cm = c; cliffA = a; } }
+  if (mode === 'cliff' && cliffA == null) return null;
+  // main river: down through the village into one corner of the cove; stream: over the sea cliff
+  const goal = mode === 'cliff' ? cliffA : S.bayA + S.bayHalf * 0.75 * (r() < 0.5 ? 1 : -1);
+  const wide = mode === 'cliff' ? 0.6 : 1.3;
+  const H = (x, z) => S.hAt(Math.hypot(x, z), Math.atan2(z, x));
+  const pts = [];
+  let x = best.x + Math.cos(goal) * 4, z = best.z + Math.sin(goal) * 4, dir = goal;
+  for (let i = 0; i < 260; i++) {
+    const h = H(x, z);
+    pts.push({ x, z, h });
+    if (h < -0.6) break;
+    let pick = null;
+    for (let k = -6; k <= 6; k++) {
+      const d = dir + k * 0.17, nx = x + Math.cos(d) * 3.2, nz = z + Math.sin(d) * 3.2;
+      const toGoal = Math.cos(d - Math.atan2(Math.sin(goal) * R - z, Math.cos(goal) * R - x));
+      const score = H(nx, nz) - toGoal * 1.1 + Math.abs(k) * 0.08;
+      if (!pick || score < pick.score) pick = { score, d, nx, nz };
+    }
+    dir = dir + (pick.d - dir) * 0.6; x += Math.cos(dir) * 3.2; z += Math.sin(dir) * 3.2;
+  }
+  if (pts.length < 8) return null;
+  const pos = [], uv = [], idx = [], foam = [];
+  let along = 0;
+  pts.forEach((p, i) => {
+    const q = pts[Math.min(pts.length - 1, i + 1)], o = pts[Math.max(0, i - 1)];
+    const dx = q.x - o.x, dz = q.z - o.z, L = Math.hypot(dx, dz) || 1;
+    const nx = -dz / L, nz = dx / L, w = (1.6 + (i / pts.length) * 4.2) * wide;
+    if (i) along += Math.hypot(p.x - pts[i - 1].x, p.z - pts[i - 1].z) + Math.abs(p.h - pts[i - 1].h);
+    for (const sd of [-1, 1]) { const sx = p.x + nx * w * sd, sz = p.z + nz * w * sd; pos.push(sx, Math.max(p.h, H(sx, sz)) + 0.35, sz); uv.push(sd < 0 ? 0 : 1, along / 10); }
+    if (i) { const a = (i - 1) * 2; idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
+    if (i && pts[i - 1].h - p.h > 2.2) foam.push(p);
+    avoid.push({ x: p.x, z: p.z, r: w + 3 });
+  });
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geo.setIndex(idx); geo.computeVertexNormals();
+  const g = new THREE.Group();
+  const mat = mats().river;
+  const m = new THREE.Mesh(geo, mat); m.receiveShadow = true;
+  m.onBeforeRender = () => { mat.userData.tex.offset.y = -((performance.now() / 1000) * 0.55 % 1); };
+  g.add(m);
+  // white water where it plunges, and a pool of foam at the bottom of the falls
+  const fparts = [];
+  for (const p of foam) { fparts.push(colorize(new THREE.CircleGeometry(3.2, 10).rotateX(-Math.PI / 2).translate(p.x, Math.max(0.3, p.h + 0.5), p.z), '#e8f6fa')); fparts.push(colorize(new THREE.SphereGeometry(1.6, 7, 5).scale(1.4, 0.7, 1.4).translate(p.x, Math.max(0.3, p.h + 0.8), p.z), '#f4fbfd')); }
+  const last = pts[pts.length - 1];
+  fparts.push(colorize(new THREE.CircleGeometry(7, 14).rotateX(-Math.PI / 2).translate(last.x, 0.45, last.z), '#d8f0f6'));
+  // rocks along the banks
+  for (let i = 3; i < pts.length; i += 5) { const p = pts[i]; const sd = i % 2 ? 1 : -1; const g2 = new THREE.DodecahedronGeometry(0.8 + r() * 1.1, 0); g2.translate(p.x + sd * (3 + r() * 3), p.h + 0.4, p.z + sd * (1 + r() * 2)); fparts.push(colorize(g2, '#7a7468')); }
+  const fm = new THREE.Mesh(mergeGeometries(fparts), mats().vc); fm.castShadow = false; g.add(fm);
+  return g;
+}
+function paths(base, S, avoid) {
+  const da = dockAngle(base), from = { x: Math.cos(da) * S.edge(da) * 0.82, z: Math.sin(da) * S.edge(da) * 0.82 };
+  const parts = [];
+  const H = (x, z) => S.hAt(Math.hypot(x, z), Math.atan2(z, x));
+  for (const bd of base.buildings) {
+    if (bd.type === 'dock' || BUILDINGS[bd.type].slot === 'sea' || bd.hp <= 0) continue;
+    const p = buildingPos(base, bd), tx = p.x - base.x, tz = p.z - base.z;
+    const L = Math.hypot(tx - from.x, tz - from.z), n = Math.max(2, Math.ceil(L / 3));
+    const dx = (tx - from.x) / L, dz = (tz - from.z) / L;
+    const pos = [], idx = [];
+    for (let i = 0; i <= n; i++) {
+      const t = i / n, wig = Math.sin(t * Math.PI * 2 + bd.slot) * Math.min(6, L * 0.06) * Math.sin(t * Math.PI);
+      const cx = from.x + (tx - from.x) * t - dz * wig, cz = from.z + (tz - from.z) * t + dx * wig;
+      for (const sd of [-1, 1]) { const sx = cx - dz * 1.2 * sd, sz = cz + dx * 1.2 * sd; pos.push(sx, Math.max(1.45, H(sx, sz)) + 0.12, sz); }
+      if (i) { const a = (i - 1) * 2; idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
+    }
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx);
+    parts.push(colorize(g, '#b09468'));
+  }
+  if (!parts.length) return null;
+  const geo = mergeGeometries(parts); geo.computeVertexNormals();
+  const m = new THREE.Mesh(geo, mats().path); m.receiveShadow = true;
+  return m;
+}
+/** Lighthouse on the cove's headland, rowboats in the bay, vegetable plots, a careening beach, lookout. */
+function scenery(base, S, r, fac, avoid) {
+  const g = new THREE.Group();
+  if (!S.hasBay) return g;
+  const parts = [];
+  const H = (x, z) => S.hAt(Math.hypot(x, z), Math.atan2(z, x));
+  // lighthouse on one horn of the bay (players + clans)
+  if (base.owner && fac !== 'wild') {
+    const la = S.bayA + (S.bayHalf + 0.12) * ((base.seed || 0) % 2 ? 1 : -1), ld = S.edge(la) * 0.9;
+    const lx = Math.cos(la) * ld, lz = Math.sin(la) * ld, ly = Math.max(1.4, S.hAt(ld, la));
+    parts.push(colorize(new THREE.CylinderGeometry(2.2, 3, 15, 10).translate(lx, ly + 7.5, lz), '#efe6d4'));
+    for (let i = 0; i < 2; i++) parts.push(colorize(new THREE.CylinderGeometry(2.55 - i * 0.35, 2.7 - i * 0.35, 2.2, 10).translate(lx, ly + 3.5 + i * 6, lz), '#b2352a'));
+    parts.push(colorize(new THREE.CylinderGeometry(2.8, 2.8, 0.5, 10).translate(lx, ly + 15.2, lz), '#2a2a2a'));
+    parts.push(colorize(new THREE.ConeGeometry(2.4, 2.6, 10).translate(lx, ly + 18.6, lz), '#b2352a'));
+    const lamp = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.6, 2.4, 8), mats().glow); lamp.position.set(lx, ly + 16.6, lz); g.add(lamp);
+    avoid.push({ x: lx, z: lz, r: 6 });
+  }
+  // rowboats moored in the bay
+  const nb = fac === 'wild' ? 1 : 2 + Math.min(3, Math.floor(base.buildings.length / 3));
+  for (let i = 0; i < nb; i++) {
+    const a = S.bayA + (r() - 0.5) * S.bayHalf * 1.2, d = S.edge(a) + 10 + r() * 14;
+    const x = Math.cos(a) * d, z = Math.sin(a) * d, ry = r() * 6;
+    const hull = new THREE.SphereGeometry(1, 10, 6, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2); hull.scale(1.1, 0.7, 2.6); hull.rotateY(ry); hull.translate(x, 0.6, z);
+    parts.push(colorize(hull, ['#7a4f2a', '#4a6a7a', '#8a3a2a'][i % 3]));
+    const seat = new THREE.BoxGeometry(2, 0.12, 0.4); seat.rotateY(ry); seat.translate(x, 0.55, z); parts.push(colorize(seat, '#a8854f'));
+    const oar = new THREE.BoxGeometry(4.4, 0.08, 0.2); oar.rotateY(ry + 0.25); oar.translate(x, 0.65, z); parts.push(colorize(oar, '#c9a77a'));
+  }
+  // vegetable plots + a fenced pen near the village
+  const plots = fac === 'wild' ? 1 : 2 + Math.min(4, Math.floor(base.buildings.length / 3));
+  let placed = 0;
+  for (let t = 0; t < 60 && placed < plots; t++) {
+    const a = S.bayA + (r() - 0.5) * 3.4, d = S.edge(a) * (0.35 + r() * 0.35);
+    const x = Math.cos(a) * d, z = Math.sin(a) * d, h = H(x, z);
+    if (h < 1.6 || Math.abs(H(x + 5, z) - H(x - 5, z)) > 2 || Math.abs(H(x, z + 5) - H(x, z - 5)) > 2) continue;
+    if (!avoid.every((o) => Math.hypot(o.x - x, o.z - z) > o.r + 6)) continue;
+    avoid.push({ x, z, r: 7 });
+    const ry = r() * 3;
+    const soil = new THREE.BoxGeometry(9, 0.4, 7); soil.rotateY(ry); soil.translate(x, h + 0.05, z); parts.push(colorize(soil, '#5a3e24'));
+    for (let k = 0; k < 4; k++) { const row = new THREE.BoxGeometry(8, 0.6, 0.8); row.translate(0, 0, -2.6 + k * 1.75); row.rotateY(ry); row.translate(x, h + 0.45, z); parts.push(colorize(row, ['#4f8a2a', '#6aa23a', '#c9a22a'][(k + placed) % 3])); }
+    for (let k = 0; k < 10; k++) { const fa = (k / 10) * Math.PI * 2; const post = new THREE.BoxGeometry(0.2, 1.2, 0.2); post.translate(Math.cos(fa) * 5.6, 0, Math.sin(fa) * 4.6); post.rotateY(ry); post.translate(x, h + 0.6, z); parts.push(colorize(post, '#6a4a2a')); }
+    placed++;
+  }
+  // a careened ship hauled up on the beach for scraping (players' and clans' coves)
+  if (base.owner && fac !== 'wild' && base.buildings.length >= 4) {
+    const a = S.bayA + (S.bayHalf * 0.7) * ((base.seed || 0) % 2 ? -1 : 1), d = S.edge(a) * 0.96, x = Math.cos(a) * d, z = Math.sin(a) * d;
+    const hull = new THREE.SphereGeometry(1, 14, 8, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2); hull.scale(3.4, 2.6, 9); hull.rotateZ(1.1); hull.rotateY(-a); hull.translate(x, 1.6, z); parts.push(colorize(hull, '#4a3020'));
+    const m2 = new THREE.CylinderGeometry(0.25, 0.3, 12, 6); m2.rotateZ(1.1 - Math.PI / 2 + 0.2); m2.rotateY(-a); m2.translate(x, 3, z); parts.push(colorize(m2, '#5a4030'));
+    for (let k = 0; k < 3; k++) { const pr = new THREE.CylinderGeometry(0.15, 0.15, 5, 5); pr.rotateZ(-0.7); pr.rotateY(-a); pr.translate(x + Math.cos(a + 1.6) * 2, 2.2, z + Math.sin(a + 1.6) * 2 + (k - 1) * 4); parts.push(colorize(pr, '#6a4a2a')); }
+  }
+  if (parts.length) { const m = new THREE.Mesh(mergeGeometries(parts), mats().vc); m.castShadow = true; m.receiveShadow = true; g.add(m); }
   return g;
 }
 
@@ -523,7 +698,7 @@ function shieldDome(x, z, R) {
 }
 
 // building models (local frame: +z faces outward from the island centre)
-function buildingModel(type, alive, pcol, base, r) {
+function buildingModel(type, alive, pcol, base, r, shipLen = 30) {
   const M = mats();
   const g = new THREE.Group();
   const add = (geo, mat, x = 0, y = 0, z = 0, ry = 0) => { const m = new THREE.Mesh(geo, alive ? mat : M.dmg); m.position.set(x, y, z); m.rotation.y = ry; g.add(m); return m; };
@@ -544,27 +719,65 @@ function buildingModel(type, alive, pcol, base, r) {
       break;
     }
     case 'keep': {
-      add(box(14, 14, 14), M.stone, 0, 7, 0);
-      for (const [x, z] of [[-7, -7], [7, -7], [-7, 7], [7, 7]]) { add(new THREE.CylinderGeometry(3, 3.4, 20, 10), M.stone, x, 10, z); add(new THREE.ConeGeometry(3.8, 5, 10), M.roof, x, 22.5, z); }
-      for (let i = 0; i < 6; i++) for (const s of [-1, 1]) { add(box(1.6, 1.6, 1.2), M.stone, -6 + i * 2.4, 14.8, s * 7); add(box(1.2, 1.6, 1.6), M.stone, s * 7, 14.8, -6 + i * 2.4); }
-      add(box(3, 5, 0.4), M.wood, 0, 2.5, 7.1);
-      for (let i = 0; i < 4; i++) { const b = add(new THREE.CylinderGeometry(0.25, 0.3, 2.6, 8), M.iron, -4.5 + i * 3, 9, 7.6); b.rotation.x = Math.PI / 2; }
+      // the Captain's Lodge: a timber-framed pirate hall on a stone terrace, balcony over the bay,
+      // a ship's-mast lookout with a crow's nest, a log palisade and a gun deck at the front
+      const T = M.timber;
+      add(box(22, 2.2, 18), M.stone, 0, 0.6, 0);
+      add(box(16, 5.5, 11), M.wood, 0, 4.4, -1);
+      add(box(17, 4.6, 12), M.plaster, 0, 9.4, -1);
+      for (let i = 0; i < 7; i++) add(box(0.4, 4.6, 0.3), T, -8.3 + i * 2.77, 9.4, 5.05);
+      for (const y of [7.2, 11.6]) add(box(17.2, 0.4, 0.3), T, 0, y, 5.05);
+      for (let i = 0; i < 3; i++) { const br = add(box(0.3, 5.2, 0.3), T, -5.5 + i * 5.5, 9.4, 5.1); br.rotation.z = i % 2 ? 0.75 : -0.75; }
+      const roof = new THREE.CylinderGeometry(8.4, 8.4, 18.4, 3, 1); roof.rotateZ(Math.PI / 2); roof.scale(1, 0.55, 0.92);
+      add(roof, M.shingle, 0, 14.2, -1).rotation.x = 0;
+      add(box(1.4, 3, 1.4), M.stone, 4.5, 18, -3);
+      for (const x of [-5.5, -2, 2, 5.5]) add(box(1.6, 1.4, 0.2), M.glow, x, 9.6, 5.25);
+      for (const x of [-5.5, 5.5]) add(box(1.6, 1.4, 0.2), M.glow, x, 4.6, 4.55);
+      add(box(2.6, 3.6, 0.3), T, 0, 3.6, 4.6);
+      // balcony over the bay
+      add(box(15, 0.4, 3.4), M.wood, 0, 7.3, 6.8);
+      for (let i = 0; i < 11; i++) add(box(0.2, 1.1, 0.2), T, -7.2 + i * 1.44, 8.0, 8.3);
+      add(box(15, 0.15, 0.2), T, 0, 8.6, 8.3);
+      for (const x of [-7, 7]) add(box(0.4, 5.5, 0.4), T, x, 4.5, 8.2);
+      // a ship's mast as the lookout, with a crow's nest and a yard
+      add(new THREE.CylinderGeometry(0.45, 0.65, 26, 8), M.wood, -9, 13, -7);
+      add(new THREE.CylinderGeometry(1.8, 1.4, 1.6, 10, 1, true), T, -9, 22, -7);
+      add(new THREE.CylinderGeometry(1.8, 1.8, 0.3, 10), M.wood, -9, 21.2, -7);
+      add(box(8, 0.3, 0.3), M.wood, -9, 18, -7);
+      // palisade of sharpened logs with a gate toward the harbour, skulls on the gateposts
+      for (let i = 0; i < 40; i++) {
+        const a = (i / 40) * Math.PI * 2; if (Math.abs(Math.atan2(Math.sin(a - Math.PI / 2), Math.cos(a - Math.PI / 2))) < 0.28) continue;
+        const h2 = 4.4 + (i % 3) * 0.5, x = Math.cos(a) * 15, z = Math.sin(a) * 13;
+        add(new THREE.CylinderGeometry(0.42, 0.48, h2, 6), M.wood, x, h2 / 2 - 0.3, z);
+        add(new THREE.ConeGeometry(0.45, 1, 6), M.wood, x, h2 - 0.3 + 0.5, z);
+      }
+      for (const x of [-4.2, 4.2]) { add(box(1.2, 6.5, 1.2), T, x, 3.2, 13); add(new THREE.SphereGeometry(0.8, 8, 6), M.plaster, x, 7, 13); }
+      add(box(9.6, 0.8, 0.8), T, 0, 6.2, 13);
+      // gun deck in front of the gate
+      add(box(12, 0.5, 4), M.wood, 0, 0.9, 16.5);
+      for (const x of [-4, 0, 4]) { add(box(1.4, 0.8, 1.8), M.wood, x, 1.6, 16.5); const b = add(new THREE.CylinderGeometry(0.28, 0.4, 3, 10), M.iron, x, 2.2, 17.4); b.rotation.x = Math.PI / 2; }
+      // treasure chest, barrels
+      add(box(1.8, 1.1, 1.1), new THREE.MeshStandardMaterial({ color: 0x6a3a1a, roughness: 0.8 }), 6.5, 2.2, 7.5);
+      add(box(1.9, 0.25, 1.2), new THREE.MeshStandardMaterial({ color: 0xd4a73a, metalness: 0.8, roughness: 0.3 }), 6.5, 2.85, 7.5);
+      for (let i = 0; i < 4; i++) add(new THREE.CylinderGeometry(0.55, 0.55, 1.2, 8), M.wood, -7 + (i % 2) * 1.2, 2.3, 7 + Math.floor(i / 2) * 1.2);
       break;
     }
     case 'dock': {
+      // a long jetty sized for the owner's flagship, with a T-head, mooring posts, lanterns and a crane
+      const P = pierSize(shipLen), len = P.len, w = P.w, hw = w / 2;
       const parts = [];
-      const len = 34;
-      parts.push(colorize(box(len, 0.7, 6).translate(len / 2 - 6, 1.8, 0), '#9a7048'));
-      parts.push(colorize(box(8, 0.7, 14).translate(len - 6, 1.8, 0), '#9a7048'));
-      for (let i = -6; i <= len - 2; i += 4.5) for (const s of [-2.6, 2.6]) parts.push(colorize(new THREE.CylinderGeometry(0.32, 0.36, 7, 6).translate(i, -1.2, s), '#5a3e26'));
-      for (let i = 0; i < 5; i++) parts.push(colorize(new THREE.CylinderGeometry(0.6, 0.6, 1.2, 8).translate(len - 9 + (i % 3) * 1.4, 2.8, -4 + Math.floor(i / 3) * 1.6), '#7a4f2a'));
-      parts.push(colorize(new THREE.BoxGeometry(1.4, 1.4, 1.4).translate(len - 4, 2.9, 4), '#a8854f'));
+      parts.push(colorize(box(len, 0.7, w).translate(len / 2 - 6, 1.8, 0), '#9a7048'));
+      parts.push(colorize(box(8 + shipLen * 0.05, 0.7, P.head).translate(len - 6 - 2, 1.8, 0), '#9a7048'));
+      for (let i = -6; i <= len - 4; i += 4.5) for (const s2 of [-hw + 0.4, hw - 0.4]) parts.push(colorize(new THREE.CylinderGeometry(0.32, 0.36, 7, 6).translate(i, -1.2, s2), '#5a3e26'));
+      for (let i = 0; i < len; i += 7) { parts.push(colorize(new THREE.CylinderGeometry(0.28, 0.32, 1.0, 8).translate(i, 2.6, hw - 0.5), '#3a2a1a')); parts.push(colorize(new THREE.CylinderGeometry(0.28, 0.32, 1.0, 8).translate(i + 3.5, 2.6, -hw + 0.5), '#3a2a1a')); }
+      for (let i = 4; i < len; i += 16) { parts.push(colorize(new THREE.CylinderGeometry(0.1, 0.12, 3.4, 5).translate(i, 3.8, -hw + 0.3), '#2a1c12')); parts.push(colorize(new THREE.BoxGeometry(0.5, 0.6, 0.5).translate(i, 5.7, -hw + 0.3), '#ffd27a')); }
+      for (let i = 0; i < 5; i++) parts.push(colorize(new THREE.CylinderGeometry(0.6, 0.6, 1.2, 8).translate(len - 12 + (i % 3) * 1.4, 2.8, -hw + 1.5 + Math.floor(i / 3) * 1.6), '#7a4f2a'));
+      parts.push(colorize(new THREE.BoxGeometry(1.4, 1.4, 1.4).translate(len - 6, 2.9, P.head / 2 - 2), '#a8854f'));
+      parts.push(colorize(new THREE.BoxGeometry(1.4, 1.4, 1.4).rotateY(0.4).translate(len - 8, 2.9, P.head / 2 - 3.5), '#a8854f'));
       const m = new THREE.Mesh(mergeGeometries(parts), M.vc); g.add(m);
-      // crane
-      add(new THREE.CylinderGeometry(0.4, 0.5, 9, 6), M.wood, len - 3, 6, -5);
-      const arm = add(box(8, 0.5, 0.5), M.wood, len, 10, -5);
+      add(new THREE.CylinderGeometry(0.4, 0.5, 9, 6), M.wood, len - 4, 6, -P.head / 2 + 2);
+      const arm = add(box(8, 0.5, 0.5), M.wood, len - 1, 10, -P.head / 2 + 2);
       arm.rotation.z = -0.2;
-      g.rotation.y = 0; // handled by caller
       return g;
     }
     case 'shipyard': {

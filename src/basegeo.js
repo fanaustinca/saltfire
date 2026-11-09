@@ -35,6 +35,9 @@ export function buildingPos(b, bd) {
 export function harborPoint(b, len = 30) {
   const S = baseShape(b), a = dockAngle(b);
   const d = S.edge(a) + 30 + len * 0.45;
-  const px = -Math.sin(a) * 9, pz = Math.cos(a) * 9;
+  const off = 5 + len * 0.16; // alongside the pier, which widens/lengthens with the owner's ship
+  const px = -Math.sin(a) * off, pz = Math.cos(a) * off;
   return { x: b.x + Math.cos(a) * d + px, z: b.z + Math.sin(a) * d + pz, yaw: Math.atan2(Math.cos(a), Math.sin(a)) };
 }
+/** Pier length/width for a dock serving a ship of length `len` (reaches past its bow). */
+export const pierSize = (len = 30) => ({ len: 38 + len * 0.95, w: 6 + len * 0.04, head: 14 + len * 0.25 });

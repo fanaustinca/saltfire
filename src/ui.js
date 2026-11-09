@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import {
   RES, RES_LABEL, RES_ICON, AMMO, AMMO_ORDER, RECIPES, TIERS, tierById, UPGRADES, UPGRADE_TOTAL, XP_PER_LEVEL, BUILDINGS,
-  MARKET_ITEMS, MARKET_TAX, TREATY_TYPES, HAVEN_R, WORLD_R, VERSION, LAND_SLOTS, claimFee,
+  MARKET_ITEMS, MARKET_TAX, TREATY_TYPES, HAVEN_R, WORLD_R, VERSION, LAND_SLOTS, claimFee, FIELD_REPAIR, TRAILS,
 } from './config.js';
 import { shipStats, customCost, costText, canAfford, bestAsk, bestBid, crewEff, treatyBetween, shielded, landSlotsUsed, flagship, hostile, fleetCap, traderName, aiFaction } from './economy.js';
 import { SAIL_NAMES, SAIL_STEPS, DOCK_SPEED } from './sim.js';
@@ -29,7 +29,7 @@ export class UI {
     this.labels = new Map();
     this.toastBox = null;
   }
-  blocking() { return !!(this.panel || this.modalEl || this.mapOpen || this.escEl); }
+  blocking() { return !!((this.panel && !this.remote) || this.modalEl || this.mapOpen || this.escEl); }
 
   // ------------------------------------------------------------------ title
   title({ name, worlds, onNew, onContinue, onJoin, onDelete }) {
@@ -89,6 +89,7 @@ export class UI {
         <div class="reloads" id="reloads"></div>
         <div class="ammo" id="ammo"></div>
       </div>
+      <div class="fleetbox" id="fleetbox"></div>
       <canvas class="minimap" id="minimap" width="220" height="220"></canvas>
       <div class="hotkeys"><button class="btn tiny" id="hk-map">Map (M)</button><button class="btn tiny" id="hk-fleet">Fleet (G)</button><button class="btn tiny" id="hk-dip">Diplomacy</button><button class="btn tiny" id="hk-help">Help (H)</button><button class="btn tiny" id="hk-menu">Menu</button></div>
       <div class="labels" id="labels"></div>
@@ -98,6 +99,10 @@ export class UI {
     $('#hk-map').onclick = () => this.toggleMap(game);
     $('#hk-dip').onclick = () => this.port(game, 'diplomacy', true);
     $('#hk-fleet').onclick = () => this.port(game, 'fleet', !game.me()?.docked);
+    $('#fleetbox').onclick = (e) => {
+      if (e.target.closest('[data-fcmd]')) { this.port(game, 'fleet', !game.me()?.docked); return; }
+      if (e.target.closest('.fbh')) { this.fleetOpen = !this.fleetOpen; this.fleetSig = ''; sfx.ui(); }
+    };
     $('#hk-help').onclick = () => this.help();
     $('#hk-menu').onclick = () => this.escape(game);
     $('#ammo').onclick = (e) => { const b = e.target.closest('[data-ammo]'); if (b) game.setAmmo(b.dataset.ammo); };
@@ -119,7 +124,7 @@ export class UI {
   panelSig(game) {
     const W = game.W, p = game.profile(), d = game.me()?.docked;
     const b = d && W.bases.find((x) => x.id === d.id);
-    return JSON.stringify([p.inv, p.level, p.points, p.upg, p.fleet.map((s) => s.uid + s.name + (s.out ? 'o' : '') + (s.wrecked ? 'w' : '') + (s.hp ?? '')), p.flag, p.alliance, W.market.length, W.trades.length, W.proposals.length, W.treaties.length, b && b.buildings.map((x) => [x.type, Math.round(x.hp)]), b?.haven, Object.values(W.players).map((x) => x.online + x.name), this.tab]);
+    return JSON.stringify([p.trail, (p.trails || []).length, p.inv, p.level, p.points, p.upg, p.fleet.map((s) => s.uid + s.name + (s.out ? 'o' : '') + (s.wrecked ? 'w' : '') + (s.hp ?? '')), p.flag, p.alliance, W.market.length, W.trades.length, W.proposals.length, W.treaties.length, b && b.buildings.map((x) => [x.type, Math.round(x.hp)]), b?.haven, Object.values(W.players).map((x) => x.online + x.name), this.tab]);
   }
   frame(game, dt) {
     const me = game.me(); if (!me || !$('#shippanel')) return;
@@ -138,7 +143,12 @@ export class UI {
       const nm = { L: 'Port', R: 'Starboard', bow: 'Bow', stern: 'Stern' }[k];
       return `<div class="rl ${left <= 0 ? 'ready' : ''} ${game.aim?.side === k ? 'aimed' : ''}"><svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="15" class="bg"/><circle cx="18" cy="18" r="15" class="fg" style="stroke-dasharray:${(f * 94.2).toFixed(1)} 94.2"/></svg><span>${nm}</span></div>`;
     }).join('');
-    $('#reloads').innerHTML = rl + (eff < 0.75 ? `<div class="warn">Short-handed: reload ×${(1 / eff).toFixed(1)}</div>` : '');
+    const rcd = Math.max(0, (game.repairUntil || 0) - performance.now() / 1000);
+    const hurt = me.hull < st.hull - 0.5 || me.sails < st.sails - 0.5;
+    const oakNeed = Math.max(FIELD_REPAIR.minOak, Math.ceil(Math.min(st.hull - me.hull, st.hull * FIELD_REPAIR.frac) / FIELD_REPAIR.oakPer));
+    const rep = me.docked ? '' : `<div class="rchip ${rcd > 0 ? 'cd' : hurt ? 'go' : ''}" title="Carpenters patch the hull with oak (works in battle)"><kbd>R</kbd> ${rcd > 0 ? `Repairing… ${Math.ceil(rcd)}s` : hurt ? `Repair · ${oakNeed} oak` : 'Repair'}</div>`;
+    const rlh = rl + rep + (eff < 0.75 ? `<div class="warn">Short-handed: reload ×${(1 / eff).toFixed(1)}</div>` : '');
+    const rle = $('#reloads'); if (rle.innerHTML !== rlh) rle.innerHTML = rlh;
     // prompt
     let pr = '';
     if (me.sink > 0) pr = '<b>Your ship is sinking…</b>';
@@ -163,7 +173,14 @@ export class UI {
     if (k && k.hp > 0) ev.push(`<div class="ev kraken"><b>🐙 The Kraken</b> ${Math.round(game.distTo(k.x, k.z))}m<div class="evbar"><i style="width:${(k.hp / k.maxHp) * 100}%"></i></div></div>`);
     for (const s of game.sim.ships.values()) if (s.tag === 'treasure' && s.sink === 0) ev.push(`<div class="ev treasure"><b>💰 Treasure Flagship</b> ${Math.round(game.distTo(s.x, s.z))}m<div class="evbar"><i style="width:${(s.hull / s.stats.hull) * 100}%"></i></div></div>`);
     const myFleet = [...game.sim.ships.values()].filter((s) => s.role === 'fleet' && s.owner === game.pid && s.sink === 0);
-    if (myFleet.length) ev.push(`<div class="ev fleet"><b>⚓ Fleet at sea</b> ${myFleet.map((s) => `<span title="${esc(s.name)}">${esc(s.name)} <i class="fh" style="width:${Math.round((s.hull / s.stats.hull) * 40)}px"></i> <small>${s.ai?.mode || ''}</small></span>`).join('<br>')}</div>`);
+    const fb = $('#fleetbox');
+    if (fb) {
+      const avg = myFleet.length ? myFleet.reduce((a, s) => a + s.hull / s.stats.hull, 0) / myFleet.length : 0;
+      const fh = !myFleet.length ? '' : `<div class="fbh"><b>⚓ Fleet</b> <span class="muted">${myFleet.length} at sea · ${Math.round(avg * 100)}%</span><span class="fbt">${this.fleetOpen ? '▾' : '▸'}</span></div>`
+        + (this.fleetOpen ? `<div class="fbl">${myFleet.map((s) => `<div class="fbr"><span class="fbn">${esc(s.name)}</span><i class="fh"><i style="width:${Math.round((s.hull / s.stats.hull) * 100)}%"></i></i><small>${s.ai?.mode || ''}</small></div>`).join('')}<button class="btn tiny" data-fcmd>Orders (G)</button></div>` : '');
+      if (fb.innerHTML !== fh) fb.innerHTML = fh;
+      fb.style.display = fh ? '' : 'none';
+    }
     const raiders = [...game.sim.ships.values()].filter((s) => s.tag === 'raider' && s.sink === 0).length;
     if (raiders) ev.push(`<div class="ev raid"><b>⚔ Pirate raid</b> ${raiders} ship${raiders > 1 ? 's' : ''} left</div>`);
     const evh = ev.join(''); const ee = $('#events'); if (ee.innerHTML !== evh) ee.innerHTML = evh;
@@ -280,7 +297,7 @@ export class UI {
       <div class="help">
         <div><h4>Sailing</h4><p><kbd>W</kbd>/<kbd>S</kbd> raise / lower sails · <kbd>A</kbd>/<kbd>D</kbd> steer · right-drag orbit camera · wheel zoom · <kbd>C</kbd> reset camera</p></div>
         <div><h4>Gunnery</h4><p>Move the mouse over the water: a firing sector appears on the side you're aiming at and a 3D arc shows exactly where your shot lands. <span class="g">Green</span> = valid, <span class="y">yellow</span> = reloading, <span class="r">red</span> = out of range / arc or blocked by land. <kbd>Click</kbd> or <kbd>Space</kbd> fires the broadside.</p><p><kbd>1</kbd>–<kbd>4</kbd> / <kbd>Q</kbd> ammo: Round shot · Chainshot (sails) · Grapeshot (crew) · Explosive (hull + fire).</p></div>
-        <div><h4>Crew</h4><p>Losing crew slows reloads and steering. Rehire at any harbour.</p></div>
+        <div><h4>Crew & repairs</h4><p>Losing crew slows reloads and steering. Rehire at any harbour. <kbd>R</kbd> at sea: your carpenters patch the hull (and some canvas) with oak from your hold and put out fires — it works mid-battle, then needs a few seconds before the next patch.</p></div>
         <div><h4>Empire</h4><p><kbd>E</kbd> dock · <kbd>F</kbd> (hold, stopped) harvest resource islets · <kbd>M</kbd> map. Wild islands are held by squatters: smash their stockade and hold position nearby to claim them (each new colony's charter costs more). Pirate clans hold fortresses and keep fortifying them — smash the keep, sink the defenders and hold position to conquer. Build docks, shipyards, mills and defences — the island and its village grow as you build.</p></div>
         <div><h4>Fleet</h4><p><kbd>G</kbd> fleet command: send the ships you own (beyond your flagship) to escort you, guard an island, or attack an enemy, clan or wild island — they bombard it and capture it for you. Sunk fleet ships come home as wrecks to repair.</p></div>
         <div><h4>World</h4><p>Hunt the <b>Kraken</b> and <b>Treasure Flagships</b>, sink level-matched AI, trade on the player market (5% tax), sign treaties, set safe havens & entry fees. Offline captains' bases are shielded.</p></div>
@@ -389,7 +406,9 @@ export class UI {
     if (!remote && !me?.docked) { this.toast('Dock first (E near a harbour).', 'bad'); return; }
     this.remote = remote;
     if (tab) this.tab = tab;
-    if (!this.panel) { this.panel = document.createElement('div'); this.panel.className = 'port-wrap'; this.root.appendChild(this.panel); }
+    if (!this.panel) { this.panel = document.createElement('div'); this.root.appendChild(this.panel); }
+    // at sea the panel docks to the right edge as a slim drawer so you can keep sailing and see the battle
+    this.panel.className = remote ? 'port-wrap side' : 'port-wrap';
     this.renderPanel(game);
   }
   closePanel(game) {
@@ -403,7 +422,7 @@ export class UI {
     const site = d || {};
     const own = site.kind === 'base' && game.W.bases.find((b) => b.id === site.id)?.owner === game.pid;
     const T = [];
-    if (!this.remote) { T.push(['harbor', 'Harbour'], ['ships', 'Shipwright'], ['fleet', 'Fleet'], ['upgrades', 'Upgrades'], ['craft', 'Crafting'], ['market', 'Market']); if (own) T.push(['build', 'Build'], ['haven', 'Haven']); }
+    if (!this.remote) { T.push(['harbor', 'Harbour'], ['ships', 'Shipwright'], ['fleet', 'Fleet'], ['upgrades', 'Upgrades'], ['craft', 'Crafting'], ['market', 'Market'], ['trails', 'Wake Trails']); if (own) T.push(['build', 'Build'], ['haven', 'Haven']); }
     if (this.remote) T.push(['fleet', 'Fleet Command']);
     T.push(['diplomacy', 'Diplomacy']);
     return T;
@@ -418,9 +437,11 @@ export class UI {
     const me = game.me(); const p = game.profile();
     const title = this.remote ? (this.tab === 'fleet' ? 'Fleet Command' : 'Diplomacy') : esc(me?.docked?.name || 'Harbour');
     const keepScroll = this.panel.querySelector('.pbody')?.scrollTop || 0;
-    this.panel.innerHTML = `<div class="port"><div class="phead"><h2>${title}</h2><div class="ptabs">${tabs.map(([k, n]) => `<button class="tab ${k === this.tab ? 'on' : ''}" data-tab="${k}">${n}${k === 'upgrades' && p.points ? ` <b class="badge">${p.points}</b>` : ''}${k === 'diplomacy' && game.W.proposals.some((x) => x.to === game.pid) ? ' <b class="badge">!</b>' : ''}</button>`).join('')}</div><button class="btn close" id="pclose">${this.remote ? 'Close' : 'Set Sail ⛵'}</button></div><div class="pres">${RES.map((r) => `<span class="res res-${r}">${RES_ICON[r]} ${fmt(p.inv[r] || 0)}</span>`).join('')}${['chain', 'grape', 'explosive'].map((a) => `<span class="res"><span class="ball b-${a}"></span> ${p.inv[a] || 0}</span>`).join('')}</div><div class="pbody" id="pbody"></div></div>`;
+    this.panel.innerHTML = `<div class="port"><div class="phead"><h2>${title}</h2><div class="ptabs">${tabs.map(([k, n]) => `<button class="tab ${k === this.tab ? 'on' : ''}" data-tab="${k}">${n}${k === 'upgrades' && p.points ? ` <b class="badge">${p.points}</b>` : ''}${k === 'diplomacy' && game.W.proposals.some((x) => x.to === game.pid) ? ' <b class="badge">!</b>' : ''}</button>`).join('')}</div>${this.remote ? `<button class="btn tiny" id="pmin" title="Minimise">${this.panelMin ? '▢' : '—'}</button>` : ''}<button class="btn close" id="pclose">${this.remote ? '✕' : 'Set Sail ⛵'}</button></div><div class="pres">${RES.map((r) => `<span class="res res-${r}">${RES_ICON[r]} ${fmt(p.inv[r] || 0)}</span>`).join('')}${['chain', 'grape', 'explosive'].map((a) => `<span class="res"><span class="ball b-${a}"></span> ${p.inv[a] || 0}</span>`).join('')}</div><div class="pbody" id="pbody"></div></div>`;
     this.panel.querySelectorAll('[data-tab]').forEach((b) => (b.onclick = () => { this.tab = b.dataset.tab; sfx.ui(); if (this.preview) { this.preview.dispose(); this.preview = null; } this.renderPanel(game); }));
     $('#pclose').onclick = () => this.closePanel(game);
+    const pm = $('#pmin'); if (pm) pm.onclick = () => { this.panelMin = !this.panelMin; this.renderPanel(game); };
+    this.panel.classList.toggle('min', !!(this.remote && this.panelMin));
     const body = $('#pbody');
     const fn = this['tab_' + this.tab];
     if (fn) fn.call(this, game, body);
@@ -462,7 +483,7 @@ export class UI {
     const hasYard = b && b.owner === game.pid && b.buildings.some((x) => x.type === 'shipyard' && x.hp > 0);
     body.innerHTML = `
       <h3>Shipwright — standard hulls</h3>
-      <div class="shipgrid">${TIERS.map((T) => { const st = shipStats({ tier: T.id, side: T.side, size: 1 }); const locked = p.level < T.level; return `<div class="shipcard ${locked ? 'locked' : ''}"><h4>${T.name}</h4><div class="muted">${T.side} cannon${T.side > 1 ? 's' : ''} per side (up to ${T.maxSide}) · ${T.masts} mast${T.masts > 1 ? 's' : ''}</div><div class="mini">Hull ${st.hull} · Speed ${st.speed.toFixed(1)} · Crew ${st.crew}</div><div class="cost">${T.cost.gold ? costText(T.cost) : 'free'}</div><button class="btn" data-buy="${T.id}" ${locked || !T.cost.gold || !canAfford(p.inv, T.cost) ? 'disabled' : ''}>${locked ? `Level ${T.level}` : !T.cost.gold ? 'Starter' : 'Buy'}</button></div>`; }).join('')}</div>
+      <div class="shipgrid">${TIERS.map((T) => { const st = shipStats({ tier: T.id, side: T.side, size: 1 }); const locked = p.level < T.level; return `<div class="shipcard ${locked ? 'locked' : ''}"><h4>${T.name}</h4><div class="muted">${T.side} cannon${T.side > 1 ? 's' : ''} per side (up to ${T.maxSide}) · ${T.masts} mast${T.masts > 1 ? 's' : ''}${T.flagshipOnly ? ' · <b class="y">flagship only</b>' : ''}</div><div class="mini">Hull ${st.hull} · Speed ${st.speed.toFixed(1)} · Crew ${st.crew}</div><div class="cost">${T.cost.gold ? costText(T.cost) : 'free'}</div><button class="btn" data-buy="${T.id}" ${locked || !T.cost.gold || !canAfford(p.inv, T.cost) ? 'disabled' : ''}>${locked ? `Level ${T.level}` : !T.cost.gold ? 'Starter' : 'Buy'}</button></div>`; }).join('')}</div>
       <h3>Custom Shipyard ${hasYard ? '' : '<span class="muted small">— build a Shipyard on your base to design custom ships</span>'}</h3>
       ${hasYard ? this.builderHTML(p) : ''}`;
     body.querySelectorAll('[data-buy]').forEach((bt) => (bt.onclick = () => this.doAct(game, { type: 'buyShip', tier: bt.dataset.buy }, 'New ship added to your fleet — make it your flagship in Fleet.')));
@@ -551,6 +572,19 @@ export class UI {
     $('#fl-all-esc', body).onclick = () => this.doAct(game, { type: 'deployAll', mode: 'escort', redirect: true }, 'Your fleet forms up on you.');
     $('#fl-all-grd', body).onclick = () => this.doAct(game, { type: 'deployAll', ...order('guard'), redirect: true }, 'Your fleet stands guard.');
     $('#fl-recall', body).onclick = () => this.doAct(game, { type: 'recallAll' }, 'Fleet recalled.');
+  }
+  tab_trails(game, body) {
+    const p = game.profile();
+    const owned = p.trails || ['foam'], cur = p.trail || 'foam';
+    const sw = (c) => c === 'rainbow' ? 'linear-gradient(90deg,#f33,#fc3,#3f6,#3cf,#a4f)' : c ? `linear-gradient(90deg, transparent, ${c} 30%, ${c})` : 'linear-gradient(90deg, transparent, #fff 40%, #dfe)';
+    body.innerHTML = `<p class="muted">Paint the sea behind you. A wake trail is a cosmetic glow that follows your flagship wherever you sail — everyone in the world sees it. Bought once with gold, yours forever.</p>
+      <div class="cards trails">${Object.entries(TRAILS).map(([id, T]) => {
+        const has = owned.includes(id), on = cur === id;
+        return `<div class="card trail ${on ? 'on' : ''}"><div class="tsw" style="background:${sw(T.color)}"></div><h4>${esc(T.name)}</h4><div class="muted small">${T.cost ? `${fmt(T.cost)} gold` : 'Free'}</div>
+          ${on ? '<button class="btn" disabled>Equipped ✓</button>' : has ? `<button class="btn" data-eq="${id}">Equip</button>` : `<button class="btn primary" data-tb="${id}" ${(p.inv.gold || 0) < T.cost ? 'disabled' : ''}>Buy</button>`}</div>`;
+      }).join('')}</div>`;
+    body.querySelectorAll('[data-tb]').forEach((b) => (b.onclick = () => this.doAct(game, { type: 'buyTrail', id: b.dataset.tb }, `${TRAILS[b.dataset.tb].name} bought and equipped!`)));
+    body.querySelectorAll('[data-eq]').forEach((b) => (b.onclick = () => this.doAct(game, { type: 'setTrail', id: b.dataset.eq }, `${TRAILS[b.dataset.eq].name} equipped.`)));
   }
   tab_upgrades(game, body) {
     const p = game.profile();

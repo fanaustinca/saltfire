@@ -1,15 +1,18 @@
 // Procedural, period-styled sailing ships — every class has its own design, not a scaled copy:
-//  Sloop: single raked mast, huge gaff main + jibs, open deck, tiller, counter stern.
+//  Sloop: pirate sloop — single mast with gaff main + square topsails, raised quarterdeck + cabin,
+//         painted gunport strake, swivel guns on the rail, long boom over a windowed transom.
 //  Schooner: narrow racer, clipper bow, two raked gaff masts with topsails, deckhouse.
 //  Brigantine: square-rigged fore, gaff main, quarterdeck, figurehead.
 //  Frigate: full-rigged three-master (four sail tiers), black "chequer" hull, flush deck, boats.
 //  Galleon: towering painted stern castle + forecastle, beakhead, lateen mizzens, gilding.
 //  Man of War: three gun decks bristling with cannon, triple stern galleries, studding sails,
 //              iron-banded waterline, gilt lion figurehead, admiral's pennants. It looks unbeatable.
+//  Leviathan: a floating palace — four gun decks, an iron-clad waterline, a three-storey marble palace
+//             with a golden dome and onion-domed towers, a forward pavilion, four masts of royal canvas.
 // Damage: charred hull, splintered shot-holes where balls struck, topmasts shot away, torn sails.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { hullShape, planW, sheer, keelY, sectionW, hullX, deckY, gunLayout } from '../layout.js';
+import { hullShape, planW, sheer, keelY, sectionW, hullX, deckY, gunLayout, deckGap } from '../layout.js';
 import { planks, deck as deckTex, sailcloth, noiseTex, flagTex } from './textures.js';
 
 const V3 = THREE.Vector3;
@@ -23,7 +26,7 @@ function mats() {
   M = {
     darkwood: new THREE.MeshStandardMaterial({ color: 0x3b2614, roughness: 0.8 }),
     spar: new THREE.MeshStandardMaterial({ color: 0x7a5530, roughness: 0.7 }),
-    deck: new THREE.MeshStandardMaterial({ color: 0xc8a57a, roughness: 0.9, map: deckTex() }),
+    deck: new THREE.MeshStandardMaterial({ color: 0xc8a57a, roughness: 0.9, map: deckTex(), side: THREE.DoubleSide }),
     iron: new THREE.MeshStandardMaterial({ color: 0x1d1d1f, roughness: 0.45, metalness: 0.8 }),
     gold: new THREE.MeshStandardMaterial({ color: 0xd4a73a, roughness: 0.35, metalness: 0.85 }),
     port: new THREE.MeshStandardMaterial({ color: 0x120a05, roughness: 1 }),
@@ -34,6 +37,8 @@ function mats() {
     rope: new THREE.LineBasicMaterial({ color: 0x2a2016, transparent: true, opacity: 0.85 }),
     hole: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 }),
     stump: new THREE.MeshStandardMaterial({ color: 0x5a3c22, roughness: 0.9 }),
+    marble: new THREE.MeshStandardMaterial({ color: 0xece4d2, roughness: 0.55 }),
+    royal: new THREE.MeshStandardMaterial({ color: 0x4a1a6a, roughness: 0.7 }),
     pl,
   };
   return M;
@@ -125,12 +130,12 @@ function overhang(H, u, v) {
   return dz;
 }
 function hullGeometry(H, colors, paint) {
-  const NU = H.len > 40 ? 72 : 52, NV = 30;
+  const NU = H.len > 100 ? 110 : H.len > 40 ? 72 : 52, NV = Math.max(30, Math.round(H.depth * 6));
   const pos = [], col = [], uv = [], idx = [];
   const c = new THREE.Color();
   const wl = 0.12;
   const dY = deckY(H, 0.5);
-  const deckSpacing = Math.max(1.7, H.depth * 0.28);
+  const deckSpacing = deckGap(H);
   const strakeColor = (y, u, i) => {
     if (y < wl) return colors.bottom;
     if (y < wl + 0.25) return colors.boot;
@@ -197,7 +202,7 @@ function deckGeometry(H) {
     const z = (u - 0.5) * H.len;
     pos.push(x, y, z, -x, y, z); uv.push(x / 6, z / 6, -x / 6, z / 6);
   }
-  for (let i = 0; i < NU; i++) { const a = i * 2; idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
+  for (let i = 0; i < NU; i++) { const a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
@@ -266,12 +271,13 @@ let HOLE = null;
 // spanker, stud (studding sails), main (flag), lean (rake)
 function rigPlan(id) {
   switch (id) {
-    case 'sloop': return { mastH: 1.28, bs: [0.48, 0.12], jibs: 2, masts: [{ u: 0.6, h: 1, gaff: true, topsail: true, main: true, boom: 0.66 }] };
+    case 'sloop': return { mastH: 1.2, bs: [0.36, 0.2], jibs: 2, masts: [{ u: 0.6, h: 1, gaff: true, sq: 2, sqStart: 1, main: true, boom: 0.6 }] };
     case 'schooner': return { mastH: 1.12, bs: [0.5, 0.16], jibs: 3, masts: [{ u: 0.3, h: 1, gaff: true, topsail: true, main: true, boom: 0.42 }, { u: 0.62, h: 0.93, gaff: true, topsail: true, sq: 1, sqStart: 1, boom: 0.3 }] };
     case 'brigantine': return { mastH: 0.98, bs: [0.4, 0.3], jibs: 3, masts: [{ u: 0.36, h: 1, gaff: true, sq: 2, sqStart: 1, main: true, boom: 0.4 }, { u: 0.68, h: 0.92, sq: 3 }] };
     case 'frigate': return { mastH: 0.98, bs: [0.37, 0.32], jibs: 3, masts: [{ u: 0.24, h: 0.76, sq: 3, spanker: true }, { u: 0.5, h: 1, sq: 4, main: true }, { u: 0.73, h: 0.9, sq: 4 }] };
     case 'galleon': return { mastH: 0.8, bs: [0.38, 0.46], jibs: 1, sprit: true, masts: [{ u: 0.1, h: 0.5, lateen: true }, { u: 0.28, h: 0.66, lateen: true }, { u: 0.54, h: 1, sq: 3, main: true }, { u: 0.78, h: 0.84, sq: 2 }] };
     case 'manowar': return { mastH: 0.95, bs: [0.4, 0.3], jibs: 4, sprit: true, masts: [{ u: 0.25, h: 0.8, sq: 3, spanker: true }, { u: 0.5, h: 1, sq: 4, stud: true, main: true }, { u: 0.74, h: 0.92, sq: 4, stud: true }] };
+    case 'leviathan': return { mastH: 0.66, bs: [0.3, 0.3], jibs: 4, sprit: true, masts: [{ u: 0.45, h: 0.86, sq: 4, stud: true }, { u: 0.585, h: 1, sq: 4, stud: true, main: true }, { u: 0.715, h: 0.96, sq: 4, stud: true }, { u: 0.835, h: 0.84, sq: 4 }] };
     default: return rigPlan('sloop');
   }
 }
@@ -290,10 +296,12 @@ export function buildShip(stats, look = {}) {
   const L = H.len, B = H.beam;
   const root = new THREE.Group();
   const body = new THREE.Group(); root.add(body);
-  const big = id === 'manowar', war = id === 'frigate' || big;
+  const lev = id === 'leviathan';
+  const big = id === 'manowar' || lev, war = id === 'frigate' || big;
 
-  const hullCol = new THREE.Color(look.hullColor || (war ? '#1f1b18' : '#5a3a22'));
+  const hullCol = new THREE.Color(look.hullColor || (lev ? '#1d1a2a' : war ? '#1f1b18' : '#5a3a22'));
   const trim = new THREE.Color(look.trimColor || (war ? '#c99a2e' : '#c9a227'));
+  const trimMat = new THREE.MeshStandardMaterial({ color: trim, roughness: 0.45, metalness: 0.5 });
   const colors = {
     bottom: H.decks > 1 || war ? new THREE.Color(0xb8743f) : new THREE.Color(0x8a8270),
     boot: new THREE.Color(0x1a1410), wale: new THREE.Color(0x15110d), iron: new THREE.Color(0x2c2f33),
@@ -301,14 +309,14 @@ export function buildShip(stats, look = {}) {
     castle: new THREE.Color(0x7a1d18),
   };
   const paint = {
-    band: war ? 0.42 : 0.34, wales: big || id === 'galleon', castle: id === 'galleon', stripe: id === 'sloop' || id === 'schooner', ironBand: big,
+    band: war ? 0.42 : 0.34, wales: big || id === 'galleon', castle: id === 'galleon', stripe: id === 'schooner', ironBand: big,
   };
   const hull = new THREE.Mesh(hullGeometry(H, colors, paint), hullMat());
   hull.castShadow = true; hull.receiveShadow = true;
   body.add(hull);
   const deckMesh = new THREE.Mesh(deckGeometry(H), m.deck); deckMesh.receiveShadow = true; body.add(deckMesh);
 
-  const dark = [], spar = [], iron = [], gold = [], ports = [], glass = [], lamps = [], red = [], white = [];
+  const dark = [], spar = [], iron = [], gold = [], ports = [], glass = [], lamps = [], red = [], white = [], trimL = [], marble = [];
   const dY = deckY(H, 0.5);
   const gs = Math.min(1.3, 0.6 + L / 70);
 
@@ -324,13 +332,35 @@ export function buildShip(stats, look = {}) {
     }
   }
 
+  // painted sheer stripe as real geometry (crisp, no vertex-colour wobble)
+  if (paint.stripe) for (let i = 0; i < 40; i++) {
+    const u0 = 0.02 + i * 0.024, u1 = u0 + 0.024;
+    for (const sx of [1, -1]) {
+      const y0 = sheer(H, u0) - 0.55, y1 = sheer(H, u1) - 0.55;
+      trimL.push(span(new V3(sx * (hullX(H, u0, y0) + 0.02), y0, (u0 - 0.5) * L + overhang(H, u0, 0.9)), new V3(sx * (hullX(H, u1, y1) + 0.02), y1, (u1 - 0.5) * L + overhang(H, u1, 0.9)), 0.13, 0.13, 4));
+    }
+  }
   // ---------------------------------------------------------------- superstructure per design
   const zU = (u) => (u - 0.5) * L;
   if (id === 'sloop') {
-    dark.push(box(B * 0.42, 0.7, L * 0.16, [0, deckY(H, 0.25) + 0.35, zU(0.25)]));           // cabin trunk
-    glass.push(box(B * 0.43, 0.25, 0.4, [0, deckY(H, 0.25) + 0.45, zU(0.25)]));
-    dark.push(box(0.12, 0.12, 2.2, [0, deckY(H, 0.03) + 0.8, zU(0.06)], [0.25, 0, 0]));   // tiller
-    dark.push(box(B * 0.3, 0.25, L * 0.1, [0, dY + 0.12, zU(0.47)]));                      // hatch
+    // raised quarterdeck over a little great cabin, with a rail and a tiller
+    const qy = deckY(H, 0.1) + 0.55, qx = hullX(H, 0.14, qy) * 0.97, qL = L * 0.26;
+    dark.push(box(qx * 2, 0.18, qL, [0, qy, -L / 2 + qL / 2 + 0.2]));
+    dark.push(box(qx * 2, 1.0, 0.16, [0, qy - 0.45, -L / 2 + qL + 0.2]));                    // cabin front bulkhead
+    for (const sx of [-1, 1]) glass.push(box(0.4, 0.38, 0.08, [sx * qx * 0.45, qy - 0.4, -L / 2 + qL + 0.3]));
+    red.push(box(0.6, 0.85, 0.08, [0, qy - 0.45, -L / 2 + qL + 0.3]));                       // cabin door
+    for (let i = 0; i < 7; i++) dark.push(box(0.09, 0.7, 0.09, [-qx + (2 * qx * i) / 6, qy + 0.42, -L / 2 + qL + 0.2]));
+    dark.push(box(qx * 2, 0.08, 0.12, [0, qy + 0.78, -L / 2 + qL + 0.2]));
+    for (const sx of [-1, 1]) dark.push(box(0.1, 0.08, qL, [sx * qx, qy + 0.78, -L / 2 + qL / 2 + 0.2]));
+    dark.push(box(0.12, 0.12, 2.0, [0, qy + 0.55, -L / 2 + 1.4], [0.18, 0, 0]));              // tiller
+    // main deck: hatch grating, water casks, swivel guns on the rail
+    dark.push(box(B * 0.32, 0.3, L * 0.09, [0, dY + 0.15, zU(0.48)]));
+    for (let i = 0; i < 3; i++) dark.push(place(cyl(0.32, 0.32, 0.75, 10), [B * 0.22, dY + 0.38, zU(0.4 + i * 0.045)]));
+    for (const u of [0.35, 0.78]) for (const sx of [-1, 1]) {
+      const y = sheer(H, u) + 0.2, x = hullX(H, u, sheer(H, u)) - 0.05;
+      iron.push(place(cyl(0.05, 0.05, 0.5, 4), [sx * x, y - 0.2, zU(u)]));
+      const br = cyl(0.09, 0.06, 0.8, 6); br.rotateZ(sx * -Math.PI / 2); iron.push(place(br, [sx * (x + 0.2), y + 0.08, zU(u)]));
+    }
   } else if (id === 'schooner') {
     dark.push(box(B * 0.38, 1.0, L * 0.14, [0, dY + 0.5, zU(0.46)]));                      // deckhouse
     white.push(box(B * 0.4, 0.12, L * 0.15, [0, dY + 1.05, zU(0.46)]));
@@ -352,15 +382,15 @@ export function buildShip(stats, look = {}) {
       white.push(place(new THREE.SphereGeometry(1, 10, 6, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), [0, by, bz], [0, 0, 0], [B * 0.12, B * 0.08, L * 0.05]));
       dark.push(box(B * 0.7, 0.18, 0.25, [0, by - 0.2, bz]));
     }
-    for (const sx of [-1, 1]) for (let i = 0; i < (big ? 6 : 4); i++) {
+    for (const sx of [-1, 1]) for (let i = 0; i < (lev ? 0 : big ? 6 : 4); i++) {
       const u = 0.06 + i * 0.045, y = deckY(H, u) + 0.55, x = hullX(H, u, y) - 0.5;
       const bar = cyl(0.12 * gs, 0.1 * gs, 1.0 * gs, 8); bar.rotateZ(sx * -Math.PI / 2);
       iron.push(place(bar, [sx * x, y, zU(u)]));
     }
     // poop / quarterdeck break
     const qy = deckY(H, 0.06), x = hullX(H, 0.15, qy) * 0.95;
-    dark.push(box(x * 2, 0.9, 0.18, [0, qy + 0.35, -L / 2 + L * 0.25]));
-    if (big) { // a fourth deck aft: the poop, plus gilt carving along the sheer
+    if (!lev) dark.push(box(x * 2, 0.9, 0.18, [0, qy + 0.35, -L / 2 + L * 0.25]));
+    if (big && !lev) { // a fourth deck aft: the poop, plus gilt carving along the sheer
       dark.push(box(x * 1.7, 2.2, L * 0.12, [0, qy + 1.1, -L / 2 + L * 0.07]));
       for (let i = 0; i < 6; i++) glass.push(box(0.08, 0.7, 0.9, [x * 0.86, qy + 1.2, -L / 2 + L * (0.03 + i * 0.018)])), glass.push(box(0.08, 0.7, 0.9, [-x * 0.86, qy + 1.2, -L / 2 + L * (0.03 + i * 0.018)]));
       for (let i = 0; i < 40; i++) { const u = 0.04 + i * 0.024; for (const sx of [-1, 1]) gold.push(box(0.1, 0.18, L * 0.012, [sx * (hullX(H, u, sheer(H, u) - 0.4) + 0.02), sheer(H, u) - 0.4, zU(u)])); }
@@ -390,8 +420,9 @@ export function buildShip(stats, look = {}) {
     for (const sx of [-1, 1]) { gold.push(box(0.12, 0.14, L * 0.14, [sx * (fw + 0.04), fy + 1.55, zU(0.87)])); for (let i = 0; i < 3; i++) gold.push(box(0.08, 0.5, 0.5, [sx * (fw + 0.03), fy + 0.8, zU(0.82 + i * 0.045)])); }
     for (let i = 0; i < 8; i++) dark.push(box(0.1, 0.8, 0.1, [-fw + (2 * fw * i) / 7, fy + 2.05, zU(0.8)]));
   }
+  if (lev) buildPalace();
   // ship's wheel (not on the sloop: it steers with a tiller)
-  if (id !== 'sloop') {
+  if (id !== 'sloop' && !lev) {
     const wu = id === 'galleon' ? 0.2 : 0.12;
     const wheelY = deckY(H, wu) + (id === 'galleon' ? 7.3 : big ? 3.2 : 1.0);
     dark.push(place(new THREE.TorusGeometry(0.55, 0.05, 6, 16), [0, wheelY, zU(wu)]));
@@ -404,7 +435,7 @@ export function buildShip(stats, look = {}) {
     const sy1 = sheer(H, 0) - 0.35, sy0 = Math.max(1.0, Math.min(deckY(H, 0) - 0.4, sy1 * (D.stern === 'counter' ? 0.75 : 0.42)));
     const zS = -L / 2 + overhang(H, 0, 0.8);
     const wx = (B / 2) * planW(H, 0) * 0.8;
-    const rows = D.stern === 'galleries3' ? 3 : D.stern === 'castle' ? 3 : D.stern === 'gallery' ? 2 : 1;
+    const rows = lev ? 4 : D.stern === 'galleries3' ? 3 : D.stern === 'castle' ? 3 : D.stern === 'gallery' ? 2 : 1;
     const nW = Math.max(3, Math.round(wx * 1.6));
     for (let r = 0; r < rows; r++) {
       const y = sy0 + ((sy1 - sy0) * (r + 0.5)) / rows;
@@ -437,6 +468,7 @@ export function buildShip(stats, look = {}) {
       gold.push(place(new THREE.ConeGeometry(0.26 * ls, 0.3 * ls, 6), [lx, ly + 0.42 * ls, zS - 0.2]));
     }
     if (D.stern === 'counter') white.push(box(wx * 1.6, 0.1, 0.08, [0, sy1 - 0.05, zS - 0.02]));
+    if (id === 'sloop') { gold.push(box(wx * 1.9, 0.5, 0.1, [0, sy1 + 0.05, zS - 0.04])); }
   }
 
   // ---------------------------------------------------------------- guns + ports
@@ -460,11 +492,11 @@ export function buildShip(stats, look = {}) {
     }
   }
   // warships show a full tier of gunports on every deck, whatever their current battery
-  if (war || id === 'galleon') {
+  {
     const decks = Math.max(1, H.decks);
-    const per = big ? 15 : id === 'galleon' ? 9 : 12;
+    const per = lev ? 22 : big ? 15 : id === 'galleon' ? 9 : id === 'frigate' ? 12 : id === 'brigantine' ? 7 : id === 'schooner' ? 5 : 4;
     for (let d = 0; d < decks; d++) {
-      const y = Math.max(0.6, deckY(H, 0.5) - d * Math.max(1.7, H.depth * 0.28) + 0.55);
+      const y = Math.max(0.6, deckY(H, 0.5) - d * deckGap(H) + 0.55);
       const u0 = 0.17 + d * 0.025, u1 = 0.8 - d * 0.03;
       for (let i = 0; i < per; i++) {
         const u = u0 + ((u1 - u0) * i) / (per - 1), z = zU(u);
@@ -489,7 +521,7 @@ export function buildShip(stats, look = {}) {
   spar.push(span(bsA, bsTip, 0.28 * gs, 0.12 * gs, 8));
   if (D.bow === 'clipper' || D.bow === 'raked') { gold.push(box(0.12, 0.5, L * 0.07, [0.02, stemY - 0.7, stemZ - L * 0.04], [0.15, 0, 0])); }
   if (D.bow === 'figure' || D.bow === 'head') {
-    const fs = big ? 2.2 : 1;
+    const fs = lev ? 3.2 : big ? 2.2 : 1;
     gold.push(place(new THREE.SphereGeometry(0.42 * gs * fs, 10, 8), [0, stemY - 0.6, stemZ + 0.25 * fs], null, [0.7, 1, 1.3]));
     if (big) { gold.push(place(new THREE.TorusGeometry(0.9 * gs, 0.35 * gs, 6, 12), [0, stemY - 0.4, stemZ + 0.5], [0, Math.PI / 2, 0])); for (const sx of [-1, 1]) for (let i = 0; i < 4; i++) gold.push(span(new V3(sx * 0.3, stemY - 1.8 + i * 0.5, stemZ - 3), new V3(sx * (hullX(H, 0.85, stemY - 1.8 + i * 0.5) + 0.1), stemY - 1.8 + i * 0.5, zU(0.85)), 0.09, 0.09, 4)); }
     if (war) dark.push(box(0.5, 0.5, 2.6 * (big ? 1.6 : 1), [0, stemY - 1.1, stemZ + 0.6], [0.3, 0, 0]));
@@ -565,7 +597,7 @@ export function buildShip(stats, look = {}) {
     // --- square sails: course, topsail, topgallant, royal
     if (square) {
       const tiers = [[0.1, 0.5], [0.53, 0.75], [0.77, 0.89], [0.9, 0.985]];
-      const wMax = B * (big ? 1.95 : id === 'galleon' ? 1.85 : 1.75) * (mm.main ? 1 : 0.9);
+      const wMax = B * (lev ? 1.55 : big ? 1.95 : id === 'galleon' ? 1.85 : id === 'sloop' ? 1.5 : 1.75) * (mm.main ? 1 : 0.9);
       const start = mm.sqStart || 0;
       for (let li = start; li < start + mm.sq && li < 4; li++) {
         const [a, b2] = tiers[li];
@@ -647,15 +679,103 @@ export function buildShip(stats, look = {}) {
 
   // stern ensign
   const flag2 = new THREE.Mesh(flagGeo.clone(), flagMat);
-  flag2.scale.setScalar(big ? 1.3 : 0.8);
+  flag2.scale.setScalar(lev ? 0.9 : big ? 1.3 : 0.8);
   const ensY = sheer(H, 0) + 2.2 + (D.stern === 'castle' ? 6.3 : 0);
   flag2.position.set(0, ensY, -L / 2 - 0.6);
   iron.push(place(cyl(0.05, 0.05, 2.8, 4), [0, ensY - 0.8, -L / 2 - 0.6]));
   body.add(flag2);
   flags.push({ mesh: flag2, base: flag2.geometry.attributes.position.array.slice(), len: fh * 1.6 });
 
+
+  // ---------------------------------------------------------------- the Leviathan's palace
+  function buildPalace() {
+    const u0 = 0.035, u1 = 0.36, uc = (u0 + u1) / 2;
+    const py = Math.max(deckY(H, u0 + 0.02), deckY(H, u1)) - 0.1;
+    const w = hullX(H, uc, py) * 0.86, Lp = (u1 - u0) * L, zc = zU(uc);
+    const prism = (wd, ht, dp, pos) => { const g = cyl(1, 1, dp, 3); g.rotateX(Math.PI / 2); g.rotateZ(Math.PI); g.translate(0, 0.5, 0); return place(g, pos, null, [wd / 1.732, ht / 1.5, 1]); };
+    // storeys, stepping in as they rise: marble walls, rows of tall windows, gilt pilasters + cornices
+    const storeys = [[1, 1, 7, 11], [0.8, 0.76, 6.2, 8], [0.58, 0.52, 5.4, 6]];
+    let y = py;
+    const tops = [];
+    storeys.forEach(([kw, kl, h, nW], si) => {
+      const ww = w * kw, ll = Lp * kl, cz = zc - (Lp - ll) * 0.25;
+      marble.push(box(ww * 2, h, ll, [0, y + h / 2, cz]));
+      gold.push(box(ww * 2 + 0.7, 0.5, ll + 0.7, [0, y + h - 0.1, cz]));               // cornice
+      gold.push(box(ww * 2 + 0.3, 0.25, ll + 0.3, [0, y + 0.15, cz]));                // plinth
+      for (const sx of [-1, 1]) {
+        for (let i = 0; i < nW; i++) {
+          const z = cz - ll / 2 + (ll * (i + 0.5)) / nW;
+          glass.push(box(0.12, h * 0.5, Math.min(1.8, ll / nW * 0.45), [sx * (ww + 0.03), y + h * 0.47, z]));
+          gold.push(place(new THREE.SphereGeometry(Math.min(0.9, ll / nW * 0.23), 8, 4, 0, Math.PI * 2, 0, Math.PI / 2), [sx * (ww + 0.03), y + h * 0.72, z], null, [0.25, 1, 1]));
+          if (i < nW) gold.push(box(0.3, h * 0.92, 0.45, [sx * (ww + 0.12), y + h * 0.5, cz - ll / 2 + (ll * i) / nW]));
+        }
+        gold.push(box(0.3, h * 0.92, 0.45, [sx * (ww + 0.12), y + h * 0.5, cz + ll / 2]));
+      }
+      // windows on the forward façade
+      const nf = Math.max(2, Math.round(ww / 2.4));
+      for (let i = 0; i < nf; i++) glass.push(box(Math.min(1.6, (2 * ww) / nf * 0.4), h * 0.5, 0.12, [-ww + (2 * ww * (i + 0.5)) / nf, y + h * 0.47, cz + ll / 2 + 0.03]));
+      // rooftop balustrade
+      const posts = Math.round(ll / 1.6);
+      for (const sx of [-1, 1]) { for (let i = 0; i <= posts; i++) marble.push(box(0.25, 0.9, 0.25, [sx * (ww - 0.2), y + h + 0.6, cz - ll / 2 + (ll * i) / posts])); gold.push(box(0.22, 0.14, ll, [sx * (ww - 0.2), y + h + 1.1, cz])); }
+      const pf = Math.round(ww / 0.8);
+      for (let i = 0; i <= pf; i++) marble.push(box(0.25, 0.9, 0.25, [-ww + 0.2 + ((2 * ww - 0.4) * i) / pf, y + h + 0.6, cz + ll / 2 - 0.2]));
+      gold.push(box(ww * 2, 0.14, 0.22, [0, y + h + 1.1, cz + ll / 2 - 0.2]));
+      tops.push({ y: y + h, ww, ll, cz });
+      if (si === 0) {
+        // grand portico with columns + pediment facing the bow
+        const pz = cz + ll / 2 + 2.2, nc = 8;
+        marble.push(box(ww * 1.3, 0.5, 4.8, [0, y + 0.25, pz - 0.2]));
+        for (let i = 0; i < nc; i++) { const x = -ww * 0.6 + (1.2 * ww * i) / (nc - 1); marble.push(place(cyl(0.5, 0.42, h - 0.6, 10), [x, y + 0.5 + (h - 0.6) / 2, pz + 1.4])); gold.push(box(1.2, 0.3, 1.2, [x, y + h - 0.05, pz + 1.4])); }
+        marble.push(box(ww * 1.35, 0.7, 5.4, [0, y + h + 0.3, pz]));
+        marble.push(prism(ww * 1.35, 3.0, 5.2, [0, y + h + 0.6, pz]));
+        gold.push(prism(ww * 0.5, 1.15, 5.3, [0, y + h + 0.95, pz]));
+        // royal banners between the windows
+        for (const sx of [-1, 1]) for (let i = 0; i < 3; i++) { const z = cz - ll * 0.3 + i * ll * 0.3; red.push(box(0.14, h * 0.7, 1.4, [sx * (ww + 0.25), y + h * 0.55, z])); gold.push(box(0.16, 0.25, 1.5, [sx * (ww + 0.26), y + h * 0.9, z])); }
+      }
+      y += h;
+    });
+    // corner towers with gilded onion domes
+    const t0 = tops[0];
+    for (const sx of [-1, 1]) for (const fz of [-1, 1]) {
+      const tx = sx * (t0.ww - 1.2), tz = t0.cz + fz * (t0.ll / 2 - 1.2), th = 21;
+      marble.push(place(cyl(2.0, 1.8, th, 14), [tx, py + th / 2, tz]));
+      gold.push(place(cyl(2.3, 2.3, 0.5, 14), [tx, py + th, tz]));
+      for (let r = 0; r < 3; r++) for (let k = 0; k < 4; k++) { const a = (k / 4) * Math.PI * 2 + 0.4; glass.push(place(new THREE.BoxGeometry(0.6, 1.6, 0.12), [tx + Math.sin(a) * 1.92, py + 4 + r * 3.6, tz + Math.cos(a) * 1.92], [0, a, 0])); }
+      const onion = new THREE.SphereGeometry(2.5, 16, 10); onion.scale(1, 1.25, 1);
+      gold.push(place(onion, [tx, py + th + 2.4, tz]));
+      gold.push(place(new THREE.ConeGeometry(0.9, 3.4, 10), [tx, py + th + 5.4, tz]));
+      gold.push(place(new THREE.SphereGeometry(0.35, 8, 6), [tx, py + th + 7.3, tz]));
+      lamps.push(place(new THREE.CylinderGeometry(0.5, 0.4, 0.9, 6), [tx + sx * 2.1, py + th - 1.6, tz]));
+    }
+    // central drum + great golden dome + lantern + spire
+    const t2 = tops[2], dr = Math.min(t2.ww, t2.ll / 2) * 0.82;
+    marble.push(place(cyl(dr, dr, 3.2, 24), [0, t2.y + 1.6, t2.cz]));
+    for (let k = 0; k < 12; k++) { const a = (k / 12) * Math.PI * 2; glass.push(place(new THREE.BoxGeometry(0.9, 1.8, 0.12), [Math.sin(a) * (dr + 0.02), t2.y + 1.6, t2.cz + Math.cos(a) * (dr + 0.02)], [0, a, 0])); gold.push(place(new THREE.BoxGeometry(0.3, 3.2, 0.3), [Math.sin(a + 0.26) * (dr + 0.1), t2.y + 1.6, t2.cz + Math.cos(a + 0.26) * (dr + 0.1)], [0, a, 0])); }
+    gold.push(place(cyl(dr + 0.4, dr + 0.4, 0.5, 24), [0, t2.y + 3.3, t2.cz]));
+    gold.push(place(new THREE.SphereGeometry(dr * 1.02, 28, 12, 0, Math.PI * 2, 0, Math.PI / 2), [0, t2.y + 3.4, t2.cz], null, [1, 1.15, 1]));
+    marble.push(place(cyl(dr * 0.22, dr * 0.22, 2.2, 12), [0, t2.y + 3.4 + dr * 1.15 + 1, t2.cz]));
+    gold.push(place(new THREE.ConeGeometry(dr * 0.28, 4.5, 12), [0, t2.y + 3.4 + dr * 1.15 + 4.3, t2.cz]));
+    gold.push(place(new THREE.SphereGeometry(0.6, 10, 8), [0, t2.y + 3.4 + dr * 1.15 + 6.8, t2.cz]));
+    // forward pavilion on the forecastle: arcade + small dome, flanked by two little towers
+    {
+      const fu = 0.905, fy = deckY(H, fu) - 0.1, fw = hullX(H, fu, fy) * 0.62, fl = L * 0.06, fz = zU(fu), fh = 4.2;
+      marble.push(box(fw * 2, fh, fl, [0, fy + fh / 2, fz]));
+      gold.push(box(fw * 2 + 0.5, 0.45, fl + 0.5, [0, fy + fh, fz]));
+      for (const sx of [-1, 1]) for (let i = 0; i < 3; i++) glass.push(box(0.12, fh * 0.5, 1.2, [sx * (fw + 0.03), fy + fh * 0.5, fz - fl * 0.3 + i * fl * 0.3]));
+      gold.push(place(new THREE.SphereGeometry(fw * 0.62, 18, 8, 0, Math.PI * 2, 0, Math.PI / 2), [0, fy + fh + 0.2, fz], null, [1, 1.2, 1]));
+      gold.push(place(new THREE.ConeGeometry(0.5, 2.6, 8), [0, fy + fh + fw * 0.75 + 1.2, fz]));
+      for (const sx of [-1, 1]) { marble.push(place(cyl(1.1, 1.0, 8, 10), [sx * (fw + 0.4), fy + 4, fz - fl / 2])); const o = new THREE.SphereGeometry(1.4, 12, 8); o.scale(1, 1.3, 1); gold.push(place(o, [sx * (fw + 0.4), fy + 9.2, fz - fl / 2])); gold.push(place(new THREE.ConeGeometry(0.5, 2, 8), [sx * (fw + 0.4), fy + 11, fz - fl / 2])); }
+    }
+    // gilt balustrade + lantern posts along the open spar deck
+    for (let i = 0; i <= 31; i++) { const u = 0.38 + i * 0.016; for (const sx of [-1, 1]) { const yy = sheer(H, u), xx = hullX(H, u, yy) - 0.25; gold.push(box(0.22, 1.0, 0.22, [sx * xx, yy + 0.55, zU(u)])); if (i % 6 === 0) { gold.push(place(cyl(0.08, 0.08, 2.6, 5), [sx * xx, yy + 1.3, zU(u)])); lamps.push(place(new THREE.CylinderGeometry(0.42, 0.32, 0.8, 6), [sx * xx, yy + 2.9, zU(u)])); } } }
+    for (const sx of [-1, 1]) gold.push(span(new V3(sx * (hullX(H, 0.38, sheer(H, 0.38)) - 0.25), sheer(H, 0.38) + 1.05, zU(0.38)), new V3(sx * (hullX(H, 0.88, sheer(H, 0.88)) - 0.25), sheer(H, 0.88) + 1.05, zU(0.88)), 0.12, 0.12, 4));
+    // gilt carving along the sheer + a band of iron plates at the waterline
+    for (let i = 0; i < 60; i++) { const u = 0.03 + i * 0.016; for (const sx of [-1, 1]) gold.push(box(0.12, 0.3, L * 0.009, [sx * (hullX(H, u, sheer(H, u) - 0.6) + 0.03), sheer(H, u) - 0.6, zU(u)])); }
+    for (let i = 0; i < 44; i++) { const u = 0.05 + i * 0.021; for (const sx of [-1, 1]) { const yy = 0.9; iron.push(place(new THREE.BoxGeometry(0.2, 1.6, L * 0.019), [sx * (hullX(H, u, yy) + 0.06), yy, zU(u)], [0, 0, sx * 0.08])); } }
+  }
+
   // assemble merged static meshes
-  for (const [list, mat] of [[dark, m.darkwood], [spar, m.spar], [iron, m.iron], [gold, m.gold], [ports, m.port], [glass, m.glass], [lamps, m.lantern], [red, m.red], [white, m.white]]) {
+  for (const [list, mat] of [[dark, m.darkwood], [spar, m.spar], [iron, m.iron], [gold, m.gold], [ports, m.port], [glass, m.glass], [lamps, m.lantern], [red, m.red], [white, m.white], [trimL, trimMat], [marble, m.marble]]) {
     const mesh = merged(list, mat); if (mesh) body.add(mesh);
   }
   const rg = new THREE.BufferGeometry(); rg.setAttribute('position', new THREE.Float32BufferAttribute(rigLines, 3));
@@ -699,6 +819,8 @@ export function buildShip(stats, look = {}) {
       holes.instanceMatrix.needsUpdate = true;
     },
     clearHoles() { holeN = 0; holes.count = 0; },
+    /** Carpenters plug a share of the shot-holes. */
+    patchHoles(frac) { holeN = Math.floor(Math.min(holeN, MAXH) * (1 - frac)); holes.count = holeN; },
     update(t, wind = 1) {
       const lvl = this.sailLevel;
       for (const s of sails) {
@@ -720,7 +842,7 @@ export function buildShip(stats, look = {}) {
     },
     dispose() {
       root.traverse((o) => { if (o.geometry && o.geometry !== HOLE) o.geometry.dispose(); });
-      hull.material.dispose(); smat.dispose(); flagMat.dispose(); pennantMat.dispose();
+      hull.material.dispose(); smat.dispose(); flagMat.dispose(); pennantMat.dispose(); trimMat.dispose();
     },
   };
   return api;

@@ -5,11 +5,13 @@ peer-to-peer multiplayer over WebRTC. **Play: https://fanaustinca.github.io/salt
 
 ## Features
 - **Ocean & ships** — Gerstner-wave ocean with foam, sky reflections, sun glint and shoreline surf. Ships ride the
-  same wave field the GPU draws (heave, pitch, roll, heel, recoil); the sea calms in the lee of islands. Six
-  distinct procedural designs: a raked single-mast **Sloop**, a clipper-bowed **Schooner**, a square-fore
+  same wave field the GPU draws (heave, pitch, roll, heel, recoil); the sea calms in the lee of islands. Seven
+  distinct procedural designs: a pirate **Sloop** with quarterdeck, gunport strake and swivel guns, a clipper-bowed **Schooner**, a square-fore
   **Brigantine** with quarterdeck, a black-and-ochre full-rigged **Frigate**, a **Galleon** with a towering painted
   stern castle, beakhead and lateen mizzens, and a three-decked **Man of War** with triple stern galleries, studding
-  sails, gilt lion figurehead and up to 20 guns a side.
+  sails, gilt lion figurehead and up to 20 guns a side — and the flagship-only **Leviathan**, a floating palace with
+  four gun decks (up to 40 guns a side), an iron-clad waterline, a three-storey marble palace under a golden dome
+  with onion-domed towers, and four masts of canvas.
 - **Battle damage** — shot holes appear exactly where balls strike, hulls char and smoulder, damaged ships settle
   and list, sails tear and topmasts get shot away.
 - **3rd-person helm + visual targeting** — the mouse shows the firing sector on the aimed side and a 3D trajectory
@@ -19,7 +21,11 @@ peer-to-peer multiplayer over WebRTC. **Play: https://fanaustinca.github.io/salt
   sets ships ablaze.
 - **Progression** — 200 levels and ~240 upgrade ranks across 17 upgrades (broadside guns, chasers, firing rate,
   range, damage, accuracy, speed, turning, sails, hull, armour, crew, at-sea repairs, foraging, plunder, fleet size).
-  Ship tiers start at 1/1/2/3/5/10 cannons per side; a Man of War can be upgraded to 20.
+  Ship tiers start at 1/1/2/3/5/10/20 cannons per side; a Man of War can be upgraded to 20, a Leviathan to 40.
+- **Repairs at sea** — `R` sends your carpenters to patch the hull (and some canvas) with oak from your hold and put
+  out fires, even mid-battle (short cooldown).
+- **Wake trails** — buy coloured trails with gold (Wake Trails tab in any port): gilded, ember, blood tide, emerald,
+  azure, ghost violet, phantom mist, rainbow.
 - **Fleets** — every ship you own beyond your flagship can be sent out (`G`, or click an island on the map) to
   escort you, guard an island, or attack an enemy/clan/wild island — they bombard it and capture it for you.
 - **Crafting** — chainshot, grapeshot, explosive shot and gunpowder from oak, iron, canvas and powder.
@@ -44,7 +50,7 @@ peer-to-peer multiplayer over WebRTC. **Play: https://fanaustinca.github.io/salt
 
 ## Controls
 `W`/`S` sails · `A`/`D` steer · mouse aim · click / `Space` fire · `1`–`4` / `Q` ammo · `E` dock / claim / port ·
-hold `F` harvest · `M` map · `G` fleet command · right-drag orbit · wheel zoom · `C` reset camera · `H` help · `Esc` menu.
+hold `F` harvest · `R` repair at sea · `M` map · `G` fleet command (side drawer at sea) · right-drag orbit · wheel zoom · `C` reset camera · `H` help · `Esc` menu.
 
 ## Dev console
 Open the browser console and run `dev.help()`, or press `` ` `` in game for a command prompt

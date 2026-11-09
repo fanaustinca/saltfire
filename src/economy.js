@@ -34,8 +34,8 @@ export function shipSpec(tier, o = {}) {
     uid: o.uid || uid('s'), tier: T.id, name: o.name || T.name,
     side: clampInt(o.side ?? T.side, T.minSide, T.maxSide),
     size: clamp(o.size ?? 1, 0.85, 1.2),
-    hullColor: o.hullColor || '#5a3a22', trimColor: o.trimColor || '#c9a227',
-    sailColor: o.sailColor || '#efe6cf', emblem: o.emblem ?? 0,
+    hullColor: o.hullColor || T.look?.hullColor || '#5a3a22', trimColor: o.trimColor || T.look?.trimColor || '#c9a227',
+    sailColor: o.sailColor || T.look?.sailColor || '#efe6cf', emblem: o.emblem ?? 0,
     custom: !!o.custom, hp: null, crew: null,
   };
 }
@@ -59,10 +59,10 @@ export function shipStats(spec, upg = {}) {
     hull: Math.round(T.hull * (1 + u('hull')) * s),
     sails: Math.round(T.sails * (1 + u('sails')) * s),
     crew: Math.round(T.crew * (1 + u('crew')) * s),
-    reload: (BASE_RELOAD / (1 + u('reload'))) * (1 + 0.025 * Math.max(0, side - 3)),
+    reload: (BASE_RELOAD / (1 + u('reload'))) * (1 + 0.015 * Math.max(0, side - 3)),
     range: rangeFor(T.id) * rangeK,
     muzzle: MUZZLE * Math.sqrt(rangeK),
-    dmg: 1 + u('damage'), armor: 1 - u('armor'), spread: 1 - u('accuracy'), regen: u('repair'),
+    dmg: 1 + u('damage'), armor: (1 - u('armor')) * (T.armor ?? 1), spread: 1 - u('accuracy'), regen: u('repair'),
   };
 }
 /** How many fleet ships a captain may have at sea at once. */

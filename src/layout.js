@@ -6,8 +6,8 @@ const sm = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a)));
 
 /** Per-tier hull designs: every class has its own lines, superstructure and rig. */
 export const DESIGN = {
-  // fast single-master: low freeboard, raked stem, open deck, tiller
-  sloop:      { transom: 0.42, sternRise: 0.05, bowRise: 0.22, entry: 1.25, run: 1.0, deadrise: 0.75, tumble: 0.02, rake: 0.06, bow: 'raked', stern: 'counter' },
+  // pirate sloop: beamy single-master, raised quarterdeck + cabin, painted gunport strake, transom stern
+  sloop:      { transom: 0.52, sternRise: 0.16, bowRise: 0.24, entry: 1.1, run: 1.0, deadrise: 0.68, tumble: 0.05, rake: 0.05, bow: 'raked', stern: 'transom' },
   // sleek racer: narrow, sharp clipper bow, sweeping sheer, raked masts
   schooner:   { transom: 0.36, sternRise: 0.06, bowRise: 0.32, entry: 1.45, run: 1.1, deadrise: 0.85, tumble: 0.03, rake: 0.1, bow: 'clipper', stern: 'counter' },
   // workhorse brig: fuller body, small quarterdeck, figurehead
@@ -18,7 +18,11 @@ export const DESIGN = {
   galleon:    { transom: 0.78, sternRise: 1.35, bowRise: 0.62, entry: 0.75, run: 0.8, deadrise: 0.4, tumble: 0.22, rake: 0.0, bow: 'beak', stern: 'castle' },
   // ship of the line: three gun decks, wall-sided, broad stern with triple galleries
   manowar:    { transom: 0.72, sternRise: 0.5, bowRise: 0.22, entry: 0.8, run: 0.85, deadrise: 0.3, tumble: 0.14, rake: 0.0, bow: 'head', stern: 'galleries3' },
+  // floating palace: four gun decks, an iron-clad waterline and a gilded palace rising from the deck
+  leviathan:  { transom: 0.82, sternRise: 0.28, bowRise: 0.2, entry: 0.72, run: 0.8, deadrise: 0.22, tumble: 0.12, rake: 0.0, bow: 'head', stern: 'galleries3' },
 };
+/** Vertical spacing between gun decks. */
+export const deckGap = (H) => Math.min(3.0, Math.max(1.7, H.depth * 0.28));
 
 /** Hull proportions per tier. */
 export function hullShape(tier, len, beam, depth) {
@@ -44,7 +48,8 @@ export function planW(H, u) {
 }
 /** Deck-edge (sheer) height above the waterline at u. */
 export function sheer(H, u) {
-  const base = H.depth * (0.42 + 0.13 * H.decks);
+  // small hulls get extra freeboard so the deck sits well clear of the water
+  const base = H.depth * (0.42 + 0.13 * H.decks) + Math.max(0, 2.3 - H.depth * 0.55);
   return base + H.depth * H.sternRise * sm(0.32, 0.0, u) * 1.0 + H.depth * H.bowRise * sm(0.78, 1.0, u) + H.depth * 0.08 * (u - 0.5) ** 2 * 4;
 }
 /** Keel depth (negative y) at u — forefoot rises toward the stem. */
@@ -75,7 +80,7 @@ export function gunLayout(stats) {
   per.reverse(); // the lowest deck carries the most guns
   for (let d = 0; d < decks; d++) {
     const cnt = per[d];
-    const y0 = deckY(H, 0.5) - d * Math.max(1.7, H.depth * 0.28) + 0.55;
+    const y0 = deckY(H, 0.5) - d * deckGap(H) + 0.55;
     const u0 = 0.2 + d * 0.03, u1 = 0.78 - d * 0.04;
     for (let i = 0; i < cnt; i++) {
       const u = cnt === 1 ? 0.5 : u0 + ((u1 - u0) * i) / (cnt - 1);

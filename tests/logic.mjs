@@ -4,7 +4,7 @@ import * as E from '../src/economy.js';
 import { Sim, joinPlayer, solveElev, arcOf } from '../src/sim.js';
 import { handleAct } from '../src/actions.js';
 import { generateIslands } from '../src/worldgen.js';
-import { TIERS, MARKET_TAX, BUILDINGS, GRAVITY, MUZZLE, UPGRADE_TOTAL, claimFee } from '../src/config.js';
+import { TIERS, MARKET_TAX, BUILDINGS, GRAVITY, MUZZLE, UPGRADE_TOTAL, claimFee, BASE_RELOAD, TRAILS } from '../src/config.js';
 import { setCalm, heightAt } from '../src/waves.js';
 import { gunLayout } from '../src/layout.js';
 import { buildingPos, baseShape, dockAngle, harborPoint, baseRadius } from '../src/basegeo.js';
@@ -16,7 +16,7 @@ const world = (seed = 42) => { const W = E.newWorld(seed); generateIslands(W); r
 const rng = (s = 1) => () => ((s = (s * 16807) % 2147483647) / 2147483647);
 
 T('ship tiers match the spec cannon counts', () => {
-  const want = { sloop: 1, schooner: 1, brigantine: 2, frigate: 3, galleon: 5, manowar: 10 };
+  const want = { sloop: 1, schooner: 1, brigantine: 2, frigate: 3, galleon: 5, manowar: 10, leviathan: 20 };
   for (const t of TIERS) ok(t.side === want[t.id], t.id);
   for (const t of TIERS) { const st = E.shipStats(E.shipSpec(t.id)); const g = gunLayout(st); ok(g.filter((x) => x.side === 'L').length === t.side && g.filter((x) => x.side === 'R').length === t.side, 'layout ' + t.id); }
 });
@@ -177,6 +177,7 @@ T('man of war carries up to 20 guns a side; ~230 upgrade ranks to spend', () => 
   const st = E.shipStats(E.shipSpec('manowar'), { side: 10 });
   ok(st.side === 20 && gunLayout(st).filter((g) => g.side === 'L').length === 20, 'side ' + st.side);
   ok(E.shipStats(E.shipSpec('manowar'), { side: 50 }).side === 20, 'capped at 20');
+  ok(E.shipStats(E.shipSpec('manowar'), { side: 20 }).side === 20, 'MoW still capped at 20 with 20 ranks');
   ok(UPGRADE_TOTAL >= 199, 'ranks ' + UPGRADE_TOTAL);
   const p = E.newProfile('a'); p.points = 30; ok(E.buyUpgrade(p, 'speed', 30) === null && p.upg.speed === 25 && p.points === 5, 'bulk buy caps at max');
   const fast = E.shipStats(E.shipSpec('sloop'), { speed: 25, range: 15, reload: 20 });
@@ -271,6 +272,55 @@ T('actions: dock at the Free Port, repair, buy ship, craft, upgrade', () => {
 T('save round-trip: world JSON survives serialisation', () => {
   const W = world(); const sim = new Sim(W, { rand: rng(13) }); joinPlayer(sim, 'u', 'U'); E.npcRestock(W, rng(1));
   const W2 = JSON.parse(JSON.stringify(W)); ok(W2.players.u && W2.bases.length === W.bases.length && W2.market.length === W.market.length);
+});
+T('leviathan: flagship-only floating palace with up to 40 guns a side', () => {
+  const lv = E.shipStats(E.shipSpec('leviathan'), { side: 20 });
+  ok(lv.side === 40 && gunLayout(lv).filter((g) => g.side === 'L').length === 40, 'side ' + lv.side);
+  const mow = E.shipStats(E.shipSpec('manowar'));
+  ok(lv.hull > mow.hull * 2.5 && lv.armor < 0.7 && lv.len > mow.len * 1.4, 'tougher + bigger');
+  // guns never sit under water, even on the lowest of the four decks
+  ok(gunLayout(lv).every((g) => g.y > 2.5), 'gun decks above the waterline');
+  const W = world(); const sim = new Sim(W, { rand: rng(31) }); const { p } = joinPlayer(sim, 'u', 'U');
+  p.level = 60; p.inv = { gold: 1e6, oak: 1e5, iron: 1e5, canvas: 1e5, powder: 1e4 };
+  const me = sim.spawnPlayer('u'); me.x = 150; me.z = 0; me.spd = 0; handleAct(sim, 'u', { type: 'dock' });
+  const b = handleAct(sim, 'u', { type: 'buyShip', tier: 'leviathan' }); ok(!b.err, b.err);
+  ok(sim.deployFleet('u', b.data, { mode: 'escort' }).includes('flagship'), 'cannot sail in a fleet');
+  ok(!handleAct(sim, 'u', { type: 'flagship', uid: b.data }).err && sim.ships.get('p:u').spec.tier === 'leviathan', 'but can be your flagship');
+  // AI captains never get one, even around a Leviathan
+  const lead = sim.ships.get('p:u'); lead.docked = null; lead.x = 2500; lead.z = 2500;
+  for (let i = 0; i < 80; i++) { const s = sim.spawnAI(200, lead, { strong: true }); if (s) ok(s.spec.tier !== 'leviathan', 'AI leviathan'); }
+});
+T('cannons reload fast; R repairs at sea with oak', () => {
+  ok(BASE_RELOAD <= 3.5, 'reload ' + BASE_RELOAD);
+  ok(E.shipStats(E.shipSpec('manowar'), { side: 10 }).reload < 5, 'MoW 20-gun reload');
+  const W = world(); const sim = new Sim(W, { rand: rng(32) }); const { p } = joinPlayer(sim, 'u', 'U');
+  const me = sim.spawnPlayer('u'); me.x = 1500; me.z = 1500; me.docked = null;
+  me.hull = me.stats.hull * 0.3; me.sails = me.stats.sails * 0.5; me.fire = 5;
+  p.inv.oak = 0; ok(handleAct(sim, 'u', { type: 'seaRepair' }).err.includes('oak'), 'needs oak');
+  p.inv.oak = 100; const h0 = me.hull;
+  const r = handleAct(sim, 'u', { type: 'seaRepair' }); ok(!r.err, r.err);
+  ok(me.hull > h0 && p.inv.oak < 100 && me.fire === 0 && sim.fx.some((f) => f.t === 'repair'), 'patched');
+  ok(handleAct(sim, 'u', { type: 'seaRepair' }).err.includes('work'), 'cooldown');
+  sim.time += 10; me.hull = me.stats.hull; me.sails = me.stats.sails; ok(handleAct(sim, 'u', { type: 'seaRepair' }).err.includes('no repairs'));
+});
+T('wake trails: buy with gold, equip, shown on your ship', () => {
+  const W = world(); const sim = new Sim(W, { rand: rng(33) }); const { p } = joinPlayer(sim, 'u', 'U');
+  const me = sim.spawnPlayer('u');
+  p.inv.gold = 100; ok(handleAct(sim, 'u', { type: 'buyTrail', id: 'gold' }).err, 'too poor');
+  p.inv.gold = 1e5; ok(!handleAct(sim, 'u', { type: 'buyTrail', id: 'ember' }).err && p.inv.gold === 1e5 - TRAILS.ember.cost);
+  ok(p.trail === 'ember' && sim.ships.get('p:u').look.trail === 'ember', 'equipped');
+  ok(!handleAct(sim, 'u', { type: 'setTrail', id: 'foam' }).err && me.look.trail === 'foam');
+  ok(handleAct(sim, 'u', { type: 'setTrail', id: 'rainbow' }).err, 'not owned');
+  ok(sim.spawnPlayer('u').look.trail === 'foam', 'survives respawn');
+});
+T('respawn: the new flagship keeps local control and bumps its life', () => {
+  const W = world(); const sim = new Sim(W, { rand: rng(34) }); joinPlayer(sim, 'u', 'U');
+  const me = sim.spawnPlayer('u'); me.local = true; me.life = 3;
+  sim.hurt(me, 1e6, 0, 0, null);
+  for (let i = 0; i < 80; i++) sim.step(0.1);
+  const ns = sim.ships.get('p:u'); ok(ns !== me && ns.sink === 0 && ns.local && ns.life === 4, 'respawned ' + ns.life);
+  ns.sail = 1; const x0 = ns.x, z0 = ns.z; for (let i = 0; i < 60; i++) sim.step(0.1);
+  ok(ns.sailNow > 0.8 && Math.hypot(ns.x - x0, ns.z - z0) > 15, 'sails unfurl and it moves');
 });
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

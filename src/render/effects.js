@@ -3,6 +3,16 @@
 import * as THREE from 'three';
 import { puff } from './textures.js';
 import { heightAt } from '../waves.js';
+import { TRAILS } from '../config.js';
+
+const trailCache = new Map();
+/** Colour of a wake trail id (null = plain foam, 'rainbow' cycles through hues). */
+function trailCol(id) {
+  if (!id || !TRAILS[id] || !TRAILS[id].color) return null;
+  if (TRAILS[id].color === 'rainbow') return 'rainbow';
+  if (!trailCache.has(id)) trailCache.set(id, new THREE.Color(TRAILS[id].color));
+  return trailCache.get(id);
+}
 
 const MAXP = 6000;
 const pvert = `
@@ -73,7 +83,7 @@ class Foam {
     this.p = [];
     this.m4 = new THREE.Matrix4(); this.q = new THREE.Quaternion(); this.c = new THREE.Color();
   }
-  add(x, z, s0, s1, life, a = 0.5, yaw = 0, stretch = 1) { if (this.p.length >= this.max) this.p.shift(); this.p.push({ x, z, s0, s1, life, age: 0, a, yaw, stretch }); }
+  add(x, z, s0, s1, life, a = 0.5, yaw = 0, stretch = 1, col = null) { if (this.p.length >= this.max) this.p.shift(); this.p.push({ x, z, s0, s1, life, age: 0, a, yaw, stretch, col }); }
   update(dt, t) {
     this.p = this.p.filter((q) => (q.age += dt) < q.life);
     let i = 0;
@@ -83,7 +93,8 @@ class Foam {
       this.m4.compose(new THREE.Vector3(q.x, heightAt(q.x, q.z, t) + 0.12, q.z), this.q, new THREE.Vector3(s, 1, s * q.stretch));
       this.mesh.setMatrixAt(i, this.m4);
       const a = q.a * (1 - k) * (k < 0.08 ? k / 0.08 : 1);
-      this.c.setRGB(a, a, a); this.mesh.setColorAt(i, this.c);
+      if (q.col) this.c.setRGB(a * q.col.r, a * q.col.g, a * q.col.b); else this.c.setRGB(a, a, a);
+      this.mesh.setColorAt(i, this.c);
       i++;
     }
     this.mesh.count = i;
@@ -178,6 +189,14 @@ export class Effects {
     }
     const sx = s.x - fx * L * 0.48, sz = s.z - fz * L * 0.48;
     if (Math.random() < 0.35) this.foam.add(sx + (Math.random() - 0.5) * B * 0.5, sz + (Math.random() - 0.5) * B * 0.5, B * 0.5, B * (1.8 + k * 1.4), 5 + k * 4, 0.03 * k, s.yaw, 1.6);
+    // purchased coloured trail: a glowing ribbon of tinted foam + sparks behind the stern
+    let tc = trailCol(s.look?.trail);
+    if (tc) {
+      if (tc === 'rainbow') { tc = (this._rb ||= new THREE.Color()).setHSL((t * 0.35 + s.x * 0.002) % 1, 1, 0.55).clone(); }
+      const w = Math.min(9, Math.max(2.5, B * 0.45));
+      for (let i = 0; i < 2; i++) { const bx = sx - fx * i * sp * 0.03 + (Math.random() - 0.5) * w * 0.3, bz = sz - fz * i * sp * 0.03 + (Math.random() - 0.5) * w * 0.3; this.smoke.add({ x: bx, y: heightAt(bx, bz, t) + 0.4, z: bz, vx: (Math.random() - 0.5) * 0.6, vy: 0.15, vz: (Math.random() - 0.5) * 0.6, age: 0, life: 4 + k * 3, s0: w * 0.7, s1: w * 1.5, a: 0.5, c: tc, drag: 0.5 }); }
+      if (Math.random() < 0.3) this.glow.add({ x: sx + (Math.random() - 0.5) * w, y: heightAt(sx, sz, t) + 0.6, z: sz + (Math.random() - 0.5) * w, vx: -fx * sp * 0.2 + (Math.random() - 0.5) * 2, vy: 1 + Math.random() * 2.5, vz: -fz * sp * 0.2 + (Math.random() - 0.5) * 2, age: 0, life: 1.2 + Math.random(), s0: 1.2 + Math.min(1.5, B * 0.05), s1: 0.2, a: 0.45, c: tc, drag: 1.2, g: 1.5 });
+    }
     if (Math.random() < k * 0.4) this.smoke.add({ x: s.x + fx * L * 0.45, y: heightAt(s.x, s.z, t) + 0.5, z: s.z + fz * L * 0.45, vx: rx * (Math.random() - 0.5) * 5, vy: 2 + Math.random() * 2, vz: rz * (Math.random() - 0.5) * 5, age: 0, life: 0.7, s0: 1, s1: 2.5, a: 0.5, c: new THREE.Color(0xffffff), g: 9 });
   }
   update(dt, t, balls) {

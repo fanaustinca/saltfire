@@ -27,7 +27,7 @@ export function gallery(q) {
   const focus = new THREE.Vector3((x - main.beam * 3 - 12) / 2, L * 0.25, 0);
   const pos = { side: [L * 1.25, L * 0.32, L * 0.25], front: [L * 0.35, L * 0.25, L * 1.1], back: [-L * 0.3, L * 0.22, -L * 0.95], top: [0.1, L * 1.6, 0.1], deck: [main.beam * 0.6, L * 0.2, -L * 0.3], quarter: [L * 0.8, L * 0.3, L * 0.8] }[cam];
   if (which === 'all') { stage.camera.position.set(focus.x, 40, 140); }
-  else stage.camera.position.set(focus.x + pos[0], pos[1], pos[2]);
+  else { const k = +(q.get('d') || 1); stage.camera.position.set(focus.x + pos[0] * k, pos[1] * k, pos[2] * k); }
   stage.camera.lookAt(focus);
   let t = +(q.get('t') || 3);
   window.SALT = { ready: true, gallery: true, frames: 0 };

@@ -52,6 +52,19 @@ await T('solo: world renders, sails + steering with the keyboard', async () => {
   assert(Math.hypot(p1.x - p0.x, p1.z - p0.z) > 3 && p1.sail === 1, 'moved under full sail ' + JSON.stringify(p1));
   assert(await page.$eval('#sname', (e) => e.textContent.includes('Sloop')), 'HUD shows ship');
   await shot(page, 'e2e-sailing.png');
+  // R: carpenters patch the hull with oak, mid-voyage
+  const h0 = await page.evaluate(() => { const me = SALT.game.me(); me.hull = me.stats.hull * 0.4; SALT.game.profile().inv.oak = 50; return me.hull; });
+  await page.keyboard.press('KeyR');
+  await page.waitForFunction((h) => SALT.game.me().hull > h + 1 && SALT.game.profile().inv.oak < 50, { polling: 100, timeout: 30000 }, h0);
+  // G at sea opens fleet command as a side drawer that doesn't stop you sailing
+  await page.keyboard.press('KeyG');
+  await page.waitForSelector('.port-wrap.side');
+  assert(!(await page.evaluate(() => SALT.game.ui.blocking())), 'side drawer must not block the helm');
+  await page.keyboard.press('KeyG');
+  assert(!(await page.$('.port-wrap')), 'G toggles the drawer closed');
+  // wake trails: buy one and it's on the ship
+  const tr = await page.evaluate(async () => { SALT.game.profile().inv.gold = 5000; const r = await SALT.game.act({ type: 'buyTrail', id: 'gold' }); return [r.err, SALT.game.me().look.trail]; });
+  assert(!tr[0] && tr[1] === 'gold', 'trail ' + tr);
   assert(!errors.length, errors.join('\n'));
   await page.close();
 });

@@ -305,6 +305,15 @@ export class Game {
       case 'collapse': this.fx.explosion(f.x, f.y + 4, f.z, 1.2); this.fx.dustPuff(f.x, f.y, f.z, 0x9a9080); sfx.boom(d); break;
       case 'sink': this.fx.explosion(f.x, 3, f.z, 1); for (let i = 0; i < 25; i++) this.fx.addChunk(f.x + (Math.random() - 0.5) * 10, 3, f.z + (Math.random() - 0.5) * 10); sfx.boom(d); break;
       case 'pickup': sfx.coin(); break;
+      case 'repair': {
+        sfx.chop(d); setTimeout(() => sfx.chop(d), 180); setTimeout(() => sfx.chop(d), 420);
+        const v = this.views.get(f.ship), s = this.sim.ships.get(f.ship);
+        if (v) v.model.patchHoles(0.5);
+        const L = s?.stats.len || 20;
+        for (let i = 0; i < 16; i++) { const a = Math.random() * 6.28, r = Math.random() * L * 0.4; this.fx.glow.add({ x: f.x + Math.cos(a) * r, y: 3 + Math.random() * 4, z: f.z + Math.sin(a) * r, vx: 0, vy: 2 + Math.random() * 2, vz: 0, age: 0, life: 1.2, s0: 2, s1: 0.3, a: 0.9, c: new THREE.Color(0.55, 1, 0.45), drag: 1 }); }
+        this.fx.dustPuff(f.x, 4, f.z, 0xb08a5a);
+        break;
+      }
       case 'harvest': if (f.ship === 'p:' + this.pid) { this.ui.floatText(`+${f.q} ${f.res}`); sfx.chop(); } break;
       case 'ink': for (let i = 0; i < 8; i++) this.fx.smoke.add({ x: f.x, y: f.y, z: f.z, vx: (Math.random() - 0.5) * 6, vy: Math.random() * 3, vz: (Math.random() - 0.5) * 6, age: 0, life: 2, s0: 2, s1: 7, a: 0.8, c: new THREE.Color(0x200818), drag: 1 }); sfx.crack(d); break;
       case 'slam': this.fx.splash(f.x, f.z, 2.5, t); for (let i = 0; i < 12; i++) this.fx.addChunk(f.x, 3, f.z); sfx.boom(d); if (f.ship === 'p:' + this.pid) this.shake = 1; break;
@@ -337,7 +346,8 @@ export class Game {
         case 'Space': e.preventDefault(); this.tryFire(); break;
         case 'Escape': this.ui.escape(this); break;
         case 'KeyP': if (me?.docked) this.ui.port(this); break;
-        case 'KeyG': this.ui.port(this, 'fleet', !me?.docked); break;
+        case 'KeyG': if (this.ui.panel && this.ui.remote) this.ui.closePanel(this); else this.ui.port(this, 'fleet', !me?.docked); break;
+        case 'KeyR': this.seaRepair(); break;
         default: break;
       }
     };
@@ -389,6 +399,15 @@ export class Game {
     this.sailIdx = 0; me.sail = 0;
     sfx.bell();
     this.ui.port(this);
+  }
+  async seaRepair() {
+    const me = this.me(); if (!me || me.sink > 0) return;
+    if (me.docked) { this.ui.port(this, 'ship'); return; }
+    const res = await this.act({ type: 'seaRepair' });
+    if (res.err) { this.ui.toast(res.err, 'bad'); return; }
+    this.repairUntil = performance.now() / 1000 + (res.data?.cd || 7);
+    this.ui.toast(`Carpenters patched ${res.data?.hull ?? 0} hull (−${res.data?.oak ?? 0} oak)`, 'good');
+    this.ui.refresh(this);
   }
   async undock() {
     await this.act({ type: 'undock' });
@@ -528,6 +547,8 @@ export class Game {
     dt *= this.timeScale || 1;
     this.t += dt;
     const me = this.me();
+    // a respawned / swapped flagship starts with furled sails: reset the sail selector to match
+    if (me && (me !== this._meRef || (me.life || 0) !== this._meLife)) { if (this._meRef) { this.sailIdx = 0; me.sail = 0; } this._meRef = me; this._meLife = me.life || 0; }
     // local helm
     if (me && me.sink === 0 && !me.docked) {
       const l = this.keys.has('KeyA') || this.keys.has('ArrowLeft'), r = this.keys.has('KeyD') || this.keys.has('ArrowRight');
@@ -581,7 +602,7 @@ export class Game {
       const dist = Math.hypot(s.x - focus.x, s.z - focus.z);
       const far = 700 + s.stats.len * 20;
       if (dist > far + 300 && s !== me) { if (v) this.dropView(s.id); continue; }
-      const key = s.spec.uid + ':' + (s.rev || 0) + ':' + JSON.stringify(s.look);
+      const key = s.spec.uid + ':' + (s.rev || 0) + ':' + JSON.stringify({ ...s.look, trail: undefined });
       if (!v || v.key !== key) {
         if (built >= 3 && v == null && s !== me) continue; // spread model building over frames
         if (v) this.dropView(s.id);

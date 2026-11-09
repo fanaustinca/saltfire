@@ -4,7 +4,7 @@
 // trade on the market and fortify their holds, world events, production. On clients it only
 // advances visual cannonballs and effects; ship state arrives in snapshots.
 import {
-  TIERS, tierById, tierIndex, AMMO, GRAVITY, MUZZLE, SECTOR_HALF, CHASE_HALF, MIN_RANGE, BUILDINGS,
+  AI_TOP_TIER, TIERS, tierById, tierIndex, AMMO, GRAVITY, MUZZLE, SECTOR_HALF, CHASE_HALF, MIN_RANGE, BUILDINGS,
   HAVEN_R, WORLD_R, MAX_LEVEL, UPGRADES, CLAN_PLAN, claimFee,
 } from './config.js';
 import {
@@ -141,8 +141,11 @@ export class Sim {
     const old = this.ships.get('p:' + pid);
     if (old) this.ships.delete(old.id);
     const s = this.addShip({ id: 'p:' + pid, pid, owner: pid, spec, upg: p.upg, x, z, yaw, level: p.level, name: spec.name, sail: 0 });
+    // keep who steers it (the host's own ship is stepped locally) and bump the life counter so
+    // clients snap to the new spawn point instead of staying frozen where they sank
+    if (old) { s.local = old.local; s.life = (old.life || 0) + 1; }
     spec.hp = null;
-    s.look = { hullColor: spec.hullColor, trimColor: spec.trimColor, sailColor: spec.sailColor, emblem: spec.emblem, flag: p.color };
+    s.look = { hullColor: spec.hullColor, trimColor: spec.trimColor, sailColor: spec.sailColor, emblem: spec.emblem, flag: p.color, trail: p.trail || null };
     return s;
   }
   homeOf(pid) {
@@ -851,12 +854,12 @@ export class Sim {
       if (this.landNear(x, z).some((i) => Math.hypot(i.x - x, i.z - z) < (i.S ? i.S.edge(Math.atan2(z - i.z, x - i.x)) : i.r) + 25)) continue;
       const roll = this.rand();
       const role = o.role || (roll < 0.3 ? 'merchant' : roll < 0.86 ? 'pirate' : 'navy');
-      const myTier = near?.spec ? tierIndex(near.spec.tier) : 0;
-      const allowed = TIERS.filter((t) => t.level <= lvl + 2).length - 1;
+      const myTier = near?.spec ? Math.min(AI_TOP_TIER, tierIndex(near.spec.tier)) : 0;
+      const allowed = Math.min(AI_TOP_TIER, TIERS.filter((t) => t.level <= lvl + 2).length - 1);
       // 60% small fry (sloops/schooners), 40% matched to the captain (their tier and the two below)
       const strong = o.strong ?? this.rand() < 0.4;
       let ti;
-      if (o.tier != null) ti = tierIndex(o.tier);
+      if (o.tier != null) ti = Math.min(AI_TOP_TIER, tierIndex(o.tier));
       else if (strong) ti = clamp(myTier - Math.floor(this.rand() * 3) + (role === 'navy' && this.rand() < 0.4 ? 1 : 0), 0, Math.max(0, allowed));
       else ti = clamp(Math.floor(this.rand() * 2.3), 0, Math.max(0, Math.min(2, myTier)));
       const T = TIERS[ti];
@@ -895,6 +898,7 @@ export class Sim {
     const spec = p.fleet.find((x) => x.uid === shipUid);
     if (!spec) return 'Not in your fleet';
     if (spec.uid === p.flag) return 'That is your flagship';
+    if (tierById(spec.tier).flagshipOnly) return `A ${tierById(spec.tier).name} only sails as your flagship`;
     if (spec.wrecked) return 'That ship is wrecked — repair it in a harbour first';
     const outN = p.fleet.filter((x) => x.out).length;
     if (!spec.out && outN >= fleetCap(p)) return `You can only command ${fleetCap(p)} ships at sea (Commodore upgrades raise this)`;
@@ -912,7 +916,7 @@ export class Sim {
       for (let i = 0; i < 12 && this.groundAt(x, z) != null; i++) { x += (this.rand() - 0.5) * 140; z += (this.rand() - 0.5) * 140; }
       s = this.addShip({ id: 'f:' + spec.uid, owner: pid, role: 'fleet', spec, upg: { ...p.upg }, level: p.level, name: spec.name, x, z, yaw, sail: 0.67,
         ai: { mode, skill: 0.8, trigger: 0.7, flank: this.rand() < 0.5 ? 0.4 : -0.4, bold: true } });
-      s.look = { hullColor: spec.hullColor, trimColor: spec.trimColor, sailColor: spec.sailColor, emblem: spec.emblem, flag: p.color };
+      s.look = { hullColor: spec.hullColor, trimColor: spec.trimColor, sailColor: spec.sailColor, emblem: spec.emblem, flag: p.color, trail: p.trail || null };
       spec.out = true;
     }
     const used = [...this.ships.values()].filter((o) => o.role === 'fleet' && o.owner === pid && o !== s && o.ai.mode === 'escort').map((o) => o.ai.slot);

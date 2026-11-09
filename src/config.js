@@ -1,7 +1,7 @@
 // Game data: ship tiers, upgrades, ammo, resources, buildings, recipes.
 // Everything balance-related lives here so logic tests and the dev console can read it.
 
-export const VERSION = '2.0.0';
+export const VERSION = '2.1.0';
 
 export const RES = ['gold', 'oak', 'iron', 'canvas', 'powder'];
 export const RES_LABEL = { gold: 'Gold', oak: 'Oak', iron: 'Iron', canvas: 'Canvas', powder: 'Powder' };
@@ -33,14 +33,18 @@ export const TIERS = [
   { id: 'frigate',    name: 'Frigate',     side: 3,  minSide: 3, maxSide: 7,  len: 42, beam: 10.2, depth: 4.6, masts: 3, rig: 'ship',      speed: 20,   turn: 0.42, hull: 900,  sails: 340, crew: 80,  decks: 1, level: 10, cost: { gold: 3600, oak: 180, iron: 70, canvas: 90 } },
   { id: 'galleon',    name: 'Galleon',     side: 5,  minSide: 4, maxSide: 10, len: 50, beam: 13.2, depth: 6.0, masts: 4, rig: 'galleon',   speed: 17,   turn: 0.32, hull: 1500, sails: 440, crew: 150, decks: 2, level: 15, cost: { gold: 7500, oak: 320, iron: 140, canvas: 150 } },
   { id: 'manowar',    name: 'Man of War',  side: 10, minSide: 8, maxSide: 20, len: 74, beam: 18.5, depth: 9.6, masts: 3, rig: 'line',     speed: 15,   turn: 0.24, hull: 3400, sails: 700, crew: 340, decks: 3, level: 22, cost: { gold: 16000, oak: 600, iron: 300, canvas: 260 } },
+  // A floating palace. Flagship only: it never sails in a fleet and no AI captain can own one.
+  { id: 'leviathan',  name: 'Leviathan',   side: 20, minSide: 16, maxSide: 40, len: 118, beam: 31, depth: 15, masts: 4, rig: 'palace',  speed: 13.5, turn: 0.17, hull: 9500, sails: 1500, crew: 900, decks: 4, level: 40, armor: 0.62, flagshipOnly: true, look: { hullColor: '#1d1a2a', trimColor: '#e3b341', sailColor: '#f6f0de' }, cost: { gold: 60000, oak: 1800, iron: 1000, canvas: 700, powder: 200 } },
 ];
+/** Highest tier index an AI captain (or a fleet ship) may sail: everything but the flagship-only Leviathan. */
+export const AI_TOP_TIER = 5;
 export const tierById = (id) => TIERS.find((t) => t.id === id) || TIERS[0];
 export const tierIndex = (id) => Math.max(0, TIERS.findIndex((t) => t.id === id));
 
 // Upgrades bought with level points. Lots of ranks so points stay useful all the way to level 200
 // (≈230 ranks in total). `per` is the effect per rank (see economy.shipStats).
 export const UPGRADES = {
-  side:     { name: 'Extra Broadside',  desc: '+1 cannon per side per rank (up to the hull\'s limit — a Man of War carries 20).', max: 10, per: 1, cat: 'Guns' },
+  side:     { name: 'Extra Broadside',  desc: '+1 cannon per side per rank (up to the hull\'s limit — a Man of War carries 20, a Leviathan 40).', max: 20, per: 1, cat: 'Guns' },
   bow:      { name: 'Bow Chasers',      desc: '+1 forward-firing cannon per rank.', max: 4, per: 1, cat: 'Guns' },
   stern:    { name: 'Stern Chasers',    desc: '+1 rear-firing cannon per rank.', max: 4, per: 1, cat: 'Guns' },
   reload:   { name: 'Drilled Gunners',  desc: '+4% firing rate per rank.', max: 20, per: 0.04, cat: 'Guns' },
@@ -69,7 +73,7 @@ export const MUZZLE = 78;               // m/s
 export const MAX_ELEV = 0.26;           // rad (~15 deg) => ~300 m max at muzzle speed (Long Guns raise muzzle speed)
 export const SECTOR_HALF = 0.62;        // rad, half-width of the broadside sector
 export const CHASE_HALF = 0.32;         // rad, half-width of bow/stern chaser sectors
-export const BASE_RELOAD = 6.5;         // s, at full crew
+export const BASE_RELOAD = 3.2;         // s, at full crew
 export const MIN_RANGE = 18;
 
 export const rangeFor = (tier) => {
@@ -107,6 +111,21 @@ export const HAVEN_R = 340;
 
 // Fleet + claiming
 export const FLEET_BASE = 2;              // ships deployable at once before Commodore ranks
+// At-sea repairs (R): carpenters patch the hull with oak from your hold.
+export const FIELD_REPAIR = { frac: 0.14, sails: 0.1, oakPer: 9, minOak: 3, cd: 7 };
+
+// Wake trails: cosmetic colours bought with gold (Chandlery). `null` colour = plain white foam.
+export const TRAILS = {
+  foam:    { name: 'Sea Foam',      color: null,      cost: 0 },
+  gold:    { name: 'Gilded Wake',   color: '#ffcf3a', cost: 1500 },
+  ember:   { name: 'Ember Wake',    color: '#ff5a1f', cost: 2500 },
+  crimson: { name: 'Blood Tide',    color: '#e0182e', cost: 3500 },
+  emerald: { name: 'Emerald Spray', color: '#28e07a', cost: 3500 },
+  azure:   { name: 'Azure Glow',    color: '#2fa8ff', cost: 3500 },
+  violet:  { name: 'Ghost Violet',  color: '#b25cff', cost: 6000 },
+  ghost:   { name: 'Phantom Mist',  color: '#9fffe8', cost: 9000 },
+  rainbow: { name: 'Rainbow Wake',  color: 'rainbow', cost: 20000 },
+};
 export const claimFee = (owned) => Math.round(300 * Math.pow(Math.max(1, owned), 1.6));
 // AI pirate clans (each holds a fortress and upgrades it over time)
 export const CLAN_NAMES = ['Blackfang Clan', 'Red Tide Brotherhood', 'Skullcrag Raiders', 'Iron Gull Corsairs', 'The Widowmakers', 'Salt Wraiths', 'Kraken\'s Teeth', 'Ember Fleet', 'Bone Harbour Band', 'Crimson Gulls'];

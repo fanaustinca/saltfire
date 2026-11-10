@@ -279,7 +279,8 @@ function vegetation(T, r, { palms = 20, trees = 0, rocks = 6, bushes = 0, tufts 
   const g = new THREE.Group();
   for (const [geo, list] of [[palmGeo(), P], [treeGeo(), Tr], [pineGeo(), Pn], [rockGeo(), Rk], [bushGeo(), Bu], [tuftGeo(), Tu], [flowerGeo(), Fl]]) {
     const m = instanced(geo, list, mats().vc); if (!m) continue;
-    if (list === Tu || list === Fl) m.castShadow = false;
+    if (list === Tu || list === Fl) { m.castShadow = false; m.userData.lod = 1; }
+    else if (list === Bu || list === Rk) m.userData.lod = 2;
     if (list === Fl) { list.forEach((p, i) => m.setColorAt(i, C(p.tint))); m.instanceColor.needsUpdate = true; }
     g.add(m);
   }

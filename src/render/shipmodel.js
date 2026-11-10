@@ -726,61 +726,93 @@ export function buildShip(stats, look = {}) {
 
   // ---------------------------------------------------------------- Leviathan/Titan: the armoured citadel stern
   function citadelStern(sy0, sy1, zS, wx) {
-    const yb = 0.6, yt = sy1;
-    // riveted iron plating over the whole transom
-    const rows = Math.max(4, Math.round((yt - yb) / 1.8)), cols = Math.max(6, Math.round(wx * 2 / 2.6));
-    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
-      const y = yb + ((yt - yb) * (r + 0.5)) / rows, x = -wx * 1.1 + ((wx * 2.2) * (c + 0.5 + (r % 2) * 0.25)) / cols;
-      if (Math.abs(x) > wx * 1.12) continue;
-      plate.push(box((wx * 2.2) / cols - 0.14, (yt - yb) / rows - 0.14, 0.22, [x, y, zS - 0.12]));
+    // An armoured ship-of-the-line stern: an iron belt with chase guns below, then tiers of lit galleries that step
+    // out over the water, quarter galleries tapering to gilt pendants, and a gilt skull crest between great lanterns.
+    const yb = 0.5, yt = sy1, H0 = yt - yb;
+    const yA = yb + H0 * 0.42;                          // top of the armour belt
+    const halfW = (y) => Math.max(1, hullX(H, 0.004, Math.min(y, yt - 0.05)) * 0.98);
+    // --- armour belt: two courses of big riveted plates with gilt seams
+    for (let r = 0; r < 2; r++) {
+      const y0 = yb + ((yA - yb) * r) / 2, y1 = yb + ((yA - yb) * (r + 1)) / 2, ym = (y0 + y1) / 2, w = halfW(ym), cols = 5;
+      for (let c = 0; c < cols; c++) { const x = -w + (2 * w * (c + 0.5)) / cols; plate.push(box((2 * w) / cols - 0.25, y1 - y0 - 0.25, 0.35, [x, ym, zS - 0.15])); }
+      gold.push(box(w * 2 + 0.3, 0.16, 0.42, [0, y1, zS - 0.18]));
     }
-    // three tiers of stern-chaser ports with their guns run out
-    const tiers = titan ? 4 : 3;
-    for (let r = 0; r < tiers; r++) {
-      const y = yb + 1.6 + r * ((yt - yb - 3.5) / Math.max(1, tiers - 1)) * 0.85, n = 5 - (r % 2);
+    // chase guns run out through the belt
+    for (let r = 0; r < 2; r++) {
+      const y = yb + ((yA - yb) * (r + 0.5)) / 2, w = halfW(y), n = r ? 4 : 5;
       for (let i = 0; i < n; i++) {
-        const x = -wx * 0.72 + (wx * 1.44 * (i + 0.5)) / n;
-        if (r === tiers - 1 && Math.abs(x) < wx * 0.3) continue; // leave room for the crest
-        ports.push(box(1.0 * gs, 0.85 * gs, 0.3, [x, y, zS - 0.25]));
-        gold.push(box(1.3 * gs, 0.12, 0.32, [x, y + 0.5 * gs, zS - 0.26])); gold.push(box(1.3 * gs, 0.12, 0.32, [x, y - 0.5 * gs, zS - 0.26]));
-        red.push(place(new THREE.BoxGeometry(1.0 * gs, 0.08, 0.8 * gs), [x, y + 0.62 * gs, zS - 0.6], [-0.5, 0, 0]));
-        const br = cyl(0.17 * gs, 0.12 * gs, 1.8 * gs, 8); br.rotateX(-Math.PI / 2); iron.push(place(br, [x, y, zS - 1.0]));
-        iron.push(place(new THREE.TorusGeometry(0.15 * gs, 0.05 * gs, 4, 8), [x, y, zS - 1.85]));
+        const x = -w * 0.78 + (w * 1.56 * (i + 0.5)) / n;
+        ports.push(box(1.05 * gs, 0.9 * gs, 0.4, [x, y, zS - 0.35]));
+        gold.push(box(1.35 * gs, 1.2 * gs, 0.3, [x, y, zS - 0.26]));
+        const br = cyl(0.2 * gs, 0.14 * gs, 2.2 * gs, 10); br.rotateX(Math.PI / 2); iron.push(place(br, [x, y, zS - 1.3]));
+        iron.push(place(new THREE.TorusGeometry(0.17 * gs, 0.06 * gs, 5, 10), [x, y, zS - 2.4]));
       }
     }
-    // gilt sea-skull crest with glowing eyes and crossed cannon
-    const cy = yt - 2.6, cr = Math.min(wx * 0.32, 4.2);
-    gold.push(place(cyl(cr, cr, 0.5, 24), [0, cy, zS - 0.35], [Math.PI / 2, 0, 0]));
-    iron.push(place(cyl(cr * 0.82, cr * 0.82, 0.55, 24), [0, cy, zS - 0.4], [Math.PI / 2, 0, 0]));
-    marble.push(place(new THREE.SphereGeometry(cr * 0.5, 16, 12), [0, cy + cr * 0.14, zS - 0.75], null, [1, 0.95, 0.55]));
-    marble.push(box(cr * 0.6, cr * 0.32, cr * 0.36, [0, cy - cr * 0.34, zS - 0.75]));
-    for (const sx of [-1, 1]) { ports.push(place(new THREE.SphereGeometry(cr * 0.15, 10, 8), [sx * cr * 0.2, cy + cr * 0.08, zS - 0.75 - cr * 0.22], null, [1, 0.85, 0.5])); ember.push(place(new THREE.SphereGeometry(cr * 0.07, 8, 6), [sx * cr * 0.2, cy + cr * 0.08, zS - 0.8 - cr * 0.27])); }
-    ports.push(place(new THREE.ConeGeometry(cr * 0.08, cr * 0.14, 3), [0, cy - cr * 0.1, zS - 0.75 - cr * 0.27], [-Math.PI / 2, 0, 0]));
-    for (let i = 0; i < 5; i++) ports.push(box(cr * 0.05, cr * 0.2, 0.1, [(-2 + i) * cr * 0.11, cy - cr * 0.36, zS - 0.75 - cr * 0.18 - 0.04]));
-    for (const sx of [-1, 1]) { const b = cyl(0.35, 0.25, cr * 2.6, 10); b.rotateZ(sx * 0.75); gold.push(place(b, [0, cy, zS - 0.25])); }
-    gold.push(box(wx * 2.3, 0.35, 0.4, [0, yt - 0.15, zS - 0.2]));
-    gold.push(box(wx * 2.3, 0.3, 0.35, [0, yb + 0.3, zS - 0.2]));
-    // round armoured towers on the quarters, each with its own guns and a crenellated top
-    const tr = Math.max(2.2, B * 0.085), th = yt + 3.2;
+    // --- gallery tiers, each overhanging the one below
+    const tiers = titan ? 3 : 2, tH = (yt - 1.2 - yA) / tiers;
+    for (let t = 0; t < tiers; t++) {
+      const y0 = yA + t * tH, y1 = y0 + tH, ym = (y0 + y1) / 2, w = halfW(ym) * (0.96 - t * 0.02), out = 0.6 + t * 0.7, z = zS - out;
+      dark.push(box(w * 2, tH, out * 2, [0, ym, zS]));                                  // the tier's body
+      plate.push(box(w * 2 + 0.2, 0.35, out * 2 + 0.3, [0, y0 + 0.17, zS - 0.05]));       // iron sill
+      const nW = Math.max(5, Math.round(w / 1.6));
+      for (let i = 0; i < nW; i++) {
+        const x = -w + (2 * w * (i + 0.5)) / nW, ww = (2 * w) / nW;
+        lamps.push(box(ww * 0.56, tH * 0.5, 0.1, [x, ym + 0.1, z - 0.02]));            // lit stern windows
+        gold.push(box(ww * 0.7, 0.14, 0.14, [x, ym + tH * 0.3, z - 0.06]));
+        gold.push(place(new THREE.SphereGeometry(0.18, 6, 4), [x, ym + tH * 0.36, z - 0.08], null, [1.6, 1, 1]));
+      }
+      for (let i = 0; i <= nW; i++) gold.push(box(0.2, tH * 0.85, 0.18, [-w + (2 * w * i) / nW, ym, z - 0.05]));
+      // balcony: iron walkway with a gilt rail
+      iron.push(box(w * 2 + 0.6, 0.18, 1.3, [0, y0 + 0.4, z - 0.65]));
+      for (let i = 0; i <= 14; i++) gold.push(box(0.07, 0.85, 0.07, [-w - 0.25 + ((2 * w + 0.5) * i) / 14, y0 + 0.9, z - 1.25]));
+      gold.push(box(w * 2 + 0.6, 0.1, 0.12, [0, y0 + 1.33, z - 1.25]));
+      for (const sx of [-1, 1]) gold.push(place(new THREE.ConeGeometry(0.3, 0.9, 6), [sx * (w + 0.3), y0 - 0.1, z - 1.0], [Math.PI, 0, 0]));
+    }
+    const yTop = yA + tiers * tH, wT = halfW(yt) * 0.95, zT = zS - 0.6 - tiers * 0.7;
+    // taffrail: heavy gilt cornice across the top
+    gold.push(box(wT * 2 + 0.8, 0.5, 0.9, [0, yTop + 0.2, zT + 0.3]));
+    dark.push(box(wT * 2, yt + 1.2 - yTop, 1.6, [0, (yTop + yt + 1.2) / 2, zS - 0.4]));
+    gold.push(box(wT * 2 + 0.8, 0.35, 0.6, [0, yt + 1.25, zS - 0.5]));
+    // --- quarter galleries: faceted bays on each quarter, tapering down to a gilt pendant
+    const qr = Math.max(1.6, B * 0.055);
     for (const sx of [-1, 1]) {
-      const tx = sx * (hullX(H, 0.03, yt * 0.6) - tr * 0.35), tz = zS + tr * 0.35;
-      iron.push(place(cyl(tr, tr * 1.08, th - 1, 16), [tx, (th - 1) / 2 + 1, tz]));
-      gold.push(place(cyl(tr * 1.1, tr * 1.1, 0.35, 16), [tx, yt * 0.55, tz]));
-      gold.push(place(cyl(tr * 1.12, tr * 1.12, 0.4, 16), [tx, th, tz]));
-      for (let k = 0; k < 8; k++) { const a = (k / 8) * Math.PI * 2; iron.push(box(0.9, 1.1, 0.9, [tx + Math.cos(a) * tr * 0.95, th + 0.75, tz + Math.sin(a) * tr * 0.95], [0, -a, 0])); }
-      for (const [vx, vz, gy] of [[0, -1, yt * 0.4], [sx, -1, yt * 0.62], [sx, 0, yt * 0.4], [0, -1, yt * 0.84], [sx, 0.4, yt * 0.84]]) {
-        const n = new V3(vx, 0, vz).normalize(), ry = Math.atan2(n.x, n.z);
-        ports.push(place(new THREE.BoxGeometry(0.9 * gs, 0.8 * gs, 0.3), [tx + n.x * tr, gy, tz + n.z * tr], [0, ry, 0]));
-        const br = cyl(0.17 * gs, 0.12 * gs, 1.8 * gs, 8); br.rotateX(Math.PI / 2); br.rotateY(ry);
-        iron.push(place(br, [tx + n.x * (tr + 0.8), gy, tz + n.z * (tr + 0.8)]));
+      const qx = sx * (halfW((yA + yt) / 2) - qr * 0.2), qz = zS + qr * 0.9, qy0 = yA - 0.6, qy1 = yt + 0.8;
+      dark.push(place(new THREE.CylinderGeometry(qr, qr, qy1 - qy0, 8), [qx, (qy0 + qy1) / 2, qz]));
+      for (let t = 0; t < tiers; t++) {
+        const y = yA + (t + 0.5) * tH;
+        for (const a of [-0.7, 0, 0.7]) { const ang = (sx > 0 ? -Math.PI / 2 : Math.PI / 2) + Math.PI + a * sx; lamps.push(place(new THREE.BoxGeometry(qr * 0.55, tH * 0.45, 0.1), [qx + Math.sin(ang) * qr * 0.96, y, qz + Math.cos(ang) * qr * 0.96], [0, ang, 0])); }
+        gold.push(place(cyl(qr * 1.05, qr * 1.05, 0.18, 8), [qx, yA + t * tH, qz]));
       }
-      lamps.push(place(new THREE.CylinderGeometry(0.6, 0.45, 1.3, 6), [tx, th + 2.4, tz]));
-      iron.push(place(cyl(0.08, 0.08, 1.6, 4), [tx, th + 1.2, tz]));
-      gold.push(place(new THREE.ConeGeometry(0.75, 1.1, 6), [tx, th + 3.5, tz]));
+      gold.push(place(new THREE.ConeGeometry(qr * 1.02, qr * 2.6, 8), [qx, qy0 - qr * 1.3, qz], [Math.PI, 0, 0]));   // pendant
+      gold.push(place(new THREE.SphereGeometry(qr * 0.3, 8, 6), [qx, qy0 - qr * 2.7, qz]));
+      gold.push(place(new THREE.SphereGeometry(qr * 1.02, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), [qx, qy1, qz]));    // cupola
+      gold.push(place(new THREE.ConeGeometry(0.25, 1.4, 6), [qx, qy1 + qr + 0.6, qz]));
     }
-    // a huge iron-banded rudder
-    dark.push(box(0.9, yt * 0.55 + H.draft, B * 0.06, [0, (yt * 0.55 - H.draft) / 2, zS - 0.6]));
-    for (let i = 0; i < 5; i++) iron.push(box(1.05, 0.3, B * 0.065, [0, -H.draft * 0.8 + i * (yt * 0.55 + H.draft * 0.8) / 4.5, zS - 0.6]));
+    // --- crest: a great gilt skull and crossed bones above the taffrail, flanked by sea-serpent scrolls
+    const cy = yt + 1.4 + B * 0.11, cr = Math.min(wT * 0.42, B * 0.13), cz = zS - 0.9;
+    for (const sx of [-1, 1]) {
+      const bone = cyl(cr * 0.11, cr * 0.11, cr * 2.6, 8); bone.rotateZ(sx * 0.8); marble.push(place(bone, [0, cy - cr * 0.15, cz + 0.3]));
+      for (const e of [-1, 1]) marble.push(place(new THREE.SphereGeometry(cr * 0.17, 8, 6), [-Math.sin(sx * 0.8) * cr * 1.3 * e, cy - cr * 0.15 + Math.cos(sx * 0.8) * cr * 1.3 * e, cz + 0.3]));
+      const scroll = new THREE.TorusGeometry(cr * 0.7, cr * 0.11, 6, 16, Math.PI * 1.2); scroll.rotateZ(-0.5); if (sx < 0) scroll.rotateY(Math.PI);
+      gold.push(place(scroll, [sx * cr * 1.75, cy - cr * 0.55, cz + 0.4]));
+      gold.push(place(new THREE.SphereGeometry(cr * 0.18, 8, 6), [sx * cr * (1.75 + 0.7 * Math.cos(-0.5)), cy - cr * 0.55 + cr * 0.7 * Math.sin(-0.5), cz + 0.4]));
+    }
+    marble.push(place(new THREE.SphereGeometry(cr * 0.62, 16, 12), [0, cy + cr * 0.12, cz], null, [1, 0.95, 0.75]));
+    marble.push(box(cr * 0.72, cr * 0.36, cr * 0.5, [0, cy - cr * 0.42, cz - 0.05]));
+    for (const sx of [-1, 1]) { ports.push(place(new THREE.SphereGeometry(cr * 0.18, 10, 8), [sx * cr * 0.25, cy + cr * 0.08, cz - cr * 0.36], null, [1, 0.85, 0.6])); ember.push(place(new THREE.SphereGeometry(cr * 0.08, 8, 6), [sx * cr * 0.25, cy + cr * 0.08, cz - cr * 0.47])); }
+    ports.push(place(new THREE.ConeGeometry(cr * 0.1, cr * 0.18, 3), [0, cy - cr * 0.12, cz - cr * 0.44], [-Math.PI / 2, 0, 0]));
+    for (let i = 0; i < 5; i++) ports.push(box(cr * 0.06, cr * 0.24, 0.1, [(-2 + i) * cr * 0.13, cy - cr * 0.44, cz - cr * 0.31]));
+    // three great stern lanterns on iron brackets
+    for (const sx of [-1, 0, 1]) {
+      const lx = sx * wT * 0.78, ly = yt + 2.8 + (sx ? 0 : B * 0.24), lz = zS - 1.4;
+      iron.push(place(cyl(0.1, 0.1, 2.6, 5), [lx, ly - 1.7, lz]));
+      lamps.push(place(new THREE.CylinderGeometry(0.75, 0.55, 1.7, 8), [lx, ly, lz]));
+      gold.push(place(new THREE.ConeGeometry(0.85, 1.0, 8), [lx, ly + 1.35, lz]));
+      gold.push(place(cyl(0.6, 0.8, 0.3, 8), [lx, ly - 0.95, lz]));
+    }
+    // the rudder, iron-banded
+    dark.push(box(1.0, yA + H.draft, B * 0.06, [0, (yA - H.draft) / 2, zS - 0.5]));
+    for (let i = 0; i < 4; i++) plate.push(box(1.15, 0.35, B * 0.065, [0, -H.draft * 0.8 + i * (yA + H.draft * 0.8) / 3.5, zS - 0.5]));
   }
 
   // ---------------------------------------------------------------- the Leviathan
@@ -829,11 +861,16 @@ export function buildShip(stats, look = {}) {
   }
 
   // assemble merged static meshes
-  for (const [list, mat] of [[dark, m.darkwood], [spar, m.spar], [iron, m.iron], [gold, m.gold], [ports, m.port], [glass, m.glass], [lamps, m.lantern], [red, m.red], [white, m.white], [trimL, trimMat], [marble, m.marble], [plate, m.plate], [ember, m.ember]]) {
-    const mesh = merged(list, mat); if (mesh) body.add(mesh);
+  // LOD: `near` details vanish first (mid range), `small` ones far away; hull, deck, spars and sails always stay
+  const lodNear = [], lodFar = [];
+  for (const [list, mat, lod] of [[dark, m.darkwood, 0], [spar, m.spar, 0], [iron, m.iron, 2], [gold, m.gold, 2], [ports, m.port, 2], [glass, m.glass, 1], [lamps, m.lantern, 2], [red, m.red, 2], [white, m.white, 2], [trimL, trimMat, 2], [marble, m.marble, 2], [plate, m.plate, 2], [ember, m.ember, 1]]) {
+    const mesh = merged(list, mat); if (!mesh) continue;
+    body.add(mesh);
+    if (lod === 1) lodNear.push(mesh); else if (lod === 2) lodFar.push(mesh);
   }
   const rg = new THREE.BufferGeometry(); rg.setAttribute('position', new THREE.Float32BufferAttribute(rigLines, 3));
   const rig = new THREE.LineSegments(rg, m.rope); body.add(rig);
+  lodNear.push(rig);
 
   // shot holes (instanced decals placed where cannonballs actually struck)
   HOLE ||= holeGeometry();
@@ -877,6 +914,17 @@ export function buildShip(stats, look = {}) {
       holes.instanceMatrix.needsUpdate = true;
     },
     clearHoles() { holeN = 0; holes.count = 0; },
+    lod: 0,
+    /** 0 = full detail, 1 = no rigging lines/glass/holes/flag animation, 2 = silhouette only (hull, spars, sails), no shadows. */
+    setLOD(l) {
+      if (l === this.lod) return;
+      this.lod = l;
+      for (const o of lodNear) o.visible = l < 1;
+      for (const o of lodFar) o.visible = l < 2;
+      holes.visible = l < 1;
+      for (const g of mastGroups) g.upper.traverse((o) => { if (o.isLineSegments) o.visible = l < 1; });
+      root.traverse((o) => { if (o.isMesh) o.castShadow = l < 2 && o !== holes; });
+    },
     /** Carpenters plug a share of the shot-holes. */
     patchHoles(frac) { holeN = Math.floor(Math.min(holeN, MAXH) * (1 - frac)); holes.count = holeN; },
     update(t, wind = 1) {
@@ -886,6 +934,7 @@ export function buildShip(stats, look = {}) {
         else if (s.kind === 'jib') { s.mesh.visible = lvl > 0.05; }
         else { s.mesh.visible = lvl > 0.05; s.mesh.scale.set(0.6 + 0.4 * lvl, 1, 1); }
       }
+      if (this.lod > 0) return; // flags only ripple up close
       for (const f of flags) {
         if (!f.mesh.visible || (f.mesh.parent && !f.mesh.parent.visible)) continue;
         const p = f.mesh.geometry.attributes.position;

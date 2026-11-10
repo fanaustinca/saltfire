@@ -1,6 +1,6 @@
 // Developer console. In the browser console: dev.help(). Or press ` (backquote) for an in-game prompt.
 import { TIERS, RES, AMMO_ORDER, BUILDINGS } from './config.js';
-import { addXp, shipSpec, uid } from './economy.js';
+import { addXp, shipSpec, uid, addCard } from './economy.js';
 import { setSea, SEA } from './waves.js';
 
 const CMDS = {
@@ -11,7 +11,9 @@ const CMDS = {
   level: ['n', 'Set captain level (grants upgrade points for new levels)'],
   points: ['n=5', 'Add upgrade points'],
   ship: ['tier', `Give yourself a new flagship (${TIERS.map((t) => t.id).join(', ')})`],
-  titan: ['', 'Cheat ship: the invincible Titan (150 guns a side) as your flagship'],
+  titan: ['', 'Cheat: a Titan flagship with god mode on'],
+  card: ["tier='titan'", 'Give yourself a reward card (a ship tier, or "size" for a Titan Size card)'],
+  day: ['n=1', 'Holiday Tides testing: pretend n days have passed'],
   heal: ['', 'Fully repair hull, sails and crew'],
   god: ['on=true', 'Invulnerable flagship'],
   speed: ['k=1', 'Game speed multiplier'],
@@ -67,7 +69,9 @@ export function installDev(app) {
       const ns = g().sim.spawnPlayer(g().pid); Object.assign(ns, keep); ns.local = true;
       return done(`Flagship is now a ${tier}`);
     },
-    titan() { return dev.ship('titan'); },
+    titan() { dev.ship('titan'); return dev.god(true); },
+    card(tier = 'titan') { host(); addCard(P(), tier === 'size' ? { kind: 'titanSize' } : { kind: 'ship', tier }); return done(`+1 ${tier} card`); },
+    day(n = 1) { host(); const sim = g().sim; const off = (sim._dayOff || 0) + n * 864e5; sim._dayOff = off; sim.clock = () => Date.now() + off; return done(`Clock +${off / 864e5} days`); },
     heal() { host(); const s = me(); s.hull = s.stats.hull; s.sails = s.stats.sails; s.crew = s.stats.crew; s.fire = 0; return done('Healed'); },
     god(on = true) { host(); const s = me(); if (on) { s._hurt = g().sim.hurt; g().sim.hurt = function (t, ...a) { if (t === g().me()) return; return s._hurt.call(this, t, ...a); }; } else if (s._hurt) g().sim.hurt = s._hurt; return done(`God mode ${on ? 'on' : 'off'}`); },
     speed(k = 1) { g().timeScale = k; return done(`Speed ×${k}`); },

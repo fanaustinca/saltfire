@@ -2,7 +2,7 @@
 // Host-authoritative: every function here is called on the host (or in solo) and is unit-tested.
 import {
   RES, AMMO_ORDER, RECIPES, TIERS, tierById, maxSideFor, UPGRADES, XP_PER_LEVEL, MAX_LEVEL, BUILDINGS,
-  MARKET_TAX, LAND_SLOTS, PROD_PERIOD, BASE_RELOAD, rangeFor, MUZZLE, FLEET_BASE,
+  MARKET_TAX, LAND_SLOTS, PROD_PERIOD, BASE_RELOAD, rangeFor, MUZZLE, FLEET_BASE, WHEEL, HOLIDAY, TITAN_SIZE_PRICE,
 } from './config.js';
 
 export const uid = (p = '') => p + Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-4);
@@ -76,17 +76,19 @@ export function crewEff(crew, max) {
 }
 
 /** Custom ship cost: tier base scaled by size and extra cannons. */
-export function customCost(tier, side, size) {
+export function customCost(tier, side, size, yard = false) {
   const T = tierById(tier);
   const base = T.cost.gold ? T.cost : { gold: 200, oak: 20, iron: 5, canvas: 10 };
   const extra = Math.max(0, side - T.minSide);
-  const k = Math.pow(size, 2);
-  return {
-    gold: Math.round((base.gold || 0) * k * 0.6 + extra * 120),
+  const k = Math.pow(size, 2) * (yard ? 0.8 : 1);
+  const c = {
+    gold: Math.round((base.gold || 0) * k + extra * (120 + (base.gold || 0) / 400)),
     oak: Math.round((base.oak || 20) * k),
     iron: Math.round((base.iron || 5) * k + extra * 12),
     canvas: Math.round((base.canvas || 10) * k),
   };
+  if (base.powder) c.powder = Math.round(base.powder * k);
+  return c;
 }
 
 // ------------------------------------------------------------------ XP / levels / upgrades
@@ -117,30 +119,124 @@ export function craft(p, kind, times = 1) {
 }
 
 // ------------------------------------------------------------------ ships
+/** Find (and optionally take) a reward card the captain holds. */
+export function findCard(p, cardId, kind = null, tier = null) {
+  const c = (p.cards || []).find((x) => x.id === cardId && (!kind || x.kind === kind) && (!tier || x.tier === tier));
+  return c || null;
+}
+const takeCard = (p, c) => { p.cards = (p.cards || []).filter((x) => x !== c); };
+export function addCard(p, card) { (p.cards ||= []).push({ id: uid('c'), ...card, at: Date.now() }); return p.cards[p.cards.length - 1]; }
+
+/** Buy a standard hull — or redeem a ship reward card for one (free, no level needed). */
 export function buyShip(p, tier, opts = {}) {
   const T = tierById(tier);
-  if (T.cheatOnly) return 'That ship cannot be bought';
+  if (opts.card) {
+    const c = findCard(p, opts.card, 'ship', T.id);
+    if (!c) return 'You do not hold that reward card';
+    takeCard(p, c);
+    const s = shipSpec(T.id, { name: opts.name || T.name });
+    p.fleet.push(s);
+    return s;
+  }
+  if (T.cardOnly) return `The ${T.name} can only be won (Wheel of Fortune or the Holiday Tides event)`;
   if (p.level < T.level) return `Requires level ${T.level}`;
   if (!pay(p.inv, T.cost)) return 'Not enough resources';
   const s = shipSpec(T.id, opts);
   p.fleet.push(s);
   return s;
 }
-export function buildCustomShip(W, p, baseId, o) {
-  const b = W.bases.find((x) => x.id === baseId);
-  if (!b || b.owner !== p.id) return 'You must be at your own base';
-  if (!b.buildings.some((x) => x.type === 'shipyard' && x.hp > 0)) return 'Build a Shipyard first';
-  const T = tierById(o.tier);
-  if (T.cheatOnly) return 'That hull cannot be built';
-  if (p.level < T.level) return `Requires level ${T.level}`;
+/** Custom hulls: at the Free Port or your own island (a Shipyard there takes 20% off). A ship reward card pays for
+ *  the hull; a Titan bigger than 100% also needs a Titan Size card. */
+export function buildCustomShip(W, p, siteId, o) {
+  const b = W.bases.find((x) => x.id === siteId);
+  if (siteId !== 'port' && (!b || b.owner !== p.id)) return 'Design ships at the Free Port or on your own island';
+  const yard = !!b?.buildings.some((x) => x.type === 'shipyard' && x.hp > 0);
+  const card = o.card ? findCard(p, o.card, 'ship') : null;
+  if (o.card && !card) return 'You do not hold that reward card';
+  const T = tierById(card ? card.tier : o.tier);
+  if (T.cardOnly && !card) return `The ${T.name} can only be built with a ${T.name} reward card`;
+  if (!card && p.level < T.level) return `Requires level ${T.level}`;
   const size = clamp(o.size || 1, 0.85, 1.2);
+  const sizeCard = T.id === 'titan' && size > 1.001 ? findCard(p, o.sizeCard, 'titanSize') || (p.cards || []).find((x) => x.kind === 'titanSize') : null;
+  if (T.id === 'titan' && size > 1.001 && !sizeCard) return 'A Titan above 100% needs a Titan Size card (Wheel, Holiday Tides, or the Shipwright)';
   const side = clampInt(o.side, T.minSide, maxSideFor(T, size));
-  const cost = customCost(T.id, side, size);
+  const cost = card ? {} : customCost(T.id, side, size, yard);
   if (!pay(p.inv, cost)) return 'Not enough oak, iron, canvas or gold';
-  const s = shipSpec(T.id, { ...o, side, size, custom: true, name: String(o.name || 'Unnamed').slice(0, 24) });
+  if (card) takeCard(p, card);
+  if (sizeCard) takeCard(p, sizeCard);
+  const s = shipSpec(T.id, { ...o, tier: T.id, side, size, custom: true, name: String(o.name || 'Unnamed').slice(0, 24) });
   p.fleet.push(s);
   return s;
 }
+export function buyTitanSizeCard(p) {
+  if (!pay(p.inv, { gold: TITAN_SIZE_PRICE })) return `A Titan Size card costs ${TITAN_SIZE_PRICE.toLocaleString()} gold`;
+  return addCard(p, { kind: 'titanSize' });
+}
+
+// ------------------------------------------------------------------ Wheel of Fortune + Holiday Tides
+/** Local calendar day "YYYY-MM-DD" (the host's clock). */
+export const dayKey = (ms) => { const d = new Date(ms); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const dayNum = (k) => Math.round(Date.UTC(+k.slice(0, 4), +k.slice(5, 7) - 1, +k.slice(8, 10)) / 864e5);
+export const holidayLength = () => dayNum(HOLIDAY.end) - dayNum(HOLIDAY.start) + 1;
+export function prizeText(pr) {
+  if (pr.kind === 'ship') return `${tierById(pr.tier).name} reward card`;
+  if (pr.kind === 'titanSize') return 'Titan Size card';
+  if (pr.kind === 'gold') return `${pr.n.toLocaleString()} gold`;
+  if (pr.kind === 'spin') return 'a free Wheel spin';
+  return Object.entries(pr.items).map(([k, v]) => `${v} ${k}`).join(', ');
+}
+export function grantPrize(p, pr) {
+  if (pr.kind === 'ship') addCard(p, { kind: 'ship', tier: pr.tier });
+  else if (pr.kind === 'titanSize') addCard(p, { kind: 'titanSize' });
+  else if (pr.kind === 'gold') p.inv.gold = (p.inv.gold || 0) + pr.n;
+  else if (pr.kind === 'spin') { p.wheel ||= {}; p.wheel.bonus = (p.wheel.bonus || 0) + (pr.n || 1); }
+  else gain(p.inv, pr.items);
+}
+export const freeSpinReady = (p, now) => (p.wheel?.free !== dayKey(now)) || (p.wheel?.bonus || 0) > 0;
+/** Spin the wheel: the daily free spin (or a bonus spin) if one is ready, otherwise it costs WHEEL.cost gold. */
+export function spinWheel(p, now, rand = Math.random, { paid = false } = {}) {
+  p.wheel ||= {};
+  const today = dayKey(now);
+  let how;
+  if (!paid && p.wheel.free !== today) { p.wheel.free = today; how = 'daily'; }
+  else if (!paid && (p.wheel.bonus || 0) > 0) { p.wheel.bonus--; how = 'bonus'; }
+  else { if (!pay(p.inv, { gold: WHEEL.cost })) return `A spin costs ${WHEEL.cost.toLocaleString()} gold`; how = 'paid'; }
+  let x = rand(), i = 0;
+  for (; i < WHEEL.prizes.length - 1; i++) { x -= WHEEL.prizes[i].p; if (x < 0) break; }
+  const pr = WHEEL.prizes[i];
+  grantPrize(p, pr);
+  p.wheel.spins = (p.wheel.spins || 0) + 1;
+  return { index: i, prize: pr, how, text: prizeText(pr) };
+}
+/** The gift for day `i` of the event (0 = first day). The last day pays the Titan card to perfect attendance. */
+export function holidayGift(i, perfect) {
+  const total = holidayLength(), key = dayKeyOf(i);
+  if (i === total - 1) return perfect ? { kind: 'ship', tier: 'titan', big: true } : { kind: 'gold', n: 60000 };
+  if (key === HOLIDAY.sizeDay) return { kind: 'titanSize', big: true };
+  if (i % 7 === 6) return { kind: 'spin', n: 2 };
+  if (i % 3 === 2) return { kind: 'res', items: { oak: 150 + i * 4, iron: 80 + i * 2, canvas: 80 + i * 2, powder: 20 + i } };
+  return { kind: 'gold', n: 2500 + i * 250 };
+}
+const dayKeyOf = (i) => { const d = new Date(Date.UTC(+HOLIDAY.start.slice(0, 4), +HOLIDAY.start.slice(5, 7) - 1, +HOLIDAY.start.slice(8, 10) + i)); return d.toISOString().slice(0, 10); };
+export function holidayState(p, now) {
+  const today = dayKey(now), total = holidayLength();
+  const i = dayNum(today) - dayNum(HOLIDAY.start);
+  const days = p.holiday?.days || [];
+  const missed = Math.max(0, Math.min(i, total) - days.filter((d) => dayNum(d) - dayNum(HOLIDAY.start) < i).length);
+  return { today, i, total, active: i >= 0 && i < total, claimed: days.includes(today), days, count: days.length, missed, perfect: missed === 0, dayKeyOf };
+}
+export function claimHoliday(p, now) {
+  const st = holidayState(p, now);
+  if (!st.active) return st.i < 0 ? 'Holiday Tides has not begun yet' : 'Holiday Tides is over — see you next year!';
+  if (st.claimed) return 'Already claimed today — come back tomorrow';
+  p.holiday ||= { days: [] };
+  p.holiday.days.push(st.today);
+  const perfect = p.holiday.days.length === st.i + 1;
+  const g = holidayGift(st.i, perfect);
+  grantPrize(p, g);
+  return { day: st.i + 1, total: st.total, gift: g, text: prizeText(g) };
+}
+
 export function setFlagship(p, shipUid) { const s = p.fleet.find((x) => x.uid === shipUid); if (!s) return 'Not in fleet'; if (s.out) return 'That ship is at sea with your fleet — recall it first'; if (s.wrecked) return 'That ship is wrecked — repair it first'; p.flag = shipUid; return null; }
 export const flagship = (p) => p.fleet.find((s) => s.uid === p.flag) || p.fleet[0];
 

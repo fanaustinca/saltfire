@@ -76,6 +76,24 @@ export function handleAct(sim, pid, a) {
       sim.fx.push({ t: 'repair', ship: s.id, x: s.x, z: s.z });
       mark(); return r(null, { oak, hull: Math.round(wantH * k), cd: FR.cd });
     }
+    // ---- rewards: usable anywhere, even at sea
+    case 'spinWheel': {
+      const res = E.spinWheel(p, sim.clock(), sim.rand, { paid: !!a.paid });
+      if (typeof res === 'string') return r(res);
+      if (res.prize.kind === 'ship' && ['titan', 'leviathan', 'sovereign'].includes(res.prize.tier)) W.log?.push({ t: Date.now(), text: `${p.name} won a ${res.text} on the Wheel of Fortune!` });
+      mark(); return r(null, res);
+    }
+    case 'claimHoliday': {
+      const res = E.claimHoliday(p, sim.clock());
+      if (typeof res === 'string') return r(res);
+      mark(); return r(null, res);
+    }
+    case 'buySizeCard': {
+      if (!docked) return r('Visit a Shipwright (dock in a harbour)');
+      const res = E.buyTitanSizeCard(p);
+      if (typeof res === 'string') return r(res);
+      mark(); return r(null, res);
+    }
     case 'buyTrail': {
       const T = TRAILS[a.id];
       if (!T) return r('Unknown trail');
@@ -108,13 +126,13 @@ export function handleAct(sim, pid, a) {
     }
     case 'buyShip': {
       if (!docked) return r('Visit a harbour to buy ships');
-      const res = E.buyShip(p, a.tier, { name: a.name });
+      const res = E.buyShip(p, a.tier, { name: a.name, card: a.card });
       if (typeof res === 'string') return r(res);
       E.addXp(p, 20); mark(); return r(null, res.uid);
     }
     case 'customShip': {
       if (!docked) return r('Dock at your shipyard');
-      const res = E.buildCustomShip(W, p, docked.id, a.spec || {});
+      const res = E.buildCustomShip(W, p, docked.kind === 'port' ? 'port' : docked.id, a.spec || {});
       if (typeof res === 'string') return r(res);
       E.addXp(p, 60); mark(); return r(null, res.uid);
     }

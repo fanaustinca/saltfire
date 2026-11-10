@@ -82,6 +82,7 @@ export class Sim {
     this.authority = authority;
     this.rand = rand;
     if (authority) migrateWorld(W);
+    this.clock = () => Date.now(); // wall clock for daily rewards (tests override it)
     this.ships = new Map();
     this.balls = [];
     this.crates = [];
@@ -276,8 +277,12 @@ export class Sim {
     const heave = s.heave || 0;
     const v = (s.stats.muzzle || MUZZLE) * A.speed;
     const dmg = BALL_DMG * (s.stats.dmg || 1);
-    guns.forEach((g, i) => {
+    const inDeck = {};
+    guns.forEach((g) => {
       const [mx, my0, mz] = localToWorld(s, g.x, g.y, g.z);
+      // decks fire in quick succession (0.2 s apart), each deck as a fast ripple
+      const k = (inDeck[g.deck || 0] = (inDeck[g.deck || 0] ?? -1) + 1), nd = guns.length / Math.max(1, new Set(guns.map((x) => x.deck || 0)).size);
+      const delay = (g.deck || 0) * 0.2 + Math.min(0.18, (k / Math.max(1, nd)) * 0.18) + rand() * 0.03;
       const my = my0 + heave;
       // broadside guns fire parallel: shift the aim point by the gun's offset along the hull
       const along = side === 'L' || side === 'R' ? g.z : g.x;
@@ -288,7 +293,7 @@ export class Sim {
       const hd = Math.max(MIN_RANGE * 0.5, Math.hypot(px - mx, pz - mz));
       const el = solveElev(hd, this.surfaceAt(px, pz) + 1.6 - my, v) ?? 0.26;
       const hx = (px - mx) / hd, hz = (pz - mz) / hd;
-      balls.push({ x: mx, y: my, z: mz, vx: hx * v * Math.cos(el), vy: v * Math.sin(el), vz: hz * v * Math.cos(el), ammo, delay: i * 0.07 + rand() * 0.04, dmg });
+      balls.push({ x: mx, y: my, z: mz, vx: hx * v * Math.cos(el), vy: v * Math.sin(el), vz: hz * v * Math.cos(el), ammo, delay, dmg, gl: [g.x, g.y, g.z], yaw0: s.yaw });
     });
     return { balls };
   }
@@ -303,7 +308,7 @@ export class Sim {
     s.reload[side] = s.stats.reload / eff;
     s.recoil += (side === 'L' ? 1 : side === 'R' ? -1 : 0) * Math.min(1, plan.balls.length * 0.08);
     for (const b of plan.balls) this.spawnBall(s, b);
-    this.fx.push({ t: 'fire', ship: s.id, side, n: plan.balls.length, balls: plan.balls.map((b) => [b.x, b.y, b.z, b.vx, b.vy, b.vz, b.delay || 0]), ammo });
+    this.fx.push({ t: 'fire', ship: s.id, side, n: plan.balls.length, balls: plan.balls.map((b) => [b.x, b.y, b.z, b.vx, b.vy, b.vz, b.delay || 0, ...(b.gl ? [...b.gl, b.yaw0] : [])]), ammo });
     return plan;
   }
   spawnBall(s, b) {
@@ -311,11 +316,22 @@ export class Sim {
     this.balls.push({ ...b, shooter: s ? s.id : b.shooter, owner: s ? s.owner : b.owner, level: s ? s.level : (b.level || 1), t: -(b.delay || 0), dmg, vis: !this.authority });
   }
 
+  /** A delayed gun fires from where its ship is NOW (not where the order was given). */
+  releaseBall(b) {
+    const sh = this.ships.get(b.shooter);
+    if (!sh || sh.sink > 0) return;
+    const [mx, my, mz] = localToWorld(sh, b.gl[0], b.gl[1], b.gl[2]);
+    b.x = mx; b.y = my + (sh.heave || 0); b.z = mz;
+    const d = sh.yaw - (b.yaw0 ?? sh.yaw), c = Math.cos(d), sn = Math.sin(d), vx = b.vx;
+    b.vx = vx * c + b.vz * sn; b.vz = -vx * sn + b.vz * c;
+  }
   stepBalls(dt) {
     const keep = [];
     for (const b of this.balls) {
+      const was = b.t;
       b.t += dt;
       if (b.t < 0) { keep.push(b); continue; }
+      if (was < 0 && b.gl) this.releaseBall(b);
       b.vy -= GRAVITY * dt;
       b.x += b.vx * dt; b.y += b.vy * dt; b.z += b.vz * dt;
       if (b.t > 12) continue;
@@ -364,7 +380,7 @@ export class Sim {
   }
   hurt(s, hull, sail, crew, by, quiet = false) {
     if (s.sink > 0) return;
-    if (s.stats.invincible) { if (!quiet) s.hitT = this.time; return; } // the Titan shrugs everything off
+    if (s.stats.invincible) { if (!quiet) s.hitT = this.time; return; } // unused by stock tiers (dev god mode patches hurt instead)
     s.hull -= hull; s.sails = Math.max(0, s.sails - sail); s.crew = Math.max(0, s.crew - crew);
     if (!quiet) s.hitT = this.time;
     if (by) { if (!this.damagers.has(s.id)) this.damagers.set(s.id, new Map()); const m = this.damagers.get(s.id); m.set(by, (m.get(by) || 0) + hull + sail * 0.5); s.lastBy = by; }

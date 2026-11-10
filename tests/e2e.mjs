@@ -165,6 +165,17 @@ await T('port: dock at home, build (island grows), craft, trade, upgrade, custom
   await shot(page, 'e2e-upgrades.png');
   await page.evaluate(() => { SALT.game.ui.tab = 'build'; SALT.game.ui.renderPanel(SALT.game); });
   await shot(page, 'e2e-port-build.png');
+  // the custom shipyard is on the Shipwright tab; the Rewards tab spins the wheel and claims the daily gift
+  await page.evaluate(() => { SALT.game.ui.tab = 'ships'; SALT.game.ui.renderPanel(SALT.game); });
+  assert(await page.evaluate(() => !!document.querySelector('#cb-build') && !!document.querySelector('#cb-pay')), 'custom shipyard visible');
+  await page.evaluate(() => { SALT.game.ui.tab = 'rewards'; SALT.game.ui.renderPanel(SALT.game); });
+  assert(await page.evaluate(() => !!document.querySelector('#wheel') && document.querySelectorAll('.hday').length === 54), 'rewards tab');
+  const g0 = await page.evaluate(() => SALT.game.profile().wheel?.spins || 0);
+  await page.click('#spin-free');
+  await sleep(4500);
+  const rw = await page.evaluate(() => ({ spins: SALT.game.profile().wheel?.spins || 0, ang: SALT.game.ui.wheelAngle }));
+  assert(rw.spins === g0 + 1 && rw.ang < -20, 'wheel spun ' + JSON.stringify(rw));
+  await shot(page, 'e2e-rewards.png');
   await page.click('#pclose');
   await sleep(1200);
   await page.evaluate(() => { const g = SALT.game, b = g.sim.homeOf(g.pid), me = g.me(); dev.cam(b.x - me.x + 140, 90, b.z - me.z + 140, b.x - me.x, 0, b.z - me.z); });

@@ -9,13 +9,17 @@ peer-to-peer multiplayer over WebRTC. **Play: https://fanaustinca.github.io/salt
   distinct procedural designs: a plain little single-masted **Sloop**, a two-masted all-gaff **Schooner**, a square-fore
   **Brigantine** with quarterdeck, a black-and-ochre full-rigged **Frigate**, a **Galleon** with a towering painted
   stern castle, beakhead and lateen mizzens, and a three-decked **Man of War** with triple stern galleries, studding
-  sails, gilt lion figurehead and up to 20 guns a side. Two flagship-only giants sit above it: the royal-blue
-  **Sovereign**, a four-decked first rate with a gilded crowned stern (18–34 guns a side), and the **Leviathan**, a
+  sails, gilt lion figurehead and up to 20 guns a side. Two giants sit above it, both hugely expensive: the royal-blue
+  **Sovereign**, a four-decked first rate with a gilded crowned stern (18–34 guns a side), and the flagship-only **Leviathan**, a
   broad 116 m five-decked ironclad: armoured belt, iron ram, pivot guns, carronade-lined spar deck, an armoured
-  citadel stern with stern-chaser batteries, gun towers on the quarters and a glowing-eyed gilt skull, and four masts
+  overhanging stern of lit galleries above an iron belt of chase guns, quarter galleries and a glowing-eyed skull, and four masts
   with five tiers of sail.
-- **Cheat ship** — the dev console (`` ` `` then `titan`, or `dev.titan()`) gives you the **Titan**: a 150 m black-sailed
-  six-decker with 150 guns a side that cannot be damaged. It can't be bought or built.
+- **Titan** — a 150 m black-sailed six-decker (120 guns a side, 150 above 100% size) that cannot be bought: win it as
+  a reward card on the Wheel of Fortune (0.1%) or by claiming every day of the Holiday Tides event. Dev: `titan`.
+- **Rewards (`J`)** — Wheel of Fortune: one free spin a day, more for 20,000 gold (Titan 0.1%, Leviathan 0.5%,
+  Sovereign 0.7%, Man of War 1%, Galleon 2%, Titan Size card 0.2%, plus gold and supplies). **Holiday Tides**
+  (9 Nov – 1 Jan): a gift every day; claim every single day for a Titan card on New Year's Day, a Titan Size card
+  on Christmas. Won ships are **reward cards** — redeem at any Shipwright or pay with them in the custom shipyard.
 - **Battle damage** — shot holes appear exactly where balls strike, hulls char and smoulder, damaged ships settle
   and list, sails tear and topmasts get shot away.
 - **3rd-person helm + visual targeting** — the mouse shows the firing sector on the aimed side and a 3D trajectory
@@ -35,7 +39,7 @@ peer-to-peer multiplayer over WebRTC. **Play: https://fanaustinca.github.io/salt
 - **Fleets** — every ship you own beyond your flagship can be sent out (`G`, or click an island on the map) to
   escort you, guard an island, or attack an enemy/clan/wild island — they bombard it and capture it for you.
 - **Crafting** — chainshot, grapeshot, explosive shot and gunpowder from oak, iron, canvas and powder.
-- **Custom shipyards** — build custom-sized ships with custom cannon counts (within tier limits), name them, paint
+- **Custom shipyards** — at the Free Port or any of your islands (a Shipyard takes 20% off), build custom-sized ships with custom cannon counts (within tier limits), name them, paint
   hull/trim/sails and pick a flag, with a live 3D preview.
 - **Empire** — a big sea (12 km across) with ~70 claimable pirate-cove islands: sheltered bays with docks and stilt
   huts, sea cliffs, hills, rivers carved into the ground running down to the cove (and waterfalls off the cliffs),

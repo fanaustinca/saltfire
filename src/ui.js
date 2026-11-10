@@ -4,9 +4,9 @@
 import * as THREE from 'three';
 import {
   RES, RES_LABEL, RES_ICON, AMMO, AMMO_ORDER, RECIPES, TIERS, shopTiers, tierById, UPGRADES, UPGRADE_TOTAL, XP_PER_LEVEL, BUILDINGS,
-  MARKET_ITEMS, MARKET_TAX, TREATY_TYPES, HAVEN_R, WORLD_R, VERSION, LAND_SLOTS, claimFee, FIELD_REPAIR, TRAILS, maxSideFor,
+  MARKET_ITEMS, MARKET_TAX, TREATY_TYPES, HAVEN_R, WORLD_R, VERSION, LAND_SLOTS, claimFee, FIELD_REPAIR, TRAILS, maxSideFor, WHEEL, HOLIDAY, TITAN_SIZE_PRICE,
 } from './config.js';
-import { shipStats, customCost, costText, canAfford, bestAsk, bestBid, crewEff, treatyBetween, shielded, landSlotsUsed, flagship, hostile, fleetCap, traderName, aiFaction } from './economy.js';
+import { shipStats, customCost, costText, canAfford, holidayState, holidayGift, prizeText, freeSpinReady, dayKey, bestAsk, bestBid, crewEff, treatyBetween, shielded, landSlotsUsed, flagship, hostile, fleetCap, traderName, aiFaction } from './economy.js';
 import { SAIL_NAMES, SAIL_STEPS, DOCK_SPEED } from './sim.js';
 import { dockSite, repairCost } from './actions.js';
 import { baseRadius } from './basegeo.js';
@@ -91,13 +91,14 @@ export class UI {
       </div>
       <div class="fleetbox" id="fleetbox"></div>
       <canvas class="minimap" id="minimap" width="220" height="220"></canvas>
-      <div class="hotkeys"><button class="btn tiny" id="hk-map">Map (M)</button><button class="btn tiny" id="hk-fleet">Fleet (G)</button><button class="btn tiny" id="hk-dip">Diplomacy</button><button class="btn tiny" id="hk-help">Help (H)</button><button class="btn tiny" id="hk-menu">Menu</button></div>
+      <div class="hotkeys"><button class="btn tiny" id="hk-map">Map (M)</button><button class="btn tiny" id="hk-fleet">Fleet (G)</button><button class="btn tiny" id="hk-dip">Diplomacy</button><button class="btn tiny gold" id="hk-rew">🎡 Rewards (J)</button><button class="btn tiny" id="hk-help">Help (H)</button><button class="btn tiny" id="hk-menu">Menu</button></div>
       <div class="labels" id="labels"></div>
       <div class="crosshair" id="xhair"></div>
     </div>`;
     this.toastBox = $('#toasts');
     $('#hk-map').onclick = () => this.toggleMap(game);
     $('#hk-dip').onclick = () => this.port(game, 'diplomacy', true);
+    $('#hk-rew').onclick = () => this.port(game, 'rewards', !game.me()?.docked);
     $('#hk-fleet').onclick = () => this.port(game, 'fleet', !game.me()?.docked);
     $('#fleetbox').onclick = (e) => {
       if (e.target.closest('[data-fcmd]')) { this.port(game, 'fleet', !game.me()?.docked); return; }
@@ -115,6 +116,7 @@ export class UI {
     $('#cap').innerHTML = `<div class="flagdot" style="background:hsl(${p.color},70%,50%)"></div><div><div class="cname">${esc(p.name)}${p.alliance ? ` <span class="ally">[${esc(p.alliance)}]</span>` : ''}</div><div class="lvl">Level ${p.level}${p.points ? ` · <span class="pts">${p.points} upgrade pt${p.points > 1 ? 's' : ''}</span>` : ''}</div><div class="xp"><i style="width:${Math.min(100, (p.xp / need) * 100)}%"></i></div></div>`;
     const online = Object.values(game.W.players).filter((x) => x.online).length;
     $('#room').innerHTML = game.room ? `<span class="code" title="Click to copy">ROOM ${game.room.code}</span><span class="muted">${online} online · ${game.role === 'host' ? 'hosting' : 'joined'}</span>` : `<span class="muted">Offline world (solo)</span>`;
+    $('#room').innerHTML += `<span class="ver">v${VERSION}</span>`;
     const code = $('#room .code'); if (code) code.onclick = () => { navigator.clipboard?.writeText(game.room.code); this.toast('Room code copied — share it with friends!', 'info'); };
     $('#resbar').innerHTML = RES.map((r) => `<div class="res res-${r}" title="${RES_LABEL[r]}"><span class="ri">${RES_ICON[r]}</span>${fmt(p.inv[r] || 0)}</div>`).join('');
     $('#ammo').innerHTML = AMMO_ORDER.map((a, i) => `<button class="am ${((game.ammo || 'ball') === a) ? 'on' : ''} ${a !== 'ball' && !(p.inv[a] > 0) ? 'empty' : ''}" data-ammo="${a}" title="${AMMO[a].name}"><kbd>${i + 1}</kbd><span class="ball b-${a}"></span><small>${a === 'ball' ? '∞' : p.inv[a] || 0}</small></button>`).join('');
@@ -124,7 +126,7 @@ export class UI {
   panelSig(game) {
     const W = game.W, p = game.profile(), d = game.me()?.docked;
     const b = d && W.bases.find((x) => x.id === d.id);
-    return JSON.stringify([p.trail, (p.trails || []).length, p.inv, p.level, p.points, p.upg, p.fleet.map((s) => s.uid + s.name + (s.out ? 'o' : '') + (s.wrecked ? 'w' : '') + (s.hp ?? '')), p.flag, p.alliance, W.market.length, W.trades.length, W.proposals.length, W.treaties.length, b && b.buildings.map((x) => [x.type, Math.round(x.hp)]), b?.haven, Object.values(W.players).map((x) => x.online + x.name), this.tab]);
+    return JSON.stringify([p.trail, (p.trails || []).length, (p.cards || []).length, p.wheel, (p.holiday?.days || []).length, p.inv, p.level, p.points, p.upg, p.fleet.map((s) => s.uid + s.name + (s.out ? 'o' : '') + (s.wrecked ? 'w' : '') + (s.hp ?? '')), p.flag, p.alliance, W.market.length, W.trades.length, W.proposals.length, W.treaties.length, b && b.buildings.map((x) => [x.type, Math.round(x.hp)]), b?.haven, Object.values(W.players).map((x) => x.online + x.name), this.tab]);
   }
   frame(game, dt) {
     const me = game.me(); if (!me || !$('#shippanel')) return;
@@ -422,8 +424,8 @@ export class UI {
     const site = d || {};
     const own = site.kind === 'base' && game.W.bases.find((b) => b.id === site.id)?.owner === game.pid;
     const T = [];
-    if (!this.remote) { T.push(['harbor', 'Harbour'], ['ships', 'Shipwright'], ['fleet', 'Fleet'], ['upgrades', 'Upgrades'], ['craft', 'Crafting'], ['market', 'Market'], ['trails', 'Wake Trails']); if (own) T.push(['build', 'Build'], ['haven', 'Haven']); }
-    if (this.remote) T.push(['fleet', 'Fleet Command']);
+    if (!this.remote) { T.push(['harbor', 'Harbour'], ['ships', 'Shipwright'], ['fleet', 'Fleet'], ['upgrades', 'Upgrades'], ['craft', 'Crafting'], ['market', 'Market'], ['trails', 'Wake Trails'], ['rewards', '🎡 Rewards']); if (own) T.push(['build', 'Build'], ['haven', 'Haven']); }
+    if (this.remote) T.push(['fleet', 'Fleet Command'], ['rewards', '🎡 Rewards']);
     T.push(['diplomacy', 'Diplomacy']);
     return T;
   }
@@ -435,9 +437,9 @@ export class UI {
     if (!tabs.some(([k]) => k === this.tab)) this.tab = tabs[0][0];
     this.lastSig = this.panelSig(game);
     const me = game.me(); const p = game.profile();
-    const title = this.remote ? (this.tab === 'fleet' ? 'Fleet Command' : 'Diplomacy') : esc(me?.docked?.name || 'Harbour');
+    const title = this.remote ? (this.tab === 'fleet' ? 'Fleet Command' : this.tab === 'rewards' ? 'Rewards' : 'Diplomacy') : esc(me?.docked?.name || 'Harbour');
     const keepScroll = this.panel.querySelector('.pbody')?.scrollTop || 0;
-    this.panel.innerHTML = `<div class="port"><div class="phead"><h2>${title}</h2><div class="ptabs">${tabs.map(([k, n]) => `<button class="tab ${k === this.tab ? 'on' : ''}" data-tab="${k}">${n}${k === 'upgrades' && p.points ? ` <b class="badge">${p.points}</b>` : ''}${k === 'diplomacy' && game.W.proposals.some((x) => x.to === game.pid) ? ' <b class="badge">!</b>' : ''}</button>`).join('')}</div>${this.remote ? `<button class="btn tiny" id="pmin" title="Minimise">${this.panelMin ? '▢' : '—'}</button>` : ''}<button class="btn close" id="pclose">${this.remote ? '✕' : 'Set Sail ⛵'}</button></div><div class="pres">${RES.map((r) => `<span class="res res-${r}">${RES_ICON[r]} ${fmt(p.inv[r] || 0)}</span>`).join('')}${['chain', 'grape', 'explosive'].map((a) => `<span class="res"><span class="ball b-${a}"></span> ${p.inv[a] || 0}</span>`).join('')}</div><div class="pbody" id="pbody"></div></div>`;
+    this.panel.innerHTML = `<div class="port"><div class="phead"><h2>${title}</h2><div class="ptabs">${tabs.map(([k, n]) => `<button class="tab ${k === this.tab ? 'on' : ''}" data-tab="${k}">${n}${k === 'upgrades' && p.points ? ` <b class="badge">${p.points}</b>` : ''}${k === 'diplomacy' && game.W.proposals.some((x) => x.to === game.pid) ? ' <b class="badge">!</b>' : ''}${k === 'rewards' && this.rewardsReady(game) ? ' <b class="badge">!</b>' : ''}</button>`).join('')}</div>${this.remote ? `<button class="btn tiny" id="pmin" title="Minimise">${this.panelMin ? '▢' : '—'}</button>` : ''}<button class="btn close" id="pclose">${this.remote ? '✕' : 'Set Sail ⛵'}</button></div><div class="pres">${RES.map((r) => `<span class="res res-${r}">${RES_ICON[r]} ${fmt(p.inv[r] || 0)}</span>`).join('')}${['chain', 'grape', 'explosive'].map((a) => `<span class="res"><span class="ball b-${a}"></span> ${p.inv[a] || 0}</span>`).join('')}</div><div class="pbody" id="pbody"></div></div>`;
     this.panel.querySelectorAll('[data-tab]').forEach((b) => (b.onclick = () => { this.tab = b.dataset.tab; sfx.ui(); if (this.preview) { this.preview.dispose(); this.preview = null; } this.renderPanel(game); }));
     $('#pclose').onclick = () => this.closePanel(game);
     const pm = $('#pmin'); if (pm) pm.onclick = () => { this.panelMin = !this.panelMin; this.renderPanel(game); };
@@ -480,18 +482,45 @@ export class UI {
     const p = game.profile(); const me = game.me();
     const site = me.docked || {};
     const b = game.W.bases.find((x) => x.id === site.id);
-    const hasYard = b && b.owner === game.pid && b.buildings.some((x) => x.type === 'shipyard' && x.hp > 0);
+    const ownBase = b && b.owner === game.pid;
+    const canDesign = site.kind === 'port' || ownBase;
+    const hasYard = ownBase && b.buildings.some((x) => x.type === 'shipyard' && x.hp > 0);
+    const cards = p.cards || [];
+    const shipCards = (id) => cards.filter((c) => c.kind === 'ship' && c.tier === id);
+    const sizeCards = cards.filter((c) => c.kind === 'titanSize').length;
     body.innerHTML = `
+      ${cards.length ? `<div class="cardbar">🎴 Reward cards: ${this.cardsText(cards)} <span class="muted small">— redeem a ship card on its hull below, or pick it under "Pay with" in the custom shipyard.</span></div>` : ''}
       <h3>Shipwright — standard hulls</h3>
-      <div class="shipgrid">${shopTiers().map((T) => { const st = shipStats({ tier: T.id, side: T.side, size: 1 }); const locked = p.level < T.level; return `<div class="shipcard ${locked ? 'locked' : ''}"><h4>${T.name}</h4><div class="muted">${T.side} cannon${T.side > 1 ? 's' : ''} per side (up to ${maxSideFor(T, 1)}${T.sizeGuns ? `, ${T.sizeGuns[1]} at 120% size` : ''}) · ${T.masts} mast${T.masts > 1 ? 's' : ''}${T.flagshipOnly ? ' · <b class="y">flagship only</b>' : ''}</div><div class="mini">Hull ${st.hull} · Speed ${st.speed.toFixed(1)} · Crew ${st.crew}</div><div class="cost">${T.cost.gold ? costText(T.cost) : 'free'}</div><button class="btn" data-buy="${T.id}" ${locked || !T.cost.gold || !canAfford(p.inv, T.cost) ? 'disabled' : ''}>${locked ? `Level ${T.level}` : !T.cost.gold ? 'Starter' : 'Buy'}</button></div>`; }).join('')}</div>
-      <h3>Custom Shipyard ${hasYard ? '' : '<span class="muted small">— build a Shipyard on your base to design custom ships</span>'}</h3>
-      ${hasYard ? this.builderHTML(p) : ''}`;
+      <div class="shipgrid">${TIERS.map((T) => {
+        const st = shipStats({ tier: T.id, side: T.side, size: 1 }); const locked = p.level < T.level; const mine = shipCards(T.id);
+        const buy = T.cardOnly ? `<button class="btn" disabled>Reward card only</button>` : `<button class="btn" data-buy="${T.id}" ${locked || !T.cost.gold || !canAfford(p.inv, T.cost) ? 'disabled' : ''}>${locked ? `Level ${T.level}` : !T.cost.gold ? 'Starter' : 'Buy'}</button>`;
+        return `<div class="shipcard ${locked && !mine.length ? 'locked' : ''} ${T.cardOnly ? 'legend' : ''}"><h4>${T.name}</h4><div class="muted">${T.side} cannon${T.side > 1 ? 's' : ''} per side (up to ${maxSideFor(T, 1)}${T.sizeGuns ? `, ${T.sizeGuns[1]} at 120% size` : ''}) · ${T.masts} mast${T.masts > 1 ? 's' : ''}${T.flagshipOnly ? ' · <b class="y">flagship only</b>' : ''}</div><div class="mini">Hull ${st.hull} · Speed ${(st.speed * 1.94).toFixed(0)} kn · Crew ${st.crew}</div><div class="cost">${T.cardOnly ? 'Win it on the Wheel of Fortune (0.1%) or the Holiday Tides event' : T.cost.gold ? costText(T.cost) : 'free'}</div>${buy}${mine.length ? `<button class="btn primary" data-redeem="${mine[0].id}" data-tier="${T.id}">🎴 Redeem card${mine.length > 1 ? ` (${mine.length})` : ''}</button>` : ''}</div>`;
+      }).join('')}</div>
+      <div class="card sizecard"><b>Titan Size card</b> <span class="muted small">— lets a Titan be built above 100% size (up to 150 guns a side) in the custom shipyard. You hold ${sizeCards}.</span>
+        <button class="btn" id="buy-size" ${(p.inv.gold || 0) < TITAN_SIZE_PRICE ? 'disabled' : ''}>Buy — ${TITAN_SIZE_PRICE.toLocaleString()} gold</button></div>
+      <h3>Custom Shipyard ${canDesign ? `<span class="muted small">— ${hasYard ? 'your Shipyard takes 20% off' : site.kind === 'port' ? 'Free Port yards' : 'build a Shipyard here for 20% off'}</span>` : '<span class="muted small">— dock at the Free Port or one of your own islands to design ships</span>'}</h3>
+      ${canDesign ? this.builderHTML(p) : ''}`;
+    this.builderYard = hasYard;
     body.querySelectorAll('[data-buy]').forEach((bt) => (bt.onclick = () => this.doAct(game, { type: 'buyShip', tier: bt.dataset.buy }, 'New ship added to your fleet — make it your flagship in Fleet.')));
-    if (hasYard) this.bindBuilder(game, body);
+    body.querySelectorAll('[data-redeem]').forEach((bt) => (bt.onclick = () => this.doAct(game, { type: 'buyShip', tier: bt.dataset.tier, card: bt.dataset.redeem }, `Card redeemed: your ${tierById(bt.dataset.tier).name} waits in Fleet!`)));
+    $('#buy-size', body).onclick = () => this.doAct(game, { type: 'buySizeCard' }, 'Titan Size card added to your collection.');
+    if (canDesign) this.bindBuilder(game, body);
+  }
+  cardsText(cards) {
+    const n = {};
+    for (const c of cards) { const k = c.kind === 'ship' ? tierById(c.tier).name : 'Titan Size'; n[k] = (n[k] || 0) + 1; }
+    return Object.entries(n).map(([k, v]) => `<b>${esc(k)}</b>${v > 1 ? ` ×${v}` : ''}`).join(', ');
+  }
+  rewardsReady(game) {
+    const p = game.profile(), now = game.sim.clock();
+    const h = holidayState(p, now);
+    return freeSpinReady(p, now) || (h.active && !h.claimed);
   }
   builderHTML(p) {
+    const cards = (p.cards || []).filter((c) => c.kind === 'ship');
     const avail = shopTiers().filter((t) => p.level >= t.level);
     return `<div class="builder"><div class="bform">
+      <label>Pay with <select id="cb-pay"><option value="">Gold + materials</option>${cards.map((c) => `<option value="${c.id}" data-tier="${c.tier}">🎴 ${tierById(c.tier).name} card (hull is free)</option>`).join('')}</select></label>
       <label>Hull class <select id="cb-tier">${avail.map((t) => `<option value="${t.id}">${t.name}</option>`).join('')}</select></label>
       <label>Size <input type="range" id="cb-size" min="0.85" max="1.2" step="0.05" value="1"><b id="cb-size-t">100%</b></label>
       <label>Cannons per side <input type="range" id="cb-side" min="1" max="2" step="1" value="1"><b id="cb-side-t">1</b></label>
@@ -504,26 +533,32 @@ export class UI {
   bindBuilder(game, body) {
     const p = game.profile();
     const g = (id) => $('#' + id, body);
-    const read = () => ({ tier: g('cb-tier').value, size: +g('cb-size').value, side: +g('cb-side').value, name: g('cb-name').value, hullColor: g('cb-hull').value, trimColor: g('cb-trim').value, sailColor: g('cb-sail').value, emblem: +g('cb-emb').value });
+    const read = () => ({ card: g('cb-pay').value || undefined, tier: g('cb-tier').value, size: +g('cb-size').value, side: +g('cb-side').value, name: g('cb-name').value, hullColor: g('cb-hull').value, trimColor: g('cb-trim').value, sailColor: g('cb-sail').value, emblem: +g('cb-emb').value });
     const S = this.builderState;
     if (S) { if ([...g('cb-tier').options].some((o) => o.value === S.tier)) g('cb-tier').value = S.tier; g('cb-size').value = S.size; g('cb-name').value = S.name; g('cb-hull').value = S.hullColor; g('cb-trim').value = S.trimColor; g('cb-sail').value = S.sailColor; g('cb-emb').value = S.emblem; }
     if (this.preview) g('cb-prev').replaceWith(this.preview.r.domElement);
     let first = true;
     const upd = () => {
-      const T = tierById(g('cb-tier').value);
+      // a ship card fixes the hull class (and adds the Titan to the list when you hold its card)
+      const pay = g('cb-pay'), ct = pay.selectedOptions[0]?.dataset.tier, ts = g('cb-tier');
+      if (ct) { if (![...ts.options].some((o) => o.value === ct)) ts.add(new Option(tierById(ct).name, ct)); ts.value = ct; ts.disabled = true; } else { ts.disabled = false; for (const o of [...ts.options]) if (tierById(o.value).cardOnly) ts.removeChild(o); }
+      const T = tierById(ts.value);
+      const sizeOk = T.id !== 'titan' || (p.cards || []).some((c) => c.kind === 'titanSize');
+      const sz = g('cb-size'); sz.max = sizeOk ? 1.2 : 1; if (+sz.value > +sz.max) sz.value = sz.max;
       const mx = maxSideFor(T, +g('cb-size').value || 1); const sl = g('cb-side'); sl.min = T.minSide; sl.max = mx; if (first && S) sl.value = S.side; if (+sl.value < T.minSide) sl.value = T.side; if (+sl.value > mx) sl.value = mx;
       first = false;
       const o = read();
       this.builderState = o;
       g('cb-size-t').textContent = Math.round(o.size * 100) + '%'; g('cb-side-t').textContent = o.side;
-      const cost = customCost(o.tier, o.side, o.size);
-      g('cb-cost').innerHTML = `Cost: <b>${costText(cost)}</b> ${canAfford(p.inv, cost) ? '' : '<span class="bad">— not enough</span>'}`;
+      const cost = o.card ? {} : customCost(o.tier, o.side, o.size, this.builderYard);
+      g('cb-cost').innerHTML = o.card ? `Cost: <b>free — uses your ${tierById(o.tier).name} card</b>${T.id === 'titan' && o.size > 1 ? ' + 1 Titan Size card' : ''}` : `Cost: <b>${costText(cost)}</b> ${canAfford(p.inv, cost) ? '' : '<span class="bad">— not enough</span>'}`;
+      if (T.id === 'titan' && !sizeOk) g('cb-cost').innerHTML += '<div class="muted small">Above 100% needs a Titan Size card.</div>';
       const st = shipStats({ tier: o.tier, side: o.side, size: o.size }, {});
       g('cb-stats').textContent = `${st.len.toFixed(0)} m long · hull ${st.hull} · speed ${st.speed.toFixed(1)} m/s · turn ${st.turn.toFixed(2)} · crew ${st.crew} · reload ${st.reload.toFixed(1)} s`;
       if (!this.preview) this.preview = new ShipPreview(g('cb-prev') || this.preview?.r.domElement);
       this.preview.show(st, o);
     };
-    for (const id of ['cb-tier', 'cb-size', 'cb-side', 'cb-hull', 'cb-trim', 'cb-sail', 'cb-emb', 'cb-name']) g(id).oninput = upd;
+    for (const id of ['cb-pay', 'cb-tier', 'cb-size', 'cb-side', 'cb-hull', 'cb-trim', 'cb-sail', 'cb-emb', 'cb-name']) g(id).oninput = upd;
     g('cb-build').onclick = () => this.doAct(game, { type: 'customShip', spec: read() }, `The ${read().name} has been launched! Find her in Fleet.`);
     upd();
   }
@@ -585,6 +620,87 @@ export class UI {
       }).join('')}</div>`;
     body.querySelectorAll('[data-tb]').forEach((b) => (b.onclick = () => this.doAct(game, { type: 'buyTrail', id: b.dataset.tb }, `${TRAILS[b.dataset.tb].name} bought and equipped!`)));
     body.querySelectorAll('[data-eq]').forEach((b) => (b.onclick = () => this.doAct(game, { type: 'setTrail', id: b.dataset.eq }, `${TRAILS[b.dataset.eq].name} equipped.`)));
+  }
+  // ------------------------------------------------------------------ rewards: Wheel of Fortune + Holiday Tides
+  tab_rewards(game, body) {
+    const p = game.profile(), now = game.sim.clock();
+    const free = p.wheel?.free !== dayKey(now), bonus = p.wheel?.bonus || 0;
+    const h = holidayState(p, now);
+    const pct = (x) => (x * 100 < 1 ? (x * 100).toFixed(1) : (x * 100).toFixed(x * 100 < 10 ? 1 : 0)) + '%';
+    const days = [];
+    for (let i = 0; i < h.total; i++) {
+      const key = h.dayKeyOf(i), got = h.days.includes(key), past = i < h.i, today = i === h.i;
+      const gift = holidayGift(i, h.perfect);
+      const icon = gift.kind === 'ship' ? '🏴‍☠️' : gift.kind === 'titanSize' ? '📐' : gift.kind === 'spin' ? '🎡' : gift.kind === 'res' ? '🪵' : '🪙';
+      days.push(`<div class="hday ${got ? 'got' : past ? 'miss' : today ? 'today' : ''} ${gift.big ? 'big' : ''}" title="${esc(key)}: ${esc(i === h.total - 1 ? 'Titan card (perfect attendance) — otherwise 60,000 gold' : prizeText(gift))}"><span>${+key.slice(8)}</span>${got ? '✓' : past ? '✗' : icon}</div>`);
+    }
+    body.innerHTML = `<div class="rewards">
+      <div class="card wheelcard"><h3>🎡 Wheel of Fortune</h3>
+        <div class="wheelwrap"><canvas id="wheel" width="340" height="340"></canvas><div class="wptr">▼</div></div>
+        <div class="row"><button class="btn primary" id="spin-free" ${free || bonus ? '' : 'disabled'}>${free ? 'Free daily spin' : bonus ? `Bonus spin (${bonus})` : 'Free spin used today'}</button>
+          <button class="btn" id="spin-paid" ${(p.inv.gold || 0) < WHEEL.cost ? 'disabled' : ''}>Spin — ${WHEEL.cost.toLocaleString()} gold</button></div>
+        <div class="odds">${WHEEL.prizes.map((x) => `<span><i style="background:${x.color}"></i>${esc(x.label)} <b>${pct(x.p)}</b></span>`).join('')}</div>
+        <p class="muted small">Ships you win arrive as reward cards — redeem them at any Shipwright or use them in the custom shipyard.</p></div>
+      <div class="card holiday"><h3>❄ ${esc(HOLIDAY.name)}</h3>
+        <p>Claim a gift every day until <b>1 January</b>. Claim <b>every single day</b> and New Year's Day brings a <b class="y">Titan reward card</b>. Christmas Day brings a Titan Size card; every 7th day, two bonus spins.</p>
+        <div class="hcal">${days.join('')}</div>
+        <p class="small">${h.count}/${h.total} claimed · ${h.i < 0 ? 'starts soon' : !h.active ? 'event over' : h.perfect ? '<span class="good">perfect attendance — the Titan is still yours to win</span>' : `<span class="bad">missed ${h.missed} day${h.missed > 1 ? 's' : ''} — no Titan this year, New Year's Day pays 60,000 gold instead</span>`}</p>
+        <button class="btn primary" id="hol-claim" ${h.active && !h.claimed ? '' : 'disabled'}>${h.claimed ? 'Claimed today ✓ — come back tomorrow' : h.active ? `Claim day ${h.i + 1}` : 'Not running'}</button></div>
+      <div class="card"><h3>🎴 Your reward cards</h3>${(p.cards || []).length ? `<p>${this.cardsText(p.cards)}</p><p class="muted small">Use them at the Shipwright (Redeem) or in the custom shipyard (Pay with).</p>` : '<p class="muted">No cards yet — spin the wheel!</p>'}</div>
+    </div>`;
+    this.drawWheel();
+    const spin = async (paid) => {
+      if (this.wheelAnim && performance.now() < this.wheelAnim.t0 + this.wheelAnim.dur) return;
+      const r = await game.act({ type: 'spinWheel', paid });
+      if (r.err) { this.toast(r.err, 'bad'); sfx.click(); return; }
+      const res = r.data, n = WHEEL.prizes.length, seg = (Math.PI * 2) / n;
+      const from = this.wheelAngle || 0;
+      // land the pointer (top) inside the won slice
+      const target = -(res.index + 0.2 + Math.random() * 0.6) * seg;
+      const to = from - ((from - target) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI * 2 * 5;
+      this.wheelAnim = { from, to, t0: performance.now(), dur: 3600, res };
+      sfx.ui();
+      const tick = () => {
+        const a = this.wheelAnim; if (!a) return;
+        const t = Math.min(1, (performance.now() - a.t0) / a.dur), e = 1 - Math.pow(1 - t, 4);
+        this.wheelAngle = a.from + (a.to - a.from) * e;
+        this.drawWheel();
+        if (t < 1) requestAnimationFrame(tick);
+        else {
+          this.wheelAnim = null;
+          const big = a.res.prize.kind === 'ship' || a.res.prize.kind === 'titanSize';
+          this.toast(`${big ? '🎉 JACKPOT! ' : ''}You won ${a.res.text}!`, big ? 'event' : 'good', big ? 8 : 3);
+          this.refresh(game); if (this.panel) this.renderPanel(game);
+        }
+      };
+      requestAnimationFrame(tick);
+    };
+    $('#spin-free', body).onclick = () => spin(false);
+    $('#spin-paid', body).onclick = () => spin(true);
+    $('#hol-claim', body).onclick = async () => {
+      const r = await game.act({ type: 'claimHoliday' });
+      if (r.err) { this.toast(r.err, 'bad'); return; }
+      const big = r.data.gift.big;
+      this.toast(`${HOLIDAY.name} day ${r.data.day}/${r.data.total}: ${r.data.text}!`, big ? 'event' : 'good', big ? 8 : 3); sfx.ui();
+      this.refresh(game); if (this.panel) this.renderPanel(game);
+    };
+  }
+  drawWheel() {
+    const c = this.panel?.querySelector('#wheel'); if (!c) return;
+    const g = c.getContext('2d'), n = WHEEL.prizes.length, seg = (Math.PI * 2) / n, R = c.width / 2 - 6, cx = c.width / 2, cy = c.height / 2;
+    g.clearRect(0, 0, c.width, c.height);
+    g.save(); g.translate(cx, cy); g.rotate(this.wheelAngle || 0);
+    WHEEL.prizes.forEach((pr, i) => {
+      // slice i is centred at angle (i + 0.5) * seg measured clockwise from the top
+      const a0 = -Math.PI / 2 + i * seg, a1 = a0 + seg;
+      g.beginPath(); g.moveTo(0, 0); g.arc(0, 0, R, a0, a1); g.closePath();
+      g.fillStyle = pr.color; g.fill(); g.strokeStyle = '#f1c45a'; g.lineWidth = 2; g.stroke();
+      g.save(); g.rotate(a0 + seg / 2); g.textAlign = 'right'; g.fillStyle = ['g3k', 'g8k'].includes(pr.id) ? '#3a2a10' : '#fff';
+      g.font = `bold ${pr.kind === 'ship' || pr.kind === 'titanSize' ? 15 : 13}px sans-serif`; g.fillText(pr.label, R - 10, 5); g.restore();
+    });
+    g.beginPath(); g.arc(0, 0, 26, 0, 7); g.fillStyle = '#1a120a'; g.fill(); g.strokeStyle = '#f1c45a'; g.lineWidth = 3; g.stroke();
+    g.restore();
+    g.beginPath(); g.arc(cx, cy, R, 0, 7); g.strokeStyle = '#f1c45a'; g.lineWidth = 5; g.stroke();
   }
   tab_upgrades(game, body) {
     const p = game.profile();

@@ -200,3 +200,25 @@ label { display: block; margin: 6px 0; }
 .trails .tsw { height: 26px; border-radius: 13px; margin-bottom: 8px; border: 1px solid rgba(255,255,255,.15); background-color: #0d3550 !important; }
 .card.trail.on { border-color: var(--gold); }
 @media (max-width: 900px) { .fleetbox { bottom: 372px; right: 8px; width: 200px; } .port-wrap.side { top: 120px; right: 8px; height: calc(100vh - 470px); } }
+
+/* v2.4: rewards (wheel + Holiday Tides), reward cards, version tag */
+.ver { margin-left: 8px; opacity: .55; font-size: 11px; }
+.btn.gold { background: linear-gradient(#f1c45a, #c9962a); color: #2a1a06; border-color: #f6d98a; font-weight: 700; }
+.rewards { display: grid; grid-template-columns: minmax(300px, 380px) 1fr; gap: 12px; }
+.rewards .card:last-child { grid-column: 1 / -1; }
+.wheelwrap { position: relative; width: 340px; max-width: 100%; margin: 4px auto 10px; }
+.wheelwrap canvas { width: 100%; height: auto; display: block; }
+.wptr { position: absolute; top: -10px; left: 50%; transform: translateX(-50%); color: #f1c45a; font-size: 28px; text-shadow: 0 2px 4px #000; }
+.odds { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12px; margin-top: 8px; }
+.odds i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; border: 1px solid rgba(255,255,255,.3); }
+.hcal { display: grid; grid-template-columns: repeat(auto-fill, minmax(38px, 1fr)); gap: 4px; margin: 8px 0; }
+.hday { background: rgba(0,0,0,.3); border: 1px solid rgba(241,196,90,.15); border-radius: 6px; text-align: center; font-size: 15px; padding: 2px 0 4px; }
+.hday span { display: block; font-size: 10px; opacity: .6; }
+.hday.got { background: rgba(60,170,90,.35); border-color: #5c5; }
+.hday.miss { background: rgba(170,50,50,.3); border-color: #a44; opacity: .7; }
+.hday.today { border-color: #f1c45a; box-shadow: 0 0 8px #f1c45a; }
+.hday.big { border-color: #c23aff; }
+.cardbar { background: rgba(194,58,255,.15); border: 1px solid rgba(194,58,255,.4); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; }
+.shipcard.legend { border-color: #b3201c; box-shadow: inset 0 0 18px rgba(179,32,28,.35); }
+.sizecard { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 10px 0; }
+@media (max-width: 760px) { .rewards { grid-template-columns: 1fr; } }

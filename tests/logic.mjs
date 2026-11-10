@@ -4,6 +4,7 @@ import * as E from '../src/economy.js';
 import { Sim, joinPlayer, solveElev, arcOf } from '../src/sim.js';
 import { handleAct } from '../src/actions.js';
 import { generateIslands } from '../src/worldgen.js';
+import * as CFG from '../src/config.js';
 import { TIERS, MARKET_TAX, BUILDINGS, GRAVITY, MUZZLE, UPGRADE_TOTAL, claimFee, BASE_RELOAD, TRAILS } from '../src/config.js';
 import { setCalm, heightAt } from '../src/waves.js';
 import { gunLayout } from '../src/layout.js';
@@ -16,7 +17,7 @@ const world = (seed = 42) => { const W = E.newWorld(seed); generateIslands(W); r
 const rng = (s = 1) => () => ((s = (s * 16807) % 2147483647) / 2147483647);
 
 T('ship tiers match the spec cannon counts', () => {
-  const want = { sloop: 1, schooner: 1, brigantine: 2, frigate: 3, galleon: 5, manowar: 10, sovereign: 16, leviathan: 30, titan: 150 };
+  const want = { sloop: 1, schooner: 1, brigantine: 2, frigate: 3, galleon: 5, manowar: 10, sovereign: 16, leviathan: 30, titan: 120 };
   for (const t of TIERS) ok(t.side === want[t.id], t.id);
   for (const t of TIERS) { const st = E.shipStats(E.shipSpec(t.id)); const g = gunLayout(st); ok(g.filter((x) => x.side === 'L').length === t.side && g.filter((x) => x.side === 'R').length === t.side, 'layout ' + t.id); }
 });
@@ -73,8 +74,12 @@ T('custom shipyard respects tier limits and costs', () => {
   const W = world(); const sim = new Sim(W, { rand: rng(2) }); const { p } = joinPlayer(sim, 'u', 'U');
   const base = W.bases.find((b) => b.owner === 'u'); ok(base, 'got a free island');
   p.level = 10; p.inv = { ...p.inv, gold: 1e6, oak: 1e5, iron: 1e5, canvas: 1e5 };
-  ok(typeof E.buildCustomShip(W, p, base.id, { tier: 'frigate', side: 5 }) === 'string', 'needs shipyard');
+  const g0 = p.inv.gold; ok(typeof E.buildCustomShip(W, p, base.id, { tier: 'frigate', side: 5 }) === 'object', 'works without a shipyard');
+  const full = g0 - p.inv.gold;
+  ok(typeof E.buildCustomShip(W, p, 'port', { tier: 'frigate', side: 5 }) === 'object', 'and at the Free Port');
+  ok(typeof E.buildCustomShip(W, p, W.bases.find((b) => b.owner !== 'u').id, { tier: 'frigate', side: 5 }) === 'string', 'not on someone else\'s island');
   ok(typeof E.build(W, p, base.id, 'dock') === 'object'); ok(typeof E.build(W, p, base.id, 'shipyard') === 'object');
+  const g1 = p.inv.gold; E.buildCustomShip(W, p, base.id, { tier: 'frigate', side: 5 }); ok(g1 - p.inv.gold < full, 'shipyard discount');
   const s = E.buildCustomShip(W, p, base.id, { tier: 'frigate', side: 99, size: 1.2, name: 'Vengeance', hullColor: '#223344' });
   ok(typeof s === 'object' && s.side === 8 && s.size === 1.2 && s.custom && s.name === 'Vengeance');
   ok(typeof E.buildCustomShip(W, p, base.id, { tier: 'manowar', side: 10 }) === 'string', 'level gate');
@@ -285,7 +290,7 @@ T('leviathan: flagship-only ship of the line; cannon limit grows with hull size 
   // guns never sit under water, even on the lowest of the four decks
   ok(gunLayout(lv).every((g) => g.y > 2.5), 'gun decks above the waterline');
   const W = world(); const sim = new Sim(W, { rand: rng(31) }); const { p } = joinPlayer(sim, 'u', 'U');
-  p.level = 60; p.inv = { gold: 1e6, oak: 1e5, iron: 1e5, canvas: 1e5, powder: 1e4 };
+  p.level = 60; p.inv = { gold: 1e7, oak: 1e6, iron: 1e6, canvas: 1e6, powder: 1e5 };
   const me = sim.spawnPlayer('u'); me.x = 150; me.z = 0; me.spd = 0; handleAct(sim, 'u', { type: 'dock' });
   const b = handleAct(sim, 'u', { type: 'buyShip', tier: 'leviathan' }); ok(!b.err, b.err);
   ok(sim.deployFleet('u', b.data, { mode: 'escort' }).includes('flagship'), 'cannot sail in a fleet');
@@ -294,23 +299,83 @@ T('leviathan: flagship-only ship of the line; cannon limit grows with hull size 
   const lead = sim.ships.get('p:u'); lead.docked = null; lead.x = 2500; lead.z = 2500;
   for (let i = 0; i < 80; i++) { const s = sim.spawnAI(200, lead, { strong: true }); if (s) ok(s.spec.tier !== 'leviathan', 'AI leviathan'); }
 });
-T('sovereign sits between man of war and leviathan; titan is cheat-only and cannot be hurt', () => {
+T('sovereign sits between man of war and leviathan; titan only comes as a reward card', () => {
   const ids = TIERS.map((t) => t.id);
   ok(ids.indexOf('manowar') < ids.indexOf('sovereign') && ids.indexOf('sovereign') < ids.indexOf('leviathan'), 'order');
   const sv = E.shipStats(E.shipSpec('sovereign')), mow = E.shipStats(E.shipSpec('manowar')), lv = E.shipStats(E.shipSpec('leviathan'));
   ok(sv.hull > mow.hull && sv.hull < lv.hull && sv.side > mow.side && sv.side < lv.side && sv.len > mow.len && sv.len < lv.len, 'in between');
   ok(gunLayout(E.shipStats(E.shipSpec('sovereign', { size: 1.2 }), { side: 40 })).every((g) => g.y > 1.2), 'sovereign gun decks dry');
-  ok(TIERS.find((t) => t.id === 'sovereign').flagshipOnly, 'sovereign flagship only');
-  ok(lv.beam / lv.len > 0.3, 'leviathan is broad');
+  const tier = (id) => TIERS.find((t) => t.id === id);
+  ok(!tier('sovereign').flagshipOnly, 'sovereign can sail in a fleet');
+  ok(tier('sovereign').cost.gold >= 20 * tier('manowar').cost.gold && tier('leviathan').cost.gold >= 4 * tier('sovereign').cost.gold, 'top tiers are very expensive');
+  ok(lv.beam / lv.len > 0.27 && lv.beam / lv.len < 0.33, 'leviathan broad but not a barge');
   const W = world(); const sim = new Sim(W, { rand: rng(33) }); const { p } = joinPlayer(sim, 'u', 'U');
   p.level = 200; p.inv = { gold: 1e7, oak: 1e6, iron: 1e6, canvas: 1e6, powder: 1e5 };
   const me = sim.spawnPlayer('u'); me.x = 150; me.z = 0; me.spd = 0; handleAct(sim, 'u', { type: 'dock' });
   ok(handleAct(sim, 'u', { type: 'buyShip', tier: 'titan' }).err, 'titan cannot be bought');
-  ok(!handleAct(sim, 'u', { type: 'buyShip', tier: 'sovereign' }).err, 'sovereign can');
-  const ti = E.shipSpec('titan'); p.fleet.push(ti); p.flag = ti.uid; const s = sim.spawnPlayer('u'); s.docked = null;
-  ok(s.stats.side === 150 && gunLayout(s.stats).filter((g) => g.side === 'L').length === 150, 'titan: 150 guns a side');
-  for (let i = 0; i < 50; i++) sim.hurt(s, 1e6, 1e6, 1e6, 'x');
-  ok(s.sink === 0 && s.hull === s.stats.hull && s.sails === s.stats.sails && s.crew === s.stats.crew, 'titan unhurt');
+  const sb = handleAct(sim, 'u', { type: 'buyShip', tier: 'sovereign' }); ok(!sb.err, 'sovereign can');
+  ok(!sim.deployFleet('u', sb.data, { mode: 'escort' })?.includes?.('flagship'), 'sovereign deploys');
+  const c = E.addCard(p, { kind: 'ship', tier: 'titan' });
+  const tb = handleAct(sim, 'u', { type: 'buyShip', tier: 'titan', card: c.id }); ok(!tb.err, tb.err);
+  ok(!(p.cards || []).length, 'card used up');
+  const ti = p.fleet.find((x) => x.uid === tb.data); p.flag = ti.uid; const s = sim.spawnPlayer('u'); s.docked = null;
+  const st = s.stats;
+  ok(st.speed * 1.94 >= 28 && st.speed * 1.94 <= 42, 'titan ~30-40 kn: ' + (st.speed * 1.94).toFixed(1));
+  ok(st.hull > lv.hull && st.hull < 60000 && !st.invincible, 'titan has a real hull');
+  sim.hurt(s, 1e6, 0, 0, 'x'); ok(s.sink > 0, 'and can be sunk');
+  // custom Titan: a card pays for the hull; above 100% needs a Titan Size card
+  const c2 = E.addCard(p, { kind: 'ship', tier: 'titan' });
+  ok(typeof E.buildCustomShip(W, p, 'port', { card: c2.id, size: 1.2, side: 150 }) === 'string', 'size card needed');
+  E.addCard(p, { kind: 'titanSize' });
+  const big = E.buildCustomShip(W, p, 'port', { card: c2.id, size: 1.2, side: 150 });
+  ok(typeof big === 'object' && big.side === 150 && big.size === 1.2 && !(p.cards || []).length, 'big titan built, both cards used');
+  const gold = p.inv.gold; ok(typeof E.buyTitanSizeCard(p) === 'object' && gold - p.inv.gold >= 1e6, 'size card for a lot of gold');
+});
+T('wheel of fortune: one free spin a day, paid spins, odds, ships arrive as cards', () => {
+  const W = world(); const sim = new Sim(W, { rand: rng(35) }); const { p } = joinPlayer(sim, 'u', 'U');
+  const day = Date.UTC(2026, 10, 20, 12);
+  p.inv.gold = 0;
+  ok(typeof E.spinWheel(p, day, () => 0.5) === 'object', 'free daily spin');
+  ok(typeof E.spinWheel(p, day, () => 0.5) === 'string', 'second spin needs gold');
+  p.inv.gold = 100000; const r = E.spinWheel(p, day, () => 0.0005); ok(r.prize.tier === 'titan' && p.inv.gold === 100000 - 20000, 'paid spin, 0.1% titan');
+  ok(p.cards.length === 1 && p.cards[0].tier === 'titan', 'titan card');
+  ok(typeof E.spinWheel(p, day + 864e5, () => 0.5) === 'object' && p.inv.gold === 80000, 'free again next day');
+  const odds = Object.fromEntries(CFG.WHEEL.prizes.map((x) => [x.id, x.p]));
+  ok(odds.titan === 0.001 && odds.leviathan === 0.005 && odds.sovereign === 0.007 && odds.manowar === 0.01 && odds.galleon === 0.02, 'odds as specified');
+  // empirical check
+  const q = { ...p, inv: { gold: 1e12 }, cards: [], wheel: {} }; const R = rng(77); let ships = 0;
+  for (let i = 0; i < 20000; i++) { const x = E.spinWheel(q, day, R, { paid: true }); if (x.prize.kind === 'ship') ships++; }
+  ok(Math.abs(ships / 20000 - 0.043) < 0.006, 'ship rate ' + ships / 20000);
+  const a = handleAct(sim, 'u', { type: 'spinWheel' }); ok(a.ok || a.err, 'action works');
+});
+T('holiday tides: daily gifts; claim every day to New Year for a Titan card', () => {
+  const W = world(); const sim = new Sim(W, { rand: rng(36) }); const { p } = joinPlayer(sim, 'u', 'U');
+  const start = new Date(2026, 10, 9, 12).getTime(), D = 864e5, n = E.holidayLength();
+  ok(n === 54, 'Nov 9 .. Jan 1 = 54 days: ' + n);
+  ok(typeof E.claimHoliday(p, start - D) === 'string', 'not before it starts');
+  for (let i = 0; i < n; i++) { const r = E.claimHoliday(p, start + i * D); ok(typeof r === 'object', 'day ' + i + ' ' + r); ok(typeof E.claimHoliday(p, start + i * D + 3600e3) === 'string', 'once a day'); }
+  ok(p.cards.some((c) => c.tier === 'titan'), 'perfect attendance -> Titan card');
+  ok(p.cards.some((c) => c.kind === 'titanSize'), 'Christmas size card');
+  ok(typeof E.claimHoliday(p, start + n * D) === 'string', 'over after Jan 1');
+  const q = { ...p, cards: [], holiday: null, inv: { gold: 0 } };
+  for (let i = 0; i < n; i++) if (i !== 10) E.claimHoliday(q, start + i * D);
+  ok(!q.cards.some((c) => c.tier === 'titan') && q.inv.gold > 60000, 'missed a day: gold instead');
+  joinPlayer(sim, 'v', 'V'); sim.clock = () => start; ok(!handleAct(sim, 'v', { type: 'claimHoliday' }).err, 'claim action');
+});
+T('delayed broadside guns fire from where the ship is now; decks 0.2 s apart', () => {
+  const W = world(); const sim = new Sim(W, { rand: rng(37) }); const { p } = joinPlayer(sim, 'u', 'U');
+  const sp = E.shipSpec('manowar'); p.fleet.push(sp); p.flag = sp.uid;
+  const s = sim.spawnPlayer('u'); s.docked = null; s.x = 2600; s.z = 2600; s.yaw = 0; s.spd = 0;
+  const plan = sim.planBroadside(s, 'L', s.x + 200, s.z, 'ball');
+  ok(!plan.err, plan.err);
+  const byDeck = {}; for (const b of plan.balls) { const d = Math.round((b.delay - 0.0) / 0.2 - 0.49); (byDeck[d] ||= []).push(b); }
+  const delays = plan.balls.map((b) => b.delay); ok(Math.max(...delays) < 0.2 * 2 + 0.25, 'quick decks: max ' + Math.max(...delays).toFixed(2));
+  sim.fire(s, 'L', s.x + 200, s.z, 'ball', plan.balls);
+  const late = sim.balls.filter((b) => b.t < -0.3);
+  ok(late.length > 0, 'some guns wait');
+  s.x += 40; s.z += 25; // the ship sails on
+  for (let i = 0; i < 40; i++) sim.stepBalls(1 / 60);
+  for (const b of late) ok(Math.hypot(b.x - s.x, b.z - s.z) < 80, 'ball fired near the ship, not the old spot');
 });
 T('base islands grow a lot with buildings, but never into a neighbour', () => {
   const W = world(); const sim = new Sim(W, { rand: rng(34) }); void sim;

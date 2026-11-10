@@ -85,6 +85,18 @@ export class Game {
     }
     this.updateShallows();
     this.stage.ocean.setIslands(this.shallows, focus);
+    // ground clutter LOD: grass + flowers only near the camera, bushes/boulders a bit further
+    const cam = this.camera.position;
+    const groups = [...this.islandGroups.map((e) => e.group), ...[...this.baseViews.values()].map((v) => v.group)];
+    for (const g of groups) {
+      if (!g) continue;
+      g.userData.lodMeshes ||= (() => { const l = []; g.traverse((o) => { if (o.userData.lod) l.push(o); }); return l; })();
+      for (const o of g.userData.lodMeshes) {
+        const c = o.userData.c || (o.userData.c = (() => { const b = new THREE.Box3().setFromObject(o); return b.getCenter(new THREE.Vector3()); })());
+        const d = Math.hypot(c.x - cam.x, c.z - cam.z);
+        o.visible = d < (o.userData.lod === 1 ? 650 : 1500);
+      }
+    }
   }
   syncBases(focus) {
     for (const b of this.W.bases) {
@@ -283,6 +295,18 @@ export class Game {
     return new Promise((res) => { this.pending.set(id, res); this.room.toHost({ k: 'act', id, a }); setTimeout(() => { if (this.pending.has(id)) { this.pending.delete(id); res({ err: 'No answer from host' }); } }, 8000); });
   }
 
+  /** Muzzle smoke/flash for one gun, from where its ship is at the moment the gun goes off. */
+  muzzleAt(shipId, b, flash, k = 1) {
+    let x = b[0], y = b[1], z = b[2], dx = b[3], dz = b[5];
+    const sh = shipId && this.sim.ships.get(shipId);
+    if (sh && b.length > 7) {
+      const c = Math.cos(sh.yaw), sn = Math.sin(sh.yaw);
+      x = sh.x + b[7] * c + b[9] * sn; y = b[8] + (sh.heave || 0); z = sh.z - b[7] * sn + b[9] * c;
+      const d = sh.yaw - b[10], cd = Math.cos(d), sd = Math.sin(d), vx = dx; dx = vx * cd + dz * sd; dz = -vx * sd + dz * cd;
+    }
+    const len = Math.hypot(dx, dz) || 1;
+    this.fx.muzzle(x, y, z, dx / len, dz / len, flash, k);
+  }
   // ------------------------------------------------------------------ fx presentation
   playFx(f, local) {
     const t = this.sim.time;
@@ -290,7 +314,7 @@ export class Game {
     switch (f.t) {
       case 'fire': {
         const s = f.ship ? this.sim.ships.get(f.ship) : null;
-        if (!local && f.ship !== 'p:' + this.pid) for (const b of f.balls) this.sim.spawnBall(null, { x: b[0], y: b[1], z: b[2], vx: b[3], vy: b[4], vz: b[5], delay: b[6], ammo: f.ammo, shooter: f.ship || 'base', owner: s?.owner || 'base' });
+        if (!local && f.ship !== 'p:' + this.pid) for (const b of f.balls) this.sim.spawnBall(null, { x: b[0], y: b[1], z: b[2], vx: b[3], vy: b[4], vz: b[5], delay: b[6], ammo: f.ammo, shooter: f.ship || 'base', owner: s?.owner || 'base', ...(b.length > 7 ? { gl: [b[7], b[8], b[9]], yaw0: b[10] } : {}) });
         // big broadsides: fewer smoke puffs per gun (the cloud merges anyway), one flash per few guns,
         // and nothing at all for far-off battles beyond what you can see
         const n = f.balls.length, dist = this.distTo(f.balls[0][0], f.balls[0][2]);
@@ -298,7 +322,7 @@ export class Game {
           const k = Math.max(0.25, Math.min(1, 3 / Math.sqrt(n))) * (dist > 1200 ? 0.5 : 1);
           f.balls.forEach((b, i) => {
             const len = Math.hypot(b[3], b[5]) || 1;
-            setTimeout(() => this.fx.muzzle(b[0], b[1], b[2], b[3] / len, b[5] / len, i % Math.max(1, Math.round(n / 4)) === 0 ? 1 : 0, k), (b[6] || 0) * 1000);
+            setTimeout(() => this.muzzleAt(f.ship, b, i % Math.max(1, Math.round(n / 4)) === 0 ? 1 : 0, k), (b[6] || 0) * 1000);
           });
         }
         sfx.cannon(this.distTo(f.balls[0][0], f.balls[0][2]), f.balls.length);
@@ -337,7 +361,7 @@ export class Game {
       const down = e.type === 'keydown';
       if (down) this.keys.add(e.code); else this.keys.delete(e.code);
       if (!down || e.repeat) { if (e.code === 'KeyF' && !down) this.act({ type: 'harvest', on: false }); return; }
-      if (this.ui.blocking() && e.code !== 'Escape' && e.code !== 'KeyM' && e.code !== 'Backquote' && e.code !== 'KeyG') return;
+      if (this.ui.blocking() && e.code !== 'Escape' && e.code !== 'KeyM' && e.code !== 'Backquote' && e.code !== 'KeyG' && e.code !== 'KeyJ') return;
       const me = this.me();
       switch (e.code) {
         case 'KeyW': case 'ArrowUp': this.setSail(+1); break;
@@ -353,6 +377,7 @@ export class Game {
         case 'Escape': this.ui.escape(this); break;
         case 'KeyP': if (me?.docked) this.ui.port(this); break;
         case 'KeyG': if (this.ui.panel && this.ui.remote) this.ui.closePanel(this); else this.ui.port(this, 'fleet', !me?.docked); break;
+        case 'KeyJ': if (this.ui.panel && this.ui.tab === 'rewards') this.ui.closePanel(this); else this.ui.port(this, 'rewards', !me?.docked); break;
         case 'KeyR': this.seaRepair(); break;
         default: break;
       }
@@ -533,7 +558,7 @@ export class Game {
       this.room.toHost({ k: 'fire', side: a.side, ax: a.point.x, az: a.point.z, ammo, balls: plan.balls });
       // local presentation of our own shot (host won't echo it back)
       const f = this.sim.fx.splice(0).filter((x) => x.t === 'fire');
-      for (const x of f) { for (const b of x.balls) { const len = Math.hypot(b[3], b[5]) || 1; setTimeout(() => this.fx.muzzle(b[0], b[1], b[2], b[3] / len, b[5] / len, 1), (b[6] || 0) * 1000); } sfx.cannon(0, x.balls.length); }
+      for (const x of f) { const n = x.balls.length, k = Math.max(0.25, Math.min(1, 3 / Math.sqrt(n))); x.balls.forEach((b, i) => setTimeout(() => this.muzzleAt(x.ship, b, i % Math.max(1, Math.round(n / 4)) === 0 ? 1 : 0, k), (b[6] || 0) * 1000)); sfx.cannon(0, n); }
     }
     this.shake = Math.max(this.shake || 0, 0.25);
   }
@@ -620,6 +645,7 @@ export class Game {
       }
       v.model.root.visible = dist < far || s === me;
       if (!v.model.root.visible) continue;
+      { const cd = s === me ? 0 : Math.hypot(s.x - this.camera.position.x, s.z - this.camera.position.z), L = s.stats.len; v.model.setLOD(cd > 900 + L * 6 ? 2 : cd > 300 + L * 3 ? 1 : 0); }
       const p = this.pose(s);
       this.poseShip(v, s, p, t, dt);
       if (s.sink === 0) this.fx.wake({ ...s, x: p.x, z: p.z, yaw: p.yaw }, t);

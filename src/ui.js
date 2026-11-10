@@ -4,15 +4,16 @@
 import * as THREE from 'three';
 import {
   RES, RES_LABEL, RES_ICON, AMMO, AMMO_ORDER, RECIPES, TIERS, shopTiers, tierById, UPGRADES, UPGRADE_TOTAL, XP_PER_LEVEL, BUILDINGS,
-  MARKET_ITEMS, MARKET_TAX, TREATY_TYPES, HAVEN_R, WORLD_R, VERSION, LAND_SLOTS, claimFee, FIELD_REPAIR, TRAILS, maxSideFor, WHEEL, HOLIDAY, TITAN_SIZE_PRICE,
+  MARKET_ITEMS, MARKET_TAX, TREATY_TYPES, HAVEN_R, WORLD_R, VERSION, LAND_SLOTS, claimFee, FIELD_REPAIR, TRAILS, maxSideFor, WHEEL, HOLIDAY, TITAN_SIZE_PRICE, TREASURE,
 } from './config.js';
-import { shipStats, customCost, costText, canAfford, holidayState, holidayGift, prizeText, freeSpinReady, dayKey, bestAsk, bestBid, crewEff, treatyBetween, shielded, landSlotsUsed, flagship, hostile, fleetCap, traderName, aiFaction } from './economy.js';
+import { shipStats, customCost, costText, canAfford, holidayState, holidayGift, giftShort, prizeText, voyageCost, freeSpinReady, dayKey, bestAsk, bestBid, crewEff, treatyBetween, shielded, landSlotsUsed, flagship, hostile, fleetCap, traderName, aiFaction } from './economy.js';
 import { SAIL_NAMES, SAIL_STEPS, DOCK_SPEED } from './sim.js';
 import { dockSite, repairCost } from './actions.js';
 import { baseRadius } from './basegeo.js';
 import { buildShip } from './render/shipmodel.js';
 import { EMBLEMS } from './render/textures.js';
 import { sfx } from './audio.js';
+import { iconSVG, iconImage, prizeIcon } from './icons.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -164,6 +165,8 @@ export class UI {
         : `<kbd>E</kbd> Dock at <b>${esc(site.name)}</b>${me.spd > DOCK_SPEED ? ' <span class="muted">(slow down)</span>' : ''}`;
       const isl = game.W.islands.find((i) => i.kind === 'res' && Math.hypot(i.x - me.x, i.z - me.z) < i.r + 80);
       if (isl) pr += `${pr ? '<br>' : ''}Hold <kbd>F</kbd> to harvest <b>${RES_LABEL[isl.res]}</b> (${Math.floor(isl.amt ?? 100)}%)${me.spd > 4 ? ' <span class="muted">— stop the ship</span>' : ''}`;
+      const tm = (game.profile()?.tmaps || []).find((m) => Math.hypot(m.x - me.x, m.z - me.z) < m.range);
+      if (tm) pr = `<kbd>E</kbd> Send a shore party to dig up the treasure on <b>${esc(tm.name)}</b>${me.spd > 4 ? ' <span class="muted">— stop the ship</span>' : ''}${pr ? '<br>' + pr : ''}`;
       const cap = game.sim.capture?.get?.(game.W.bases.find((b) => Math.hypot(b.x - me.x, b.z - me.z) < baseRadius(b) + 90)?.id);
       if (cap) pr += `<br><b>Capturing… ${Math.floor(cap.t)}/12s</b>`;
     }
@@ -174,6 +177,8 @@ export class UI {
     const k = game.sim.kraken;
     if (k && k.hp > 0) ev.push(`<div class="ev kraken"><b>🐙 The Kraken</b> ${Math.round(game.distTo(k.x, k.z))}m<div class="evbar"><i style="width:${(k.hp / k.maxHp) * 100}%"></i></div></div>`);
     for (const s of game.sim.ships.values()) if (s.tag === 'treasure' && s.sink === 0) ev.push(`<div class="ev treasure"><b>💰 Treasure Flagship</b> ${Math.round(game.distTo(s.x, s.z))}m<div class="evbar"><i style="width:${(s.hull / s.stats.hull) * 100}%"></i></div></div>`);
+    for (const s of game.sim.ships.values()) if (s.tag === 'bounty' && s.sink === 0) ev.push(`<div class="ev bounty"><b>☠ ${esc(s.name)}</b> ${Math.round(game.distTo(s.x, s.z))}m${s.bounty ? ` · ${s.bounty.toLocaleString()}g` : ''}<div class="evbar"><i style="width:${(s.hull / s.stats.hull) * 100}%"></i></div></div>`);
+    for (const m of game.profile()?.tmaps || []) ev.push(`<div class="ev tmap"><b>✕ Treasure</b> on ${esc(m.name)} · ${Math.round(game.distTo(m.x, m.z))}m</div>`);
     const myFleet = [...game.sim.ships.values()].filter((s) => s.role === 'fleet' && s.owner === game.pid && s.sink === 0);
     const fb = $('#fleetbox');
     if (fb) {
@@ -244,7 +249,14 @@ export class UI {
       const [x, y] = P(s.x, s.z);
       g.fillStyle = s.pid ? '#4ad9ff' : s.role === 'fleet' ? (s.owner === game.pid ? '#7dffb0' : '#4ad9ff') : s.role === 'merchant' ? '#e8d27a' : s.role === 'navy' ? '#6f8cff' : aiFaction(s.owner) === 'clan' ? '#ff2a6a' : '#ff5a4a';
       if (s.tag === 'treasure') g.fillStyle = '#ffd34a';
-      g.beginPath(); g.arc(x, y, s.tag === 'treasure' ? 4.5 : 3, 0, 7); g.fill();
+      if (s.tag === 'bounty') g.fillStyle = '#ff2020';
+      g.beginPath(); g.arc(x, y, s.tag ? 4.5 : 3, 0, 7); g.fill();
+    }
+    // treasure X marks (pinned to the rim when off the edge, so they point the way)
+    for (const m of game.profile()?.tmaps || []) {
+      let [x, y] = P(m.x, m.z); const d = Math.hypot(x, y), lim = W / 2 - 9;
+      if (d > lim) { x *= lim / d; y *= lim / d; }
+      g.strokeStyle = '#ff3b2a'; g.lineWidth = 3; g.beginPath(); g.moveTo(x - 4, y - 4); g.lineTo(x + 4, y + 4); g.moveTo(x + 4, y - 4); g.lineTo(x - 4, y + 4); g.stroke(); g.lineWidth = 1;
     }
     if (game.sim.kraken && game.sim.kraken.hp > 0) { const [x, y] = P(game.sim.kraken.x, game.sim.kraken.z); g.fillStyle = '#c23aff'; g.beginPath(); g.arc(x, y, 6, 0, 7); g.fill(); }
     g.restore();
@@ -338,7 +350,7 @@ export class UI {
     el.innerHTML = `<div class="mapcard"><canvas id="mapc" width="900" height="900"></canvas><div class="maplegend"><h3>Sea Chart</h3>
       <div><i style="background:#4ad9ff"></i>Your bases & captains · <i style="background:#7dffb0"></i>your fleet</div><div><i style="background:#c9b98a"></i>Wild island (squatters — claim it)</div><div><i style="background:#c03a2a"></i>Pirate clan fortress (conquerable)</div><div><i style="background:#f2d58a"></i>Free Port (safe haven, market)</div><div class="muted small">Click an island to send your fleet.</div>
       <div><i style="background:#5fbf5a"></i>Oak · <i style="background:#aaa"></i>Iron · <i style="background:#e8e0c0"></i>Canvas · <i style="background:#e8c64a"></i>Powder</div>
-      <div><i style="background:#c23aff"></i>Kraken · <i style="background:#ffd34a"></i>Treasure / loot</div><div class="muted small">Ring = offline shield</div>
+      <div><i style="background:#c23aff"></i>Kraken · <i style="background:#ffd34a"></i>Treasure / loot · <i style="background:#ff2020"></i>Wanted captain · <b style="color:#ff3b2a">✕</b> your treasure maps</div><div class="muted small">Ring = offline shield</div>
       <button class="btn" id="mapclose">Close (M)</button></div></div>`;
     this.root.appendChild(el);
     $('#mapclose').onclick = () => this.toggleMap(game);
@@ -384,7 +396,15 @@ export class UI {
       if (s.pid) { g.fillStyle = s.pid === game.pid ? '#fff' : '#4ad9ff'; g.beginPath(); g.arc(x, y, s.pid === game.pid ? 6 : 4, 0, 7); g.fill(); g.fillText(game.W.players[s.pid]?.name || '', x, y + 16); }
       else if (s.role === 'fleet' && s.owner === game.pid) { g.fillStyle = '#7dffb0'; g.beginPath(); g.arc(x, y, 3.5, 0, 7); g.fill(); }
       else if (s.tag === 'treasure') { g.fillStyle = '#ffd34a'; g.beginPath(); g.arc(x, y, 6, 0, 7); g.fill(); g.fillText('Treasure Flagship', x, y + 16); }
+      else if (s.tag === 'bounty') { g.fillStyle = '#ff2020'; g.beginPath(); g.arc(x, y, 6, 0, 7); g.fill(); g.strokeStyle = '#fff'; g.stroke(); g.fillStyle = '#ffb0a0'; g.fillText(s.name, x, y + 16); }
     }
+    for (const m of game.profile()?.tmaps || []) {
+      const [x, y] = P(m.x, m.z);
+      g.strokeStyle = '#ff3b2a'; g.lineWidth = 4; g.beginPath(); g.moveTo(x - 7, y - 7); g.lineTo(x + 7, y + 7); g.moveTo(x + 7, y - 7); g.lineTo(x - 7, y + 7); g.stroke(); g.lineWidth = 1;
+      g.fillStyle = '#ffd0c0'; g.fillText('Treasure: ' + m.name, x, y + 20);
+    }
+    // the old edge of the world: past it lie the Deep Reaches (tougher squatters, bigger fortresses)
+    { g.strokeStyle = 'rgba(255,255,255,0.12)'; g.setLineDash([6, 8]); g.beginPath(); g.arc(N / 2, N / 2, 6000 * k, 0, 7); g.stroke(); g.setLineDash([]); g.fillStyle = 'rgba(255,255,255,0.35)'; g.fillText('— The Deep Reaches —', N / 2, N / 2 - 6000 * k - 6); }
     const kr = game.sim.kraken; if (kr && kr.hp > 0) { const [x, y] = P(kr.x, kr.z); g.fillStyle = '#c23aff'; g.beginPath(); g.arc(x, y, 8, 0, 7); g.fill(); g.fillStyle = '#fff'; g.fillText('KRAKEN', x, y + 20); }
     for (const cr of game.sim.crates) if (cr.big) { const [x, y] = P(cr.x, cr.z); g.fillStyle = '#ffd34a'; g.fillRect(x - 3, y - 3, 6, 6); }
   }
@@ -436,6 +456,7 @@ export class UI {
     const tabs = this.tabs(game);
     if (!tabs.some(([k]) => k === this.tab)) this.tab = tabs[0][0];
     this.lastSig = this.panelSig(game);
+    this.panel.classList.toggle('wide', this.remote && this.tab === 'rewards');
     const me = game.me(); const p = game.profile();
     const title = this.remote ? (this.tab === 'fleet' ? 'Fleet Command' : this.tab === 'rewards' ? 'Rewards' : 'Diplomacy') : esc(me?.docked?.name || 'Harbour');
     const keepScroll = this.panel.querySelector('.pbody')?.scrollTop || 0;
@@ -472,10 +493,30 @@ export class UI {
         <div class="card"><h3>${site.kind === 'port' ? 'Free Port of Saltfire' : esc(b?.name || '')}</h3>
           ${site.kind === 'port' ? '<p>A neutral trade town and permanent safe haven. No cannon may fire within the buoys. The market, shipwright and chandlers are open to every captain.</p>' : b?.owner === game.pid ? `<p>Your base. ${b.buildings.length} building${b.buildings.length === 1 ? '' : 's'} · ${landSlotsUsed(b)}/${LAND_SLOTS} plots used.</p><button class="btn" id="sethome" ${game.profile().home === b.id ? 'disabled' : ''}>${game.profile().home === b.id ? 'Home port ✓' : 'Make home port (respawn here)'}</button>` : `<p>Guest of ${esc(game.W.players[b?.owner]?.name || '')}.</p>`}
         </div>
+        ${this.voyageCard(game, site)}
         <div class="card"><h3>Captain's Log</h3><div class="log">${(game.W.log || []).slice(-6).reverse().map((l) => `<div>${esc(l.text)}</div>`).join('') || '<p class="muted">Quiet seas.</p>'}</div></div>
       </div>`;
     $('#repair').onclick = () => this.doAct(game, { type: 'repair' }, 'Ship repaired and crew rehired.');
     const sh = $('#sethome'); if (sh) sh.onclick = () => this.doAct(game, { type: 'setHome', base: b.id }, 'Home port set.');
+    body.querySelectorAll('[data-voy]').forEach((bt) => (bt.onclick = async () => {
+      const r = await game.act({ type: 'voyage', to: bt.dataset.voy });
+      if (r.err) { this.toast(r.err, 'bad'); return; }
+      const me2 = game.me(); if (me2 && game.role !== 'host') me2.docked = r.data.docked;
+      this.toast(`You chartered passage to ${r.data.name} (−${r.data.cost.toLocaleString()} gold).`, 'good'); sfx.bell?.();
+      game.snapCamera?.(); this.refresh(game); this.renderPanel(game);
+    }));
+    const bm = $('#buymap'); if (bm) bm.onclick = () => this.doAct(game, { type: 'buyMap' }, 'The tavern keeper slides a stained map across the bar — the X is on your chart (M).');
+  }
+  voyageCard(game, site) {
+    const me = game.me(), p = game.profile();
+    if (!(site.kind === 'port' || game.W.bases.find((b) => b.id === site.id)?.owner === game.pid)) return '';
+    const dests = [];
+    if (site.kind !== 'port') dests.push({ id: 'port', name: 'Free Port of Saltfire', x: 0, z: 0 });
+    for (const b of game.W.bases) if (b.owner === game.pid && b.id !== site.id) dests.push({ id: b.id, name: b.name, x: b.x, z: b.z });
+    const rows = dests.map((d) => { const dist = Math.hypot(d.x - me.x, d.z - me.z), c = voyageCost(dist); return `<div class="stat"><span>${esc(d.name)} <span class="muted small">${(dist / 1000).toFixed(1)} km</span></span><button class="btn tiny" data-voy="${d.id}" ${(p.inv.gold || 0) < c ? 'disabled' : ''}>Sail — ${c.toLocaleString()}g</button></div>`; }).join('');
+    const maps = p.tmaps || [];
+    return `<div class="card"><h3>Voyages</h3><p class="muted small">Charter passage straight to another harbour — no sailing, no pirates. Your fleet at sea stays where it is.</p>${rows || '<p class="muted">Claim more islands to open new routes.</p>'}
+      ${site.kind === 'port' ? `<h4>Tavern: treasure maps</h4><p class="muted small">Sail to the X, heave to and press E to dig. Pirates you sink sometimes carry maps too. You hold ${maps.length}/${TREASURE.max}.</p><button class="btn" id="buymap" ${maps.length >= TREASURE.max || (p.inv.gold || 0) < TREASURE.price ? 'disabled' : ''}>Buy a map — ${TREASURE.price.toLocaleString()} gold</button>` : ''}</div>`;
   }
 
   tab_ships(game, body) {
@@ -623,30 +664,41 @@ export class UI {
   }
   // ------------------------------------------------------------------ rewards: Wheel of Fortune + Holiday Tides
   tab_rewards(game, body) {
-    const p = game.profile(), now = game.sim.clock();
+    const p = game.profile(), now = Date.now();
     const free = p.wheel?.free !== dayKey(now), bonus = p.wheel?.bonus || 0;
     const h = holidayState(p, now);
     const pct = (x) => (x * 100 < 1 ? (x * 100).toFixed(1) : (x * 100).toFixed(x * 100 < 10 ? 1 : 0)) + '%';
-    const days = [];
+    const MON = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    const tick = '<svg class="stamp ok" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#2f9a52" stroke="#c9f5d4" stroke-width="1.5"/><path d="M6.5 12.5l3.5 3.5 7.5-8" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    const cross = '<svg class="stamp no" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#a3302a" stroke="#ffc9c4" stroke-width="1.5"/><path d="M8 8l8 8M16 8l-8 8" stroke="#fff" stroke-width="3" stroke-linecap="round"/></svg>';
+    const cal = [];
+    let mon = -1;
     for (let i = 0; i < h.total; i++) {
       const key = h.dayKeyOf(i), got = h.days.includes(key), past = i < h.i, today = i === h.i;
-      const gift = holidayGift(i, h.perfect);
-      const icon = gift.kind === 'ship' ? '🏴‍☠️' : gift.kind === 'titanSize' ? '📐' : gift.kind === 'spin' ? '🎡' : gift.kind === 'res' ? '🪵' : '🪙';
-      days.push(`<div class="hday ${got ? 'got' : past ? 'miss' : today ? 'today' : ''} ${gift.big ? 'big' : ''}" title="${esc(key)}: ${esc(i === h.total - 1 ? 'Titan card (perfect attendance) — otherwise 60,000 gold' : prizeText(gift))}"><span>${+key.slice(8)}</span>${got ? '✓' : past ? '✗' : icon}</div>`);
+      const m = +key.slice(5, 7) - 1;
+      if (m !== mon) {
+        mon = m; cal.push(`<div class="hmon">${MON[m]} ${key.slice(0, 4)}</div>`);
+        const lead = (new Date(key + 'T12:00:00Z').getUTCDay() + 6) % 7; // Monday-first grid
+        for (let k = 0; k < lead; k++) cal.push('<div class="hday pad"></div>');
+      }
+      const last = i === h.total - 1, gift = holidayGift(i, h.perfect);
+      const tip = last ? 'Titan reward card for perfect attendance — otherwise 60,000 gold' : prizeText(gift);
+      cal.push(`<div class="hday ${got ? 'got' : past ? 'miss' : today ? 'today' : 'future'} ${gift.big ? 'big' : ''}" title="${esc(key)}: ${esc(tip)}"><span class="dn">${+key.slice(8)}</span>${iconSVG(prizeIcon(gift), 34)}<b>${esc(giftShort(gift))}</b>${got ? tick : past ? cross : ''}</div>`);
     }
+    const wk = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'].map((d) => `<div class="hwd">${d}</div>`).join('');
     body.innerHTML = `<div class="rewards">
-      <div class="card wheelcard"><h3>🎡 Wheel of Fortune</h3>
-        <div class="wheelwrap"><canvas id="wheel" width="340" height="340"></canvas><div class="wptr">▼</div></div>
-        <div class="row"><button class="btn primary" id="spin-free" ${free || bonus ? '' : 'disabled'}>${free ? 'Free daily spin' : bonus ? `Bonus spin (${bonus})` : 'Free spin used today'}</button>
+      <div class="card wheelcard"><h3>Wheel of Fortune</h3>
+        <div class="wheelwrap"><canvas id="wheel" width="680" height="680"></canvas></div>
+        <div class="row spinrow"><button class="btn primary" id="spin-free" ${free || bonus ? '' : 'disabled'}>${free ? 'Free daily spin' : bonus ? `Bonus spin (${bonus})` : 'Free spin used today'}</button>
           <button class="btn" id="spin-paid" ${(p.inv.gold || 0) < WHEEL.cost ? 'disabled' : ''}>Spin — ${WHEEL.cost.toLocaleString()} gold</button></div>
-        <div class="odds">${WHEEL.prizes.map((x) => `<span><i style="background:${x.color}"></i>${esc(x.label)} <b>${pct(x.p)}</b></span>`).join('')}</div>
+        <div class="odds">${WHEEL.prizes.map((x) => `<span>${iconSVG(prizeIcon(x), 18)}${esc(x.label)} <b>${pct(x.p)}</b></span>`).join('')}</div>
         <p class="muted small">Ships you win arrive as reward cards — redeem them at any Shipwright or use them in the custom shipyard.</p></div>
-      <div class="card holiday"><h3>❄ ${esc(HOLIDAY.name)}</h3>
-        <p>Claim a gift every day until <b>1 January</b>. Claim <b>every single day</b> and New Year's Day brings a <b class="y">Titan reward card</b>. Christmas Day brings a Titan Size card; every 7th day, two bonus spins.</p>
-        <div class="hcal">${days.join('')}</div>
+      <div class="card holiday"><h3>${esc(HOLIDAY.name)}</h3>
+        <p class="small">A gift every day until <b>1 January</b>. Claim <b>every single day</b> and New Year's Day brings a <b class="y">Titan reward card</b>. Christmas brings a Titan Size card; treasure chests every other Sunday.</p>
+        <div class="hcal">${wk}${cal.join('')}</div>
         <p class="small">${h.count}/${h.total} claimed · ${h.i < 0 ? 'starts soon' : !h.active ? 'event over' : h.perfect ? '<span class="good">perfect attendance — the Titan is still yours to win</span>' : `<span class="bad">missed ${h.missed} day${h.missed > 1 ? 's' : ''} — no Titan this year, New Year's Day pays 60,000 gold instead</span>`}</p>
         <button class="btn primary" id="hol-claim" ${h.active && !h.claimed ? '' : 'disabled'}>${h.claimed ? 'Claimed today ✓ — come back tomorrow' : h.active ? `Claim day ${h.i + 1}` : 'Not running'}</button></div>
-      <div class="card"><h3>🎴 Your reward cards</h3>${(p.cards || []).length ? `<p>${this.cardsText(p.cards)}</p><p class="muted small">Use them at the Shipwright (Redeem) or in the custom shipyard (Pay with).</p>` : '<p class="muted">No cards yet — spin the wheel!</p>'}</div>
+      <div class="card"><h3>Your reward cards</h3>${(p.cards || []).length ? `<div class="cardrow">${(p.cards || []).map((c) => `<div class="rcard">${iconSVG(c.kind === 'ship' ? (c.tier === 'titan' ? 'titan' : 'ship') : 'size', 54)}<b>${esc(c.kind === 'ship' ? tierById(c.tier).name : 'Titan Size')}</b></div>`).join('')}</div><p class="muted small">Use them at the Shipwright (Redeem) or in the custom shipyard (Pay with).</p>` : '<p class="muted">No cards yet — spin the wheel!</p>'}</div>
     </div>`;
     this.drawWheel();
     const spin = async (paid) => {
@@ -658,22 +710,28 @@ export class UI {
       // land the pointer (top) inside the won slice
       const target = -(res.index + 0.2 + Math.random() * 0.6) * seg;
       const to = from - ((from - target) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI * 2 * 5;
-      this.wheelAnim = { from, to, t0: performance.now(), dur: 3600, res };
+      this.wheelAnim = { from, to, t0: performance.now(), dur: 4200, res };
+      this.wheelWin = null;
       sfx.ui();
-      const tick = () => {
+      let lastSeg = Math.floor(from / seg);
+      const step = () => {
         const a = this.wheelAnim; if (!a) return;
         const t = Math.min(1, (performance.now() - a.t0) / a.dur), e = 1 - Math.pow(1 - t, 4);
         this.wheelAngle = a.from + (a.to - a.from) * e;
+        const sg = Math.floor(this.wheelAngle / seg);
+        if (sg !== lastSeg) { lastSeg = sg; sfx.click(); }
         this.drawWheel();
-        if (t < 1) requestAnimationFrame(tick);
+        if (t < 1) requestAnimationFrame(step);
         else {
-          this.wheelAnim = null;
+          this.wheelAnim = null; this.wheelWin = { i: a.res.index, t0: performance.now() };
           const big = a.res.prize.kind === 'ship' || a.res.prize.kind === 'titanSize';
-          this.toast(`${big ? '🎉 JACKPOT! ' : ''}You won ${a.res.text}!`, big ? 'event' : 'good', big ? 8 : 3);
+          this.toast(`${big ? 'JACKPOT! ' : ''}You won ${a.res.text}!`, big ? 'event' : 'good', big ? 8 : 3);
           this.refresh(game); if (this.panel) this.renderPanel(game);
+          const glow = () => { if (!this.wheelWin || performance.now() - this.wheelWin.t0 > 2500) { this.drawWheel(); return; } this.drawWheel(); requestAnimationFrame(glow); };
+          requestAnimationFrame(glow);
         }
       };
-      requestAnimationFrame(tick);
+      requestAnimationFrame(step);
     };
     $('#spin-free', body).onclick = () => spin(false);
     $('#spin-paid', body).onclick = () => spin(true);
@@ -687,20 +745,79 @@ export class UI {
   }
   drawWheel() {
     const c = this.panel?.querySelector('#wheel'); if (!c) return;
-    const g = c.getContext('2d'), n = WHEEL.prizes.length, seg = (Math.PI * 2) / n, R = c.width / 2 - 6, cx = c.width / 2, cy = c.height / 2;
-    g.clearRect(0, 0, c.width, c.height);
-    g.save(); g.translate(cx, cy); g.rotate(this.wheelAngle || 0);
+    const g = c.getContext('2d'), n = WHEEL.prizes.length, seg = (Math.PI * 2) / n;
+    const W = c.width, cx = W / 2, cy = W / 2 + 8, RO = W / 2 - 14, R = RO - 34, TAU = Math.PI * 2;
+    const ang = this.wheelAngle || 0, spinning = !!this.wheelAnim, now = performance.now();
+    const redraw = () => this.drawWheel();
+    g.clearRect(0, 0, W, W);
+    // drop shadow + wooden rim
+    g.save(); g.shadowColor = 'rgba(0,0,0,.55)'; g.shadowBlur = 24; g.shadowOffsetY = 8;
+    g.beginPath(); g.arc(cx, cy, RO, 0, TAU); g.fillStyle = '#3a220f'; g.fill(); g.restore();
+    const rim = g.createRadialGradient(cx, cy, R, cx, cy, RO);
+    rim.addColorStop(0, '#2a1608'); rim.addColorStop(0.45, '#7a4a22'); rim.addColorStop(1, '#3a200c');
+    g.beginPath(); g.arc(cx, cy, RO, 0, TAU); g.arc(cx, cy, R, 0, TAU, true); g.fillStyle = rim; g.fill();
+    for (const [r, w] of [[RO - 1, 3], [R + 1, 4]]) { g.beginPath(); g.arc(cx, cy, r, 0, TAU); g.strokeStyle = '#e8bd4a'; g.lineWidth = w; g.stroke(); }
+    // marquee bulbs: chase while spinning, glow steady at rest
+    const NB = 24;
+    for (let i = 0; i < NB; i++) {
+      const a = (i / NB) * TAU, bx = cx + Math.cos(a) * (R + 17), by = cy + Math.sin(a) * (R + 17);
+      const on = spinning ? (i + Math.floor(now / 90)) % 3 === 0 : this.wheelWin ? (Math.floor(now / 160) + i) % 2 === 0 : true;
+      g.beginPath(); g.arc(bx, by, 7, 0, TAU);
+      if (on) { g.save(); g.shadowColor = '#ffd86a'; g.shadowBlur = 16; g.fillStyle = '#fff3c0'; g.fill(); g.restore(); }
+      else { g.fillStyle = '#7a5a2a'; g.fill(); }
+      g.strokeStyle = '#4a2c10'; g.lineWidth = 2; g.stroke();
+    }
+    // slices
+    g.save(); g.translate(cx, cy); g.rotate(ang);
+    const lum = (hex) => { const v = parseInt(hex.slice(1), 16); return (0.299 * (v >> 16) + 0.587 * ((v >> 8) & 255) + 0.114 * (v & 255)) / 255; };
     WHEEL.prizes.forEach((pr, i) => {
-      // slice i is centred at angle (i + 0.5) * seg measured clockwise from the top
-      const a0 = -Math.PI / 2 + i * seg, a1 = a0 + seg;
+      const a0 = -Math.PI / 2 + i * seg, a1 = a0 + seg, am = a0 + seg / 2;
       g.beginPath(); g.moveTo(0, 0); g.arc(0, 0, R, a0, a1); g.closePath();
-      g.fillStyle = pr.color; g.fill(); g.strokeStyle = '#f1c45a'; g.lineWidth = 2; g.stroke();
-      g.save(); g.rotate(a0 + seg / 2); g.textAlign = 'right'; g.fillStyle = ['g3k', 'g8k'].includes(pr.id) ? '#3a2a10' : '#fff';
-      g.font = `bold ${pr.kind === 'ship' || pr.kind === 'titanSize' ? 15 : 13}px sans-serif`; g.fillText(pr.label, R - 10, 5); g.restore();
+      g.fillStyle = pr.color; g.fill();
+      const sh = g.createRadialGradient(0, 0, R * 0.15, 0, 0, R);
+      sh.addColorStop(0, 'rgba(255,255,255,.22)'); sh.addColorStop(0.7, 'rgba(255,255,255,0)'); sh.addColorStop(1, 'rgba(0,0,0,.28)');
+      g.fillStyle = sh; g.fill();
+      if (this.wheelWin && this.wheelWin.i === i) { g.fillStyle = `rgba(255,240,170,${0.25 + 0.25 * Math.sin(now / 90)})`; g.fill(); }
+      if (pr.kind === 'ship' && pr.tier === 'titan') { g.save(); g.clip(); g.strokeStyle = '#ffd25a'; g.lineWidth = 6; g.beginPath(); g.arc(0, 0, R - 4, a0, a1); g.stroke(); g.restore(); }
+      // icon, upright along the spoke
+      g.save(); g.rotate(am + Math.PI / 2);
+      const im = iconImage(prizeIcon(pr), redraw);
+      if (im) g.drawImage(im, -38, -R * 0.78 - 38, 76, 76);
+      g.restore();
+      // label runs along the spoke, flipped on the left half so it never reads upside down
+      g.save(); g.rotate(am);
+      const flip = Math.cos(am + ang) < 0;
+      if (flip) g.rotate(Math.PI);
+      const dark = lum(pr.color) > 0.6;
+      g.fillStyle = dark ? '#3a2408' : '#fff'; g.strokeStyle = dark ? 'rgba(255,255,255,.35)' : 'rgba(0,0,0,.6)'; g.lineWidth = 4;
+      g.font = `900 ${pr.label.length > 9 ? 20 : 23}px "Trebuchet MS", sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle';
+      const tx = (flip ? -1 : 1) * R * 0.4;
+      g.strokeText(pr.label, tx, 0); g.fillText(pr.label, tx, 0);
+      g.restore();
     });
-    g.beginPath(); g.arc(0, 0, 26, 0, 7); g.fillStyle = '#1a120a'; g.fill(); g.strokeStyle = '#f1c45a'; g.lineWidth = 3; g.stroke();
+    // gilt dividers with pegs
+    for (let i = 0; i < n; i++) {
+      const a = -Math.PI / 2 + i * seg;
+      g.beginPath(); g.moveTo(Math.cos(a) * 46, Math.sin(a) * 46); g.lineTo(Math.cos(a) * R, Math.sin(a) * R); g.strokeStyle = '#e8bd4a'; g.lineWidth = 3; g.stroke();
+      g.beginPath(); g.arc(Math.cos(a) * (R - 9), Math.sin(a) * (R - 9), 6, 0, TAU); g.fillStyle = '#f7dc84'; g.fill(); g.strokeStyle = '#6b4310'; g.lineWidth = 2; g.stroke();
+    }
+    // hub: a gilt boss with a compass star
+    const hub = g.createRadialGradient(-12, -12, 4, 0, 0, 52);
+    hub.addColorStop(0, '#fff3b0'); hub.addColorStop(0.5, '#d9a52c'); hub.addColorStop(1, '#6b4310');
+    g.beginPath(); g.arc(0, 0, 50, 0, TAU); g.fillStyle = hub; g.fill(); g.strokeStyle = '#3a2208'; g.lineWidth = 3; g.stroke();
+    g.beginPath(); for (let i = 0; i < 16; i++) { const r = i % 2 ? 12 : i % 4 ? 26 : 40, a = (i / 16) * TAU; g.lineTo(Math.cos(a) * r, Math.sin(a) * r); } g.closePath();
+    g.fillStyle = '#2a1a0a'; g.fill();
+    g.beginPath(); g.arc(0, 0, 7, 0, TAU); g.fillStyle = '#f7dc84'; g.fill();
     g.restore();
-    g.beginPath(); g.arc(cx, cy, R, 0, 7); g.strokeStyle = '#f1c45a'; g.lineWidth = 5; g.stroke();
+    // pointer at the top: flicks back as each peg passes under it
+    const ph = ((((ang / seg) % 1) + 1) % 1), flick = spinning ? Math.max(0, 0.35 - ph) * 0.9 : 0;
+    g.save(); g.translate(cx, cy - RO + 6); g.rotate(-flick);
+    g.shadowColor = 'rgba(0,0,0,.6)'; g.shadowBlur = 8; g.shadowOffsetY = 3;
+    g.beginPath(); g.moveTo(-22, -14); g.lineTo(22, -14); g.lineTo(0, 40); g.closePath();
+    const pg = g.createLinearGradient(-22, 0, 22, 0); pg.addColorStop(0, '#a8701a'); pg.addColorStop(0.5, '#fff0a0'); pg.addColorStop(1, '#a8701a');
+    g.fillStyle = pg; g.fill(); g.shadowColor = 'transparent'; g.strokeStyle = '#5a3a0a'; g.lineWidth = 2.5; g.stroke();
+    g.beginPath(); g.arc(0, -10, 9, 0, TAU); g.fillStyle = '#b3201c'; g.fill(); g.stroke();
+    g.restore();
   }
   tab_upgrades(game, body) {
     const p = game.profile();

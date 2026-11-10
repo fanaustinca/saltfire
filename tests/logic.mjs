@@ -419,5 +419,61 @@ T('respawn: the new flagship keeps local control and bumps its life', () => {
   ns.sail = 1; const x0 = ns.x, z0 = ns.z; for (let i = 0; i < 60; i++) sim.step(0.1);
   ok(ns.sailNow > 0.8 && Math.hypot(ns.x - x0, ns.z - z0) > 15, 'sails unfurl and it moves');
 });
+T('v2.5 world: 12 km radius, more islands; old 6 km worlds gain the Deep Reaches without moving anything', () => {
+  const W = world(7);
+  ok(W.worldR === CFG.WORLD_R && CFG.WORLD_R === 12000, 'radius');
+  ok(W.bases.filter((b) => b.hold).length >= 12 && W.bases.length > 150 && W.islands.filter((i) => i.kind === 'res').length > 200, `counts ${W.bases.length}/${W.islands.length}`);
+  ok(W.bases.some((b) => Math.hypot(b.x, b.z) > 10000), 'islands reach the outer seas');
+  // an old world: keep only what fits in 6 km, then migrate
+  const O = world(9); O.bases = O.bases.filter((b) => Math.hypot(b.x, b.z) < 5800); O.islands = O.islands.filter((i) => Math.hypot(i.x, i.z) < 5800); delete O.worldR;
+  const before = O.bases.map((b) => `${b.id}@${b.x},${b.z}`);
+  const sim = new Sim(O, { rand: rng(3) });
+  ok(O.worldR === 12000 && O.bases.length > before.length, 'expanded');
+  ok(before.every((k, i) => k === `${O.bases[i].id}@${O.bases[i].x},${O.bases[i].z}`), 'existing islands untouched');
+  const ids = [...O.bases, ...O.islands].map((o) => o.id); ok(new Set(ids).size === ids.length, 'unique ids');
+  const all = [...O.bases.map((b) => ({ x: b.x, z: b.z, r: b.r })), ...O.islands.filter((i) => i.kind !== 'rock')];
+  let clash = 0; for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) if (Math.hypot(all[i].x - all[j].x, all[i].z - all[j].z) < all[i].r + all[j].r) clash++;
+  ok(clash === 0, 'no overlapping islands: ' + clash);
+  ok(Object.keys(O.ai).filter((k) => k.startsWith('ai:clan:')).length >= 12 && sim, 'new clans for the new fortresses');
+});
+T('treasure maps: buy at the port, sail to the X, heave to and dig', () => {
+  const W = world(); const sim = new Sim(W, { rand: rng(21) }); const { p } = joinPlayer(sim, 'u', 'U');
+  const me = sim.spawnPlayer('u'); me.x = 150; me.z = 0; me.spd = 0; me.docked = null;
+  ok(handleAct(sim, 'u', { type: 'buyMap' }).err, 'only in the Free Port');
+  handleAct(sim, 'u', { type: 'dock' }); p.inv.gold = 1e5;
+  const r = handleAct(sim, 'u', { type: 'buyMap' }); ok(!r.err && p.tmaps.length === 1 && p.inv.gold === 1e5 - CFG.TREASURE.price, r.err);
+  const m = p.tmaps[0];
+  ok(W.islands.concat(W.bases).some((i) => i.id === m.isl && Math.hypot(i.x - m.x, i.z - m.z) < i.r), 'X is on an island');
+  handleAct(sim, 'u', { type: 'undock' }); me.docked = null;
+  ok(handleAct(sim, 'u', { type: 'dig' }).err, 'nothing to dig here');
+  me.x = m.x + m.range * 0.8; me.z = m.z; me.spd = 6;
+  ok(handleAct(sim, 'u', { type: 'dig' }).err.includes('Heave'), 'must stop');
+  me.spd = 0; const g0 = p.inv.gold, x0 = p.inv.explosive || 0;
+  const d = handleAct(sim, 'u', { type: 'dig' }); ok(!d.err && p.inv.gold > g0 + 4000 && p.inv.explosive > x0 && p.tmaps.length === 0, d.err);
+  for (let i = 0; i < 5; i++) E.addTreasureMap(p, E.makeTreasureMap(W, rng(i + 1), 0, 0, 5));
+  ok(p.tmaps.length === CFG.TREASURE.max, 'map cap');
+});
+T('voyages: charter passage between your harbours for gold', () => {
+  const W = world(); const sim = new Sim(W, { rand: rng(22) }); const { p } = joinPlayer(sim, 'u', 'U');
+  const home = sim.homeOf('u'); const me = sim.spawnPlayer('u');
+  me.x = 150; me.z = 0; me.spd = 0; me.docked = null; handleAct(sim, 'u', { type: 'dock' });
+  p.inv.gold = 50;
+  ok(handleAct(sim, 'u', { type: 'voyage', to: home.id }).err.includes('costs'), 'needs gold');
+  p.inv.gold = 1e5; const life = me.life || 0;
+  const r = handleAct(sim, 'u', { type: 'voyage', to: home.id });
+  ok(!r.err && me.docked?.id === home.id && Math.hypot(me.x - home.x, me.z - home.z) < baseRadius(home) + 120 && me.life === life + 1, r.err);
+  ok(p.inv.gold === 1e5 - E.voyageCost(Math.hypot(home.x - 150, home.z)), 'paid by distance');
+  ok(handleAct(sim, 'u', { type: 'voyage', to: W.bases.find((b) => b.owner !== 'u').id }).err, 'only to your own islands');
+  ok(!handleAct(sim, 'u', { type: 'voyage', to: 'port' }).err && me.docked.kind === 'port', 'back to port');
+});
+T('bounty hunts: a wanted captain pays gold, a spin and a map', () => {
+  const W = world(); const sim = new Sim(W, { rand: rng(23) }); const { p } = joinPlayer(sim, 'u', 'U');
+  const me = sim.spawnPlayer('u'); me.x = 3000; me.z = 0; me.docked = null;
+  sim.startEvent('bounty');
+  const w = [...sim.ships.values()].find((s) => s.tag === 'bounty');
+  ok(w && w.name.startsWith('Wanted: ') && w.bounty > 6000 && w.hull === w.stats.hull, 'spawned');
+  const g0 = p.inv.gold; sim.hurt(w, 1e7, 0, 0, 'u');
+  ok(w.sink > 0 && p.inv.gold >= g0 + w.bounty && p.wheel.bonus === 1 && p.tmaps?.length === 1, `paid ${p.inv.gold - g0}`);
+});
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -5,15 +5,16 @@
 // advances visual cannonballs and effects; ship state arrives in snapshots.
 import {
   AI_TOP_TIER, TIERS, tierById, tierIndex, AMMO, GRAVITY, MUZZLE, SECTOR_HALF, CHASE_HALF, MIN_RANGE, BUILDINGS,
-  HAVEN_R, WORLD_R, MAX_LEVEL, UPGRADES, CLAN_PLAN, claimFee,
+  HAVEN_R, WORLD_R, MAX_LEVEL, UPGRADES, CLAN_PLAN, claimFee, TREASURE, BOUNTY_NAMES,
 } from './config.js';
 import {
   shipStats, shipSpec, crewEff, flagship, addXp, hostile, shielded, havenAccess, sinkLoot, gain, produce,
   npcRestock, newProfile, uid, clamp, aiFaction, fleetCap, build as buildOn, canAfford, bestAsk, bestBid,
-  instantBuy, placeOrder, NPC_PRICES,
+  instantBuy, placeOrder, NPC_PRICES, makeTreasureMap, addTreasureMap,
 } from './economy.js';
 import { gunLayout } from './layout.js';
 import { buildingPos, harborPoint, baseRadius, baseShape, dockAngle, assignRoom } from './basegeo.js';
+import { expandWorld } from './worldgen.js';
 import { heightAt } from './waves.js';
 import { islandShape } from './islandshape.js';
 import { newClan } from './worldgen.js';
@@ -73,6 +74,7 @@ export function migrateWorld(W) {
   let ci = Object.keys(W.ai).filter((k) => k.startsWith('ai:clan:')).length;
   for (const b of W.bases) if (b.owner === 'ai:pirates') b.owner = newClan(W, ci++, b.id);
   for (const p of Object.values(W.players)) for (const s of p.fleet || []) s.out = false;
+  if (W.islands?.length) expandWorld(W);
   assignRoom(W);
 }
 
@@ -427,6 +429,21 @@ export class Sim {
       this.damagers.delete(s.id);
     }
     if (s.tag === 'treasure') this.msgs.push({ to: null, text: 'The Treasure Flagship has been sunk! Its gold floats free…', kind: 'event' });
+    // pirates sometimes carry a treasure map (flagships and wanted captains always do)
+    const kp = this.W.players[s.lastBy];
+    if (kp && !s.pid && s.role !== 'fleet' && (s.tag === 'treasure' || s.tag === 'bounty' || (s.role === 'pirate' && this.rand() < TREASURE.drop))) {
+      if (addTreasureMap(kp, makeTreasureMap(this.W, this.rand, s.x, s.z, kp.level))) this.msgs.push({ to: kp.id, text: `You found a treasure map in the ${s.name}'s cabin! Sail to the X on your map (M) and press E to dig.`, kind: 'event' });
+      this.dirty.prof.add(kp.id);
+    }
+    if (s.tag === 'bounty') {
+      if (kp) {
+        kp.inv.gold += s.bounty || 0;
+        kp.wheel ||= {}; kp.wheel.bonus = (kp.wheel.bonus || 0) + 1;
+        kp.bounties = (kp.bounties || 0) + 1;
+        this.dirty.prof.add(kp.id);
+      }
+      this.msgs.push({ to: null, text: kp ? `${kp.name} collected the bounty on ${s.name.replace('Wanted: ', '')}: ${(s.bounty || 0).toLocaleString()} gold + a Wheel spin!` : `${s.name.replace('Wanted: ', '')} went down — the bounty goes unclaimed.`, kind: 'event' });
+    }
   }
 
   // ------------------------------------------------------------------ buildings / bases
@@ -1128,8 +1145,10 @@ export class Sim {
       this.evT = 300 + this.rand() * 180;
       const r = this.rand();
       const owned = this.W.bases.filter((b) => b.owner && !b.owner.startsWith('ai:') && this.W.players[b.owner]?.online);
-      if (r < 0.35 && !this.kraken) this.startEvent('kraken');
-      else if (r < 0.75 || !owned.length) this.startEvent('treasure');
+      const hunted = [...this.ships.values()].some((x) => x.tag === 'bounty' && x.sink === 0);
+      if (r < 0.28 && !this.kraken) this.startEvent('kraken');
+      else if (r < 0.52 && !hunted) this.startEvent('bounty');
+      else if (r < 0.8 || !owned.length) this.startEvent('treasure');
       else this.startEvent('raid');
     }
     if (this.kraken) this.stepKraken(dt);
@@ -1158,6 +1177,15 @@ export class Sim {
         if (e) e.ai.leader = lead.id;
       }
       this.msgs.push({ to: null, text: 'A heavily guarded TREASURE FLAGSHIP has been sighted! Check your map.', kind: 'event' });
+    } else if (kind === 'bounty') {
+      // a wanted captain in a heavy, upgraded ship, somewhere out of sight: hunt them down on the map
+      const myTier = Math.min(AI_TOP_TIER, Math.max(...players.map((x) => tierIndex(x.spec.tier)), 1));
+      const name = BOUNTY_NAMES[Math.floor(this.rand() * BOUNTY_NAMES.length)];
+      const w = this.spawnAI(Math.round(avg + 4), anchor, { role: 'pirate', tier: TIERS[Math.min(AI_TOP_TIER, myTier + (this.rand() < 0.5 ? 1 : 0))].id, tag: 'bounty', name: 'Wanted: ' + name, dist: 1500 + this.rand() * 1200, strong: true, bold: true, aggro: 600 });
+      if (!w) return;
+      w.hull = w.stats.hull = Math.round(w.stats.hull * 2);
+      w.bounty = Math.round(6000 + avg * 450);
+      this.msgs.push({ to: null, text: `WANTED: ${name} — ${w.bounty.toLocaleString()} gold bounty and a Wheel spin to whoever sinks them. Check your map!`, kind: 'event' });
     } else if (kind === 'raid') {
       const owned = this.W.bases.filter((b) => b.owner && !b.owner.startsWith('ai:') && this.W.players[b.owner]?.online);
       const base = owned[Math.floor(this.rand() * owned.length)];

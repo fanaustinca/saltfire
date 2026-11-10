@@ -1,6 +1,6 @@
 // Developer console. In the browser console: dev.help(). Or press ` (backquote) for an in-game prompt.
 import { TIERS, RES, AMMO_ORDER, BUILDINGS } from './config.js';
-import { addXp, shipSpec, uid, addCard } from './economy.js';
+import { addXp, shipSpec, uid, addCard, makeTreasureMap, addTreasureMap } from './economy.js';
 import { setSea, SEA } from './waves.js';
 
 const CMDS = {
@@ -18,7 +18,8 @@ const CMDS = {
   god: ['on=true', 'Invulnerable flagship'],
   speed: ['k=1', 'Game speed multiplier'],
   spawn: ["role='pirate', tier, n=1", 'Spawn AI ships near you (pirate|merchant|navy)'],
-  event: ["kind='kraken'", 'Start a world event: kraken | treasure | raid'],
+  event: ["kind='kraken'", 'Start a world event: kraken | treasure | bounty | raid'],
+  tmap: ['near=true', 'Give yourself a treasure map (near = the X is on the closest islet)'],
   kraken: ['', 'Shortcut for event("kraken")'],
   tp: ["where='port'", 'Teleport: "port", "home", a base name, or x, z'],
   sea: ['scale=0.8', 'Wave height (0 = flat, 1.5 = storm)'],
@@ -83,6 +84,12 @@ export function installDev(app) {
     },
     event(kind = 'kraken') { host(); g().sim.startEvent(kind); if (kind === 'kraken' && g().sim.kraken && me()) { const k = g().sim.kraken; const a = Math.random() * 6.28; k.x = me().x + Math.cos(a) * 220; k.z = me().z + Math.sin(a) * 220; } return done(`Event: ${kind}`); },
     kraken() { return dev.event('kraken'); },
+    tmap(near = true) {
+      host(); const s = me(), p = P();
+      let m = makeTreasureMap(g().W, Math.random, s.x, s.z, p.level);
+      if (near) { const i = g().W.islands.filter((x) => x.kind === 'res').sort((a, b) => Math.hypot(a.x - s.x, a.z - s.z) - Math.hypot(b.x - s.x, b.z - s.z))[0]; if (i) m = { ...m, x: i.x, z: i.z, isl: i.id, name: i.name, range: i.r * 0.6 + 95 }; }
+      return done(addTreasureMap(p, m) ? `Treasure map: X on ${m.name}` : 'You already carry the most maps');
+    },
     tp(where = 'port', z = null) {
       host();
       const s = me(); s.docked = null;

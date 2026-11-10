@@ -169,7 +169,7 @@ await T('port: dock at home, build (island grows), craft, trade, upgrade, custom
   await page.evaluate(() => { SALT.game.ui.tab = 'ships'; SALT.game.ui.renderPanel(SALT.game); });
   assert(await page.evaluate(() => !!document.querySelector('#cb-build') && !!document.querySelector('#cb-pay')), 'custom shipyard visible');
   await page.evaluate(() => { SALT.game.ui.tab = 'rewards'; SALT.game.ui.renderPanel(SALT.game); });
-  assert(await page.evaluate(() => !!document.querySelector('#wheel') && document.querySelectorAll('.hday').length === 54), 'rewards tab');
+  assert(await page.evaluate(() => !!document.querySelector('#wheel') && document.querySelectorAll('.hday:not(.pad)').length === 54), 'rewards tab');
   const g0 = await page.evaluate(() => SALT.game.profile().wheel?.spins || 0);
   await page.click('#spin-free');
   await sleep(4500);

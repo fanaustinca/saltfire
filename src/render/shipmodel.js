@@ -41,6 +41,7 @@ function mats() {
     marble: new THREE.MeshStandardMaterial({ color: 0xece4d2, roughness: 0.55 }),
     royal: new THREE.MeshStandardMaterial({ color: 0x4a1a6a, roughness: 0.7 }),
     plate: new THREE.MeshStandardMaterial({ color: 0x353940, roughness: 0.4, metalness: 0.75 }),
+    armour: new THREE.MeshStandardMaterial({ color: 0x50555c, roughness: 0.55, metalness: 0.4 }),
     ember: new THREE.MeshStandardMaterial({ color: 0xff4020, emissive: 0xff2a00, emissiveIntensity: 2.4 }),
     pl,
   };
@@ -327,7 +328,7 @@ export function buildShip(stats, look = {}) {
   body.add(hull);
   const deckMesh = new THREE.Mesh(deckGeometry(H), m.deck); deckMesh.receiveShadow = true; body.add(deckMesh);
 
-  const dark = [], spar = [], iron = [], gold = [], ports = [], glass = [], lamps = [], red = [], white = [], trimL = [], marble = [], plate = [], ember = [];
+  const dark = [], spar = [], iron = [], gold = [], ports = [], glass = [], lamps = [], red = [], white = [], trimL = [], marble = [], plate = [], ember = [], armour = [];
   const dY = deckY(H, 0.5);
   const gs = Math.min(1.3, 0.6 + L / 70);
 
@@ -380,8 +381,8 @@ export function buildShip(stats, look = {}) {
     dark.push(box(B * 0.28, 0.3, L * 0.08, [0, dY + 0.15, zU(0.52)]));
   } else if (war && !lev) {
     // flush spar deck: hatch gratings, boats on skid beams, quarterdeck carronades
-    for (const u of [0.38, 0.6]) dark.push(box(B * 0.3, 0.35, L * 0.06, [0, dY + 0.17, zU(u)]));
-    const boats = big ? 3 : 2;
+    if (!big) for (const u of [0.38, 0.6]) dark.push(box(B * 0.3, 0.35, L * 0.06, [0, dY + 0.17, zU(u)]));
+    const boats = big ? 0 : 2;
     for (let i = 0; i < boats; i++) {
       const bz = zU(0.44 + (i - (boats - 1) / 2) * 0.08), by = dY + 1.4;
       white.push(place(new THREE.SphereGeometry(1, 10, 6, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), [0, by, bz], [0, 0, 0], [B * 0.12, B * 0.08, L * 0.05]));
@@ -429,6 +430,7 @@ export function buildShip(stats, look = {}) {
     for (let i = 0; i < 8; i++) dark.push(box(0.1, 0.75, 0.1, [-fw + (2 * fw * i) / 7, fy + 0.5, zU(fu) - fL / 2]));
     dark.push(box(fw * 2, 0.1, 0.1, [0, fy + 0.88, zU(fu) - fL / 2]));
   } else if (lev) buildLeviathan();
+  deckWorks();
   // ship's wheel (not on the sloop: it steers with a tiller)
   if (id !== 'sloop' && !lev) {
     const wu = id === 'galleon' ? 0.2 : 0.12;
@@ -816,6 +818,131 @@ export function buildShip(stats, look = {}) {
   }
 
   // ---------------------------------------------------------------- the Leviathan
+  // ---------------------------------------------------------------- deck works for the great ships: companionways
+  // down to the gun decks, a forecastle bulkhead, a midships deckhouse (timber on the liners, armoured on the ironclads)
+  function door(x, y, z, f, w = 1.15, h = 2.05, frame = gold) {
+    // an open doorway (dark) with its door leaf swung back, a frame and a step
+    ports.push(box(w, h, 0.1, [x, y + h / 2, z + f * 0.03]));
+    frame.push(box(w + 0.3, 0.16, 0.16, [x, y + h + 0.08, z + f * 0.06]));
+    for (const s of [-1, 1]) frame.push(box(0.14, h, 0.16, [x + s * (w / 2 + 0.07), y + h / 2, z + f * 0.06]));
+    const leaf = new THREE.BoxGeometry(w * 0.95, h * 0.96, 0.09); leaf.translate(w * 0.475, 0, 0);
+    dark.push(place(leaf, [x - w / 2, y + h * 0.49, z + f * 0.1], [0, f * -1.9, 0]));
+    dark.push(box(w + 0.2, 0.2, 0.6, [x, y + 0.1, z + f * 0.35]));
+  }
+  function companion(u, w, d, h, ironclad) {
+    // a hooded companionway over the ladder below: doors fore and aft, a sliding hatch on the roof, gilt lamps
+    const y = deckY(H, u), z = zU(u), wall = ironclad ? armour : dark, cap = ironclad ? armour : spar;
+    wall.push(box(w, h, d, [0, y + h / 2, z]));
+    cap.push(box(w + 0.4, 0.22, d + 0.4, [0, y + h + 0.11, z]));
+    cap.push(box(w * 0.6, 0.3, d * 0.55, [0, y + h + 0.37, z - d * 0.12]));
+    for (const s of [-1, 1]) cap.push(box(0.12, 0.16, d * 0.9, [s * w * 0.32, y + h + 0.3, z]));
+    for (const f of [-1, 1]) door(0, y, z + f * d / 2, f, Math.min(1.2, w * 0.45), Math.min(2.05, h - 0.35), ironclad ? iron : gold);
+    for (const s of [-1, 1]) {
+      if (d > 2.6) glass.push(box(0.08, 0.6, d * 0.35, [s * (w / 2 + 0.02), y + h * 0.62, z]));
+      lamps.push(place(new THREE.CylinderGeometry(0.16, 0.12, 0.38, 6), [s * (w / 2 + 0.22), y + h * 0.78, z + d / 2 - 0.25]));
+    }
+    if (ironclad) for (let i = 0; i < 4; i++) for (const s of [-1, 1]) iron.push(box(0.08, h * 0.9, 0.08, [s * (w / 2 + 0.03), y + h * 0.45, z - d / 2 + (d * (i + 0.5)) / 4]));
+  }
+  function deckhouse(u0, u1, w, h, o = {}) {
+    // a long house between the masts: windows, doors at both ends, a skylight and the galley chimney on the roof
+    const y = deckY(H, (u0 + u1) / 2), z0 = zU(u0), z1 = zU(u1), z = (z0 + z1) / 2, d = z1 - z0;
+    const wall = o.iron ? armour : dark, cap = o.iron ? armour : spar;
+    wall.push(box(w, h, d, [0, y + h / 2, z]));
+    cap.push(box(w + 0.6, 0.28, d + 0.6, [0, y + h + 0.14, z]));
+    (o.iron ? gold : white).push(box(w + 0.66, 0.12, d + 0.66, [0, y + h - 0.02, z]));
+    const nW = Math.max(2, Math.round(d / 2.6));
+    for (const s of [-1, 1]) for (let i = 0; i < nW; i++) {
+      const zz = z0 + (d * (i + 0.5)) / nW;
+      if (o.iron) { ports.push(box(0.1, 0.42, 1.3, [s * (w / 2 + 0.03), y + h * 0.6, zz])); iron.push(box(0.14, 0.12, 1.6, [s * (w / 2 + 0.05), y + h * 0.6 + 0.3, zz])); }
+      else { glass.push(box(0.08, 0.9, 1.05, [s * (w / 2 + 0.02), y + h * 0.58, zz])); gold.push(box(0.1, 1.15, 0.12, [s * (w / 2 + 0.04), y + h * 0.58, zz + 0.62])); }
+    }
+    for (const f of [-1, 1]) { const zf = f > 0 ? z1 : z0; door(-w * 0.22, y, zf, f, 1.15, Math.min(2.05, h - 0.3), o.iron ? iron : gold); door(w * 0.22, y, zf, f, 1.15, Math.min(2.05, h - 0.3), o.iron ? iron : gold); }
+    // pitched skylight
+    const sl = d * 0.4, sw = Math.min(2.4, w * 0.4);
+    for (const s of [-1, 1]) glass.push(place(new THREE.BoxGeometry(sw * 0.55, 0.08, sl), [s * sw * 0.24, y + h + 0.55, z - d * 0.12], [0, 0, s * -0.55]));
+    cap.push(box(0.14, 0.14, sl + 0.2, [0, y + h + 0.72, z - d * 0.12]));
+    for (const s of [-1, 1]) cap.push(box(0.1, 0.5, sl, [s * sw * 0.5, y + h + 0.36, z - d * 0.12]));
+    if (o.chimney !== false) { const cx = w * 0.3, cz = z + d * 0.3; iron.push(place(cyl(0.38, 0.3, 2.2, 10), [cx, y + h + 1.2, cz])); iron.push(place(cyl(0.48, 0.48, 0.25, 10), [cx, y + h + 2.3, cz])); }
+    if (o.boat) { // the launch stowed on the roof on chocks
+      const bz = z + (o.chimney === false ? 0 : -d * 0.05);
+      white.push(place(new THREE.SphereGeometry(1, 12, 6, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), [-w * 0.12, y + h + 1.35, bz], null, [Math.min(w * 0.22, 1.9), 0.95, Math.min(d * 0.4, 4.5)]));
+      dark.push(box(Math.min(w * 0.44, 3.8), 0.12, Math.min(d * 0.8, 9), [-w * 0.12, y + h + 1.36, bz]));
+      for (const f of [-1, 1]) dark.push(box(w * 0.5, 0.45, 0.35, [-w * 0.12, y + h + 0.5, bz + f * Math.min(d * 0.25, 2.8)]));
+    }
+    // a rail round the roof so it doubles as a lookout
+    for (let i = 0; i <= 8; i++) for (const s of [-1, 1]) cap.push(box(0.08, 0.8, 0.08, [s * (w / 2 + 0.2), y + h + 0.6, z0 - 0.2 + ((d + 0.4) * i) / 8]));
+    for (const s of [-1, 1]) cap.push(box(0.08, 0.08, d + 0.4, [s * (w / 2 + 0.2), y + h + 1.0, z]));
+    return { y: y + h + 0.28, z, d };
+  }
+  function bulkhead(u, h, faces, ironclad) {
+    // a breast-wall across the deck under a raised forecastle / poop, with doorways leading below; f = side it faces
+    const y = deckY(H, u), z = zU(u), w = hullX(H, u, y + h) * 1.96;
+    (ironclad ? armour : dark).push(box(w, h, 0.4, [0, y + h / 2, z]));
+    const nd = w > 18 ? 3 : 2;
+    for (let i = 0; i < nd; i++) door(-w * 0.3 + (w * 0.6 * i) / (nd - 1), y, z + faces * 0.2, faces, 1.2, Math.min(2.1, h - 0.3), ironclad ? iron : gold);
+    for (let i = 0; i < 2; i++) for (const s of [-1, 1]) glass.push(box(0.9, 0.7, 0.08, [s * w * (0.14 + i * 0.29), y + h * 0.62, z + faces * 0.22]));
+    gold.push(box(w, 0.14, 0.12, [0, y + h - 0.1, z + faces * 0.22]));
+    // rail along the break
+    for (let i = 0; i <= 16; i++) (ironclad ? iron : dark).push(box(0.1, 0.85, 0.1, [-w / 2 + (w * i) / 16, y + h + 0.42, z]));
+    (ironclad ? iron : dark).push(box(w, 0.1, 0.12, [0, y + h + 0.85, z]));
+  }
+  function forecastle(u0, h, ironclad) {
+    // raised deck from the break forward, slabs following the hull's taper so nothing pokes out of the side
+    const n = 8;
+    for (let i = 0; i < n; i++) {
+      const ua = u0 + ((0.985 - u0) * i) / n, ub = u0 + ((0.985 - u0) * (i + 1)) / n, um = (ua + ub) / 2;
+      const y = deckY(H, um) + h, w = hullX(H, ub, y) * 0.98;
+      if (w < 0.8) break;
+      dark.push(box(w * 2, 0.3, zU(ub) - zU(ua) + 0.05, [0, y - 0.15, zU(um)]));
+    }
+    bulkhead(u0, h, -1, ironclad);
+    // the belfry at the break
+    const by = deckY(H, u0) + h, bz = zU(u0) + 1.2;
+    for (const s of [-1, 1]) dark.push(box(0.22, 2.2, 0.22, [s * 0.9, by + 1.1, bz]));
+    dark.push(box(2.3, 0.3, 0.6, [0, by + 2.3, bz]));
+    gold.push(place(new THREE.CylinderGeometry(0.2, 0.45, 0.65, 10), [0, by + 1.75, bz]));
+  }
+  function conningTower(x, y, z, r, h) {
+    armour.push(place(cyl(r, r * 1.08, h, 12), [x, y + h / 2, z]));
+    glass.push(place(cyl(r * 1.01, r * 1.01, 0.32, 12), [x, y + h * 0.78, z]));
+    iron.push(place(cyl(r * 1.15, r * 1.15, 0.3, 12), [x, y + h + 0.15, z]));
+    iron.push(place(new THREE.SphereGeometry(r * 0.7, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2), [x, y + h + 0.3, z]));
+    lamps.push(place(new THREE.SphereGeometry(0.28, 8, 6), [x, y + h + 0.3 + r * 0.7 + 0.2, z]));
+  }
+  function bridge(y, z, w) {
+    // a flying bridge across the beam with wings out over the rails
+    armour.push(box(w, 0.25, 2.2, [0, y, z]));
+    for (let i = 0; i <= 20; i++) for (const f of [-1, 1]) iron.push(box(0.09, 0.9, 0.09, [-w / 2 + (w * i) / 20, y + 0.55, z + f * 1.05]));
+    for (const f of [-1, 1]) gold.push(box(w, 0.1, 0.12, [0, y + 1.0, z + f * 1.05]));
+    for (const s of [-1, 1]) { iron.push(box(0.3, y - deckY(H, 0.5), 0.3, [s * w * 0.48, (y + deckY(H, 0.5)) / 2, z])); lamps.push(place(new THREE.CylinderGeometry(0.3, 0.22, 0.6, 8), [s * (w / 2 + 0.2), y + 1.4, z])); }
+  }
+  function deckWorks() {
+    if (id === 'manowar' || sov) {
+      const k = sov ? 1.25 : 1;
+      companion(0.4, 2.8 * k, 2.6 * k, 2.5, false);
+      deckhouse(sov ? 0.535 : 0.555, sov ? 0.685 : 0.69, B * 0.36, 2.6 * k, { boat: true });
+      forecastle(sov ? 0.83 : 0.84, Math.max(2.4, H.bulwark + 1), false);
+      // doors into the admiral's cabin under the poop
+      const qy = deckY(H, 0.06), x = hullX(H, 0.15, qy) * 0.95, zf = -L / 2 + L * 0.13;
+      for (const s of [-1, 1]) door(s * x * 0.35, qy, zf, 1, 1.2, 2.0);
+      for (let i = 0; i < 9; i++) dark.push(box(0.1, 0.8, 0.1, [-x * 0.85 + (x * 1.7 * i) / 8, qy + 2.6, zf]));
+      dark.push(box(x * 1.7, 0.1, 0.1, [0, qy + 3.0, zf]));
+    } else if (lev) {
+      const hw = hullX(H, 0.5, deckY(H, 0.5));
+      const cw = hw * 2 - 7.5;                                   // clear of the carronade rows
+      // armoured citadel deckhouse between the main and mizzen, with a conning tower and a flying bridge
+      const c = titan ? deckhouse(0.53, 0.635, cw * 0.62, 5.2, { iron: true, chimney: false }) : deckhouse(0.46, 0.575, cw * 0.6, 4.6, { iron: true, chimney: false });
+      conningTower(0, c.y, c.z + c.d * 0.15, titan ? 3.2 : 2.6, titan ? 4.6 : 3.8);
+      bridge(c.y + 0.05, c.z - c.d * 0.3, hw * 2 - 1.4);
+      if (titan) deckhouse(0.365, 0.465, cw * 0.5, 4.2, { iron: true, boat: true });
+      for (const u of titan ? [0.245, 0.74] : [0.31, 0.71]) companion(u, 3.8, 3.6, 3.0, true);
+      // doorways in the forecastle breastwork and under the poop
+      const fz = zU(0.79) - 0.2, fy = deckY(H, 0.79);
+      for (const s of [-1, 0, 1]) door(s * hw * 0.35, fy, fz, -1, 1.3, 2.1, iron);
+      const py = deckY(H, 0.085), pz = -L / 2 + L * 0.15 + 0.6, pw = hullX(H, 0.05, sheer(H, 0.05)) * 0.94;
+      for (const s of [-1, 1]) door(s * pw * 0.52, py, pz, 1, 1.3, 2.2);
+    }
+  }
   function buildLeviathan() {
     // armoured belt: two courses of riveted iron plates along the waterline, plates on the bow
     for (const yy of [0.2, 2.1, 4.0]) for (let i = 0; i < 52; i++) {
@@ -863,7 +990,7 @@ export function buildShip(stats, look = {}) {
   // assemble merged static meshes
   // LOD: `near` details vanish first (mid range), `small` ones far away; hull, deck, spars and sails always stay
   const lodNear = [], lodFar = [];
-  for (const [list, mat, lod] of [[dark, m.darkwood, 0], [spar, m.spar, 0], [iron, m.iron, 2], [gold, m.gold, 2], [ports, m.port, 2], [glass, m.glass, 1], [lamps, m.lantern, 2], [red, m.red, 2], [white, m.white, 2], [trimL, trimMat, 2], [marble, m.marble, 2], [plate, m.plate, 2], [ember, m.ember, 1]]) {
+  for (const [list, mat, lod] of [[dark, m.darkwood, 0], [spar, m.spar, 0], [iron, m.iron, 2], [gold, m.gold, 2], [ports, m.port, 2], [glass, m.glass, 1], [lamps, m.lantern, 2], [red, m.red, 2], [white, m.white, 2], [trimL, trimMat, 2], [marble, m.marble, 2], [plate, m.plate, 2], [armour, m.armour, 0], [ember, m.ember, 1]]) {
     const mesh = merged(list, mat); if (!mesh) continue;
     body.add(mesh);
     if (lod === 1) lodNear.push(mesh); else if (lod === 2) lodFar.push(mesh);

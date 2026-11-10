@@ -1,9 +1,9 @@
 // Host-side action handler: every player intent (from the local UI or a remote peer) goes through
 // here, so the host stays authoritative for the economy, empire and diplomacy.
-import { HAVEN_R, BUILDINGS, tierById, claimFee, FIELD_REPAIR, TRAILS } from './config.js';
+import { HAVEN_R, BUILDINGS, tierById, claimFee, FIELD_REPAIR, TRAILS, TREASURE } from './config.js';
 import { DOCK_SPEED } from './sim.js';
 import * as E from './economy.js';
-import { baseRadius } from './basegeo.js';
+import { baseRadius, harborPoint } from './basegeo.js';
 
 export function dockSite(sim, s) {
   const W = sim.W;
@@ -82,6 +82,40 @@ export function handleAct(sim, pid, a) {
       if (typeof res === 'string') return r(res);
       if (res.prize.kind === 'ship' && ['titan', 'leviathan', 'sovereign'].includes(res.prize.tier)) W.log?.push({ t: Date.now(), text: `${p.name} won a ${res.text} on the Wheel of Fortune!` });
       mark(); return r(null, res);
+    }
+    case 'buyMap': {
+      if (docked?.kind !== 'port') return r('Treasure maps are sold in the Free Port tavern');
+      if ((p.tmaps || []).length >= TREASURE.max) return r(`You already carry ${TREASURE.max} treasure maps — dig some up first`);
+      if (!E.pay(p.inv, { gold: TREASURE.price })) return r(`A map costs ${TREASURE.price} gold`);
+      const m = E.makeTreasureMap(W, sim.rand, s.x, s.z, p.level);
+      E.addTreasureMap(p, m); mark(); return r(null, m);
+    }
+    case 'dig': {
+      if (!s || s.sink > 0) return r('No ship');
+      if (docked) return r('Set sail first');
+      const m = (p.tmaps || []).find((t) => Math.hypot(t.x - s.x, t.z - s.z) < t.range);
+      if (!m) return r('No treasure marked here — check your map (M)');
+      if (s.spd > 4) return r('Heave to (stop the ship) before you send the shore party');
+      const res = E.digTreasure(p, m, sim.rand);
+      sim.fx.push({ t: 'pickup', x: m.x, z: m.z });
+      if (res.extra.some((x) => x.includes('card'))) sim.msgs.push({ to: null, text: `${p.name} dug up a legendary chest on ${m.name}!`, kind: 'event' });
+      mark(); return r(null, { ...res, name: m.name });
+    }
+    case 'voyage': {
+      // charter passage from this harbour to the Free Port or another of your islands
+      if (!s || s.sink > 0) return r('No ship');
+      if (!docked || !(docked.kind === 'port' || atOwnBase(docked.id))) return r('Voyages leave from the Free Port or your own islands');
+      const port = W.islands.find((i) => i.kind === 'port');
+      const to = a.to === 'port' ? port : W.bases.find((b) => b.id === a.to && b.owner === pid);
+      if (!to || (a.to !== 'port' && to.id === docked.id) || (a.to === 'port' && docked.kind === 'port')) return r('Pick another destination');
+      const cost = E.voyageCost(Math.hypot(to.x - s.x, to.z - s.z));
+      if (!E.pay(p.inv, { gold: cost })) return r(`The voyage costs ${cost} gold`);
+      let x, z, yaw;
+      if (a.to === 'port') { const ang = sim.rand() * Math.PI * 2; x = Math.cos(ang) * 200; z = Math.sin(ang) * 200; yaw = Math.atan2(Math.cos(ang), Math.sin(ang)); }
+      else ({ x, z, yaw } = harborPoint(to, s.stats.len));
+      s.x = x; s.z = z; s.yaw = yaw; s.spd = 0; s.sail = 0; s.life = (s.life || 0) + 1;
+      s.docked = a.to === 'port' ? { kind: 'port', id: 'port', name: port.name } : { kind: 'base', id: to.id, name: to.name, own: true };
+      mark(); return r(null, { cost, name: to.name, docked: s.docked });
     }
     case 'claimHoliday': {
       const res = E.claimHoliday(p, sim.clock());

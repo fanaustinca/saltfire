@@ -1,7 +1,7 @@
 // Pure economy + progression logic over the persistent world state `W`.
 // Host-authoritative: every function here is called on the host (or in solo) and is unit-tested.
 import {
-  RES, AMMO_ORDER, RECIPES, TIERS, tierById, maxSideFor, UPGRADES, XP_PER_LEVEL, MAX_LEVEL, BUILDINGS,
+  TREASURE, VOYAGE, RES, AMMO_ORDER, RECIPES, TIERS, tierById, maxSideFor, UPGRADES, XP_PER_LEVEL, MAX_LEVEL, BUILDINGS,
   MARKET_TAX, LAND_SLOTS, PROD_PERIOD, BASE_RELOAD, rangeFor, MUZZLE, FLEET_BASE, WHEEL, HOLIDAY, TITAN_SIZE_PRICE,
 } from './config.js';
 
@@ -183,7 +183,8 @@ export function prizeText(pr) {
   if (pr.kind === 'titanSize') return 'Titan Size card';
   if (pr.kind === 'gold') return `${pr.n.toLocaleString()} gold`;
   if (pr.kind === 'spin') return 'a free Wheel spin';
-  return Object.entries(pr.items).map(([k, v]) => `${v} ${k}`).join(', ');
+  const NM = { explosive: 'explosive shells', chain: 'chainshot', grape: 'grapeshot' };
+  return Object.entries(pr.items).map(([k, v]) => `${v.toLocaleString()} ${NM[k] || k}`).join(', ');
 }
 export function grantPrize(p, pr) {
   if (pr.kind === 'ship') addCard(p, { kind: 'ship', tier: pr.tier });
@@ -210,12 +211,29 @@ export function spinWheel(p, now, rand = Math.random, { paid = false } = {}) {
 }
 /** The gift for day `i` of the event (0 = first day). The last day pays the Titan card to perfect attendance. */
 export function holidayGift(i, perfect) {
-  const total = holidayLength(), key = dayKeyOf(i);
-  if (i === total - 1) return perfect ? { kind: 'ship', tier: 'titan', big: true } : { kind: 'gold', n: 60000 };
-  if (key === HOLIDAY.sizeDay) return { kind: 'titanSize', big: true };
-  if (i % 7 === 6) return { kind: 'spin', n: 2 };
-  if (i % 3 === 2) return { kind: 'res', items: { oak: 150 + i * 4, iron: 80 + i * 2, canvas: 80 + i * 2, powder: 20 + i } };
-  return { kind: 'gold', n: 2500 + i * 250 };
+  const total = holidayLength(), key = dayKeyOf(i), w = Math.floor(i / 7); // gifts grow week by week
+  if (i === total - 1) return perfect ? { kind: 'ship', tier: 'titan', big: true, icon: 'titan' } : { kind: 'gold', n: 60000, icon: 'chest' };
+  if (key === HOLIDAY.sizeDay) return { kind: 'titanSize', big: true, icon: 'size' };
+  if (i % 14 === 13) return { kind: 'res', items: { gold: 15000 + i * 300, explosive: 30 + w * 5, powder: 60 }, big: true, icon: 'chest' };
+  if (i % 7 === 6) return { kind: 'spin', n: 2, icon: 'spin' };
+  switch (i % 7) {
+    case 0: return { kind: 'gold', n: 2500 + i * 250, icon: 'gold' };
+    case 1: return { kind: 'res', items: { explosive: 12 + w * 4 }, icon: 'explosive' };
+    case 2: return { kind: 'res', items: { iron: 120 + i * 5 }, icon: 'iron' };
+    case 3: return { kind: 'spin', n: 1, icon: 'spin' };
+    case 4: return { kind: 'res', items: { oak: 200 + i * 6, canvas: 100 + i * 3 }, icon: 'oak' };
+    default: return { kind: 'res', items: { chain: 20 + w * 5, grape: 20 + w * 5, powder: 30 + i }, icon: 'shot' };
+  }
+}
+/** Short amount shown on a calendar tile. */
+export function giftShort(g) {
+  const k = (n) => (n >= 1000 ? `${+(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : `${n}`);
+  if (g.kind === 'ship') return tierById(g.tier).name;
+  if (g.kind === 'titanSize') return 'Size card';
+  if (g.kind === 'spin') return `${g.n || 1} spin${(g.n || 1) > 1 ? 's' : ''}`;
+  if (g.kind === 'gold') return k(g.n);
+  if (g.icon === 'chest') return 'Chest';
+  const [n] = Object.values(g.items); return `×${k(n)}`;
 }
 const dayKeyOf = (i) => { const d = new Date(Date.UTC(+HOLIDAY.start.slice(0, 4), +HOLIDAY.start.slice(5, 7) - 1, +HOLIDAY.start.slice(8, 10) + i)); return d.toISOString().slice(0, 10); };
 export function holidayState(p, now) {
@@ -236,6 +254,45 @@ export function claimHoliday(p, now) {
   grantPrize(p, g);
   return { day: st.i + 1, total: st.total, gift: g, text: prizeText(g) };
 }
+
+// ------------------------------------------------------------------ treasure maps + voyages
+/** Draw a treasure map: an X on a resource islet or squatter island, a good sail away from (fx, fz). */
+export function makeTreasureMap(W, rand, fx, fz, lvl = 1) {
+  const spots = [...W.islands.filter((i) => i.kind === 'res'), ...W.bases.filter((b) => b.owner === 'ai:wild')];
+  let pick = null;
+  for (let t = 0; t < 40 && !pick; t++) {
+    const c = spots[Math.floor(rand() * spots.length)]; if (!c) break;
+    const d = Math.hypot(c.x - fx, c.z - fz);
+    if (d > 900 && d < 4200 + t * 150) pick = c;
+  }
+  pick ||= spots[Math.floor(rand() * spots.length)];
+  if (!pick) return null;
+  const a = rand() * Math.PI * 2, rr = pick.r * 0.5;
+  return { id: uid('t'), x: pick.x + Math.cos(a) * rr, z: pick.z + Math.sin(a) * rr, isl: pick.id, name: pick.name || 'a nameless rock', range: pick.r * 0.6 + TREASURE.range, lvl: Math.max(1, lvl) };
+}
+export function addTreasureMap(p, m) {
+  if (!m) return false;
+  p.tmaps ||= [];
+  if (p.tmaps.length >= TREASURE.max) return false;
+  p.tmaps.push(m); return true;
+}
+/** Dig up a map's chest: gold + supplies scaled by the map's level, with a chance of spins and ship cards. */
+export function digTreasure(p, map, rand = Math.random) {
+  const L = map.lvl || 1;
+  const loot = { gold: Math.round(4000 + L * 350 + rand() * 3000), explosive: 12 + Math.floor(rand() * 18), iron: 60 + L * 4, oak: 90 + L * 5, canvas: 50 + L * 3, powder: 25 + L };
+  gain(p.inv, loot);
+  const extra = [];
+  const roll = rand();
+  if (roll < 0.005) { addCard(p, { kind: 'ship', tier: 'sovereign' }); extra.push('a Sovereign reward card!'); }
+  else if (roll < 0.02) { addCard(p, { kind: 'ship', tier: 'manowar' }); extra.push('a Man of War reward card!'); }
+  else if (roll < 0.05) { addCard(p, { kind: 'ship', tier: 'galleon' }); extra.push('a Galleon reward card!'); }
+  if (rand() < 0.25) { p.wheel ||= {}; p.wheel.bonus = (p.wheel.bonus || 0) + 1; extra.push('a free Wheel spin'); }
+  p.tmaps = (p.tmaps || []).filter((m) => m.id !== map.id);
+  p.chests = (p.chests || 0) + 1;
+  return { loot, extra };
+}
+/** Gold to charter a voyage between two points. */
+export const voyageCost = (d) => Math.round(VOYAGE.base + d * VOYAGE.perM);
 
 export function setFlagship(p, shipUid) { const s = p.fleet.find((x) => x.uid === shipUid); if (!s) return 'Not in fleet'; if (s.out) return 'That ship is at sea with your fleet — recall it first'; if (s.wrecked) return 'That ship is wrecked — repair it first'; p.flag = shipUid; return null; }
 export const flagship = (p) => p.fleet.find((s) => s.uid === p.flag) || p.fleet[0];

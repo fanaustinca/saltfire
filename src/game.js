@@ -421,6 +421,13 @@ export class Game {
   async interact() {
     const me = this.me(); if (!me || me.sink > 0) return;
     if (me.docked) { this.ui.port(this); return; }
+    if ((this.profile()?.tmaps || []).some((m) => Math.hypot(m.x - me.x, m.z - me.z) < m.range)) {
+      const r = await this.act({ type: 'dig' });
+      if (r.err) { this.ui.toast(r.err, 'bad'); return; }
+      const l = r.data.loot;
+      this.ui.toast(`Treasure on ${r.data.name}! +${l.gold.toLocaleString()} gold, ${l.explosive} explosive shells, supplies${r.data.extra.length ? ' — and ' + r.data.extra.join(', ') : ''}`, r.data.extra.length ? 'event' : 'good', 6);
+      sfx.bell(); this.ui.refresh(this); return;
+    }
     const site = dockSite(this.sim, me);
     if (site?.kind === 'fee') { this.ui.feePrompt(this, { base: site.id, fee: site.fee, name: site.name, owner: this.W.players[this.W.bases.find((b) => b.id === site.id)?.owner]?.name }); return; }
     const res = await this.act({ type: 'dock' });
@@ -616,6 +623,29 @@ export class Game {
     const k = Math.max(0, Math.min(1, (rt - a.t) / Math.max(1e-3, c.t - a.t)));
     return { x: a.x + (c.x - a.x) * k, z: a.z + (c.z - a.z) * k, yaw: a.yaw + wrapA(c.yaw - a.yaw) * k };
   }
+  /** A red X on the ground and a pillar of light for each treasure map you hold. */
+  updateTreasureMarks(t) {
+    const maps = this.profile()?.tmaps || [];
+    this.tmarks ||= new Map();
+    for (const [id, g] of this.tmarks) if (!maps.some((m) => m.id === id)) { this.scene.remove(g); g.traverse((o) => o.geometry?.dispose()); this.tmarks.delete(id); }
+    if (!this.tmarkMats) this.tmarkMats = {
+      x: new THREE.MeshBasicMaterial({ color: 0xff3b2a }),
+      beam: new THREE.MeshBasicMaterial({ color: 0xff6a20, transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }),
+    };
+    for (const m of maps) {
+      let g = this.tmarks.get(m.id);
+      if (!g) {
+        g = new THREE.Group();
+        const y = (this.sim.groundAt(m.x, m.z) ?? 1) + 0.4;
+        for (const r of [Math.PI / 4, -Math.PI / 4]) { const b = new THREE.Mesh(new THREE.BoxGeometry(11, 0.5, 2.2), this.tmarkMats.x); b.rotation.y = r; b.position.y = y; g.add(b); }
+        const beam = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 3.4, 160, 12, 1, true), this.tmarkMats.beam); beam.position.y = y + 80; g.add(beam);
+        g.userData.beam = beam;
+        g.position.set(m.x, 0, m.z);
+        this.scene.add(g); this.tmarks.set(m.id, g);
+      }
+      const k = 1 + Math.sin(t * 3) * 0.15; g.userData.beam.scale.set(k, 1, k);
+    }
+  }
   dropView(id) { const v = this.views.get(id); if (v) { this.scene.remove(v.model.root); v.model.dispose(); this.views.delete(id); } }
   render(dt) {
     const t = this.sim.time;
@@ -625,6 +655,7 @@ export class Game {
     const focus = me ? { x: me.x, z: me.z } : { x: this.camera.position.x, z: this.camera.position.z };
     this.lodT = (this.lodT || 0) - dt;
     if (this.lodT <= 0) { this.lodT = 0.5; this.updateWorldLOD(focus); this.syncBases(focus); }
+    this.updateTreasureMarks(t);
     // ships
     for (const [id, v] of this.views) if (!this.sim.ships.has(id)) this.dropView(id);
     let built = 0;
@@ -675,7 +706,7 @@ export class Game {
       const focus = new THREE.Vector3(me.x, (v ? v.heave : 0) * 0.5 + L * 0.18, me.z);
       const want = focus.clone().add(new THREE.Vector3(-Math.sin(this.cam.yaw) * Math.cos(pitch) * dist, Math.sin(pitch) * dist + 4, -Math.cos(this.cam.yaw) * Math.cos(pitch) * dist));
       want.y = Math.max(want.y, heightAt(want.x, want.z, t) + 3);
-      if (!this.cam.ready) { this.cam.pos.copy(want); this.cam.look.copy(focus); this.cam.ready = true; }
+      if (!this.cam.ready || this.cam.pos.distanceTo(want) > 800) { this.cam.pos.copy(want); this.cam.look.copy(focus); this.cam.yaw = me.yaw + this.cam.yawOff; this.cam.ready = true; } // first frame, voyages, respawns
       this.cam.pos.lerp(want, Math.min(1, dt * 4));
       this.cam.look.lerp(focus.clone().add(new THREE.Vector3(Math.sin(this.cam.yaw) * L * 0.6, 0, Math.cos(this.cam.yaw) * L * 0.6)), Math.min(1, dt * 5));
       this.camera.position.copy(this.cam.pos);

@@ -1,7 +1,7 @@
 // Game data: ship tiers, upgrades, ammo, resources, buildings, recipes.
 // Everything balance-related lives here so logic tests and the dev console can read it.
 
-export const VERSION = '2.4.0';
+export const VERSION = '2.5.0';
 
 export const RES = ['gold', 'oak', 'iron', 'canvas', 'powder'];
 export const RES_LABEL = { gold: 'Gold', oak: 'Oak', iron: 'Iron', canvas: 'Canvas', powder: 'Powder' };
@@ -68,6 +68,12 @@ export const WHEEL = {
   ],
 };
 /** Holiday Tides: claim a gift every day; claim EVERY day through New Year's Day for a Titan card. */
+// Treasure maps: dropped by sunk pirates (or bought from the Free Port tavern); sail to the X and dig (E).
+export const TREASURE = { price: 2500, max: 3, drop: 0.14, range: 95 };
+// Voyages: charter passage from a harbour to the Free Port or one of your own islands. Gold per metre travelled.
+export const VOYAGE = { base: 250, perM: 0.35 };
+// Bounty hunts: a wanted captain sails somewhere on the map; sinking them pays the bounty plus a wheel spin.
+export const BOUNTY_NAMES = ['"Mad" Jack Morrow', 'Esmé Blackwater', 'Silas Vane', 'Captain Gristle', 'Old Ironjaw', 'Red Annie Kell', 'The Drowned Duke', 'Marrow Teach', 'Hollis Grimm', 'Lady Cinder'];
 export const HOLIDAY = { name: 'Holiday Tides', start: '2026-11-09', end: '2027-01-01', sizeDay: '2026-12-25' };
 export const tierById = (id) => TIERS.find((t) => t.id === id) || TIERS[0];
 /** Most cannons per side a hull of this tier can carry at a given size (85%..120%). Bigger hulls fit more:
@@ -144,7 +150,7 @@ export const MARKET_ITEMS = ['oak', 'iron', 'canvas', 'powder', 'chain', 'grape'
 export const TREATY_TYPES = { peace: 'Peace (no attacks)', trade: 'Trade (no entry fees)', alliance: 'Alliance (shared havens)' };
 
 // Island/world
-export const WORLD_R = 6000;
+export const WORLD_R = 12000; // v2.5: doubled (4× the sea); older 6000 m worlds gain the outer ring on load
 export const HAVEN_R = 340;
 
 // Fleet + claiming
@@ -166,5 +172,5 @@ export const TRAILS = {
 };
 export const claimFee = (owned) => Math.round(300 * Math.pow(Math.max(1, owned), 1.6));
 // AI pirate clans (each holds a fortress and upgrades it over time)
-export const CLAN_NAMES = ['Blackfang Clan', 'Red Tide Brotherhood', 'Skullcrag Raiders', 'Iron Gull Corsairs', 'The Widowmakers', 'Salt Wraiths', 'Kraken\'s Teeth', 'Ember Fleet', 'Bone Harbour Band', 'Crimson Gulls'];
+export const CLAN_NAMES = ['Blackfang Clan', 'Red Tide Brotherhood', 'Skullcrag Raiders', 'Iron Gull Corsairs', 'The Widowmakers', 'Salt Wraiths', 'Kraken\'s Teeth', 'Ember Fleet', 'Bone Harbour Band', 'Crimson Gulls', 'Storm Jackals', 'Gilded Knives', 'Rotten Anchors', 'Deadlight Company', 'Black Lantern Gang', 'Hangman\'s Crew', 'Sunken Crown Syndicate', 'Rook Brothers', 'Maw Reavers', 'Stormwall Corsairs'];
 export const CLAN_PLAN = ['cannon', 'watchtower', 'cannon', 'lumber', 'dock', 'cannon', 'mine', 'warehouse', 'fort', 'cannon', 'powderhouse', 'cannon', 'fort', 'loft', 'cannon', 'cannon', 'fort', 'cannon', 'cannon', 'cannon'];

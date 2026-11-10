@@ -54,7 +54,12 @@ peer-to-peer multiplayer over WebRTC. **Play: https://fanaustinca.github.io/salt
   can be conquered (smash the keep, sink the defenders, hold position). Broken clans rise again elsewhere.
 - **World** — busy seas: lots of small fry plus level-matched heavies (up to your own tier); pirates prey on
   merchants and each other, the navy hunts pirates, merchants run cargo to the Free Port for the Merchant Guild.
-  Random events: the **Kraken**, guarded **Treasure Flagships** and clan raids.
+  Random events: the **Kraken**, guarded **Treasure Flagships**, **Wanted** bounty captains (gold + a wheel spin)
+  and clan raids. The sea is 12 km in radius; past the old 6 km edge lie the **Deep Reaches**, with tougher
+  squatters and bigger clan fortresses (older saved worlds gain them on load).
+- **Treasure maps** — sunk pirates sometimes carry one, or buy one in the Free Port tavern. Sail to the red X (and
+  its pillar of light), heave to and press `E` to dig: gold, explosive shells, supplies, and a chance of spins or ship cards.
+- **Voyages** — charter passage from the Free Port or any of your islands straight to another of your harbours.
 - **Economy & diplomacy** — player market with instant buys/sells, limit buy/sell orders, ship listings and a 5%
   transaction tax; safe havens, alliance access lists, entry fees, remote treaties (peace / trade / alliance / war).
 - **Multiplayer** — the host's browser generates a 6-digit room code; friends join with it. The host's browser
@@ -62,13 +67,13 @@ peer-to-peer multiplayer over WebRTC. **Play: https://fanaustinca.github.io/salt
   empire. Offline captains' bases are shielded while neutral trading continues.
 
 ## Controls
-`W`/`S` sails · `A`/`D` steer · mouse aim · click / `Space` fire · `1`–`4` / `Q` ammo · `E` dock / claim / port ·
+`W`/`S` sails · `A`/`D` steer · mouse aim · click / `Space` fire · `1`–`4` / `Q` ammo · `E` dock / claim / port / dig for treasure ·
 hold `F` harvest · `R` repair at sea · `M` map · `G` fleet command (side drawer at sea) · right-drag orbit · wheel zoom · `C` reset camera · `H` help · `Esc` menu.
 
 ## Dev console
 Open the browser console and run `dev.help()`, or press `` ` `` in game for a command prompt
 (`kraken`, `give all 500`, `ship manowar`, `fleet frigate 3`, `clans`, `raid`, `spawn pirate frigate 3`,
-`event treasure`, `tp port`, `sea 1.4`, `unlock`, …).
+`event treasure`, `event bounty`, `tmap`, `tp port`, `sea 1.4`, `unlock`, …).
 
 ## Development
 ```bash

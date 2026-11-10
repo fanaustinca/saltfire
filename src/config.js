@@ -1,7 +1,7 @@
 // Game data: ship tiers, upgrades, ammo, resources, buildings, recipes.
 // Everything balance-related lives here so logic tests and the dev console can read it.
 
-export const VERSION = '2.2.0';
+export const VERSION = '2.3.0';
 
 export const RES = ['gold', 'oak', 'iron', 'canvas', 'powder'];
 export const RES_LABEL = { gold: 'Gold', oak: 'Oak', iron: 'Iron', canvas: 'Canvas', powder: 'Powder' };
@@ -33,11 +33,17 @@ export const TIERS = [
   { id: 'frigate',    name: 'Frigate',     side: 3,  minSide: 3, maxSide: 7,  len: 42, beam: 10.2, depth: 4.6, masts: 3, rig: 'ship',      speed: 20,   turn: 0.42, hull: 900,  sails: 340, crew: 80,  decks: 1, level: 10, look: { hullColor: '#1b1a18', trimColor: '#d9a63a', sailColor: '#f2ede0' }, cost: { gold: 3600, oak: 180, iron: 70, canvas: 90 } },
   { id: 'galleon',    name: 'Galleon',     side: 5,  minSide: 4, maxSide: 10, len: 50, beam: 13.2, depth: 6.0, masts: 4, rig: 'galleon',   speed: 17,   turn: 0.32, hull: 1500, sails: 440, crew: 150, decks: 2, level: 15, look: { hullColor: '#4a2a16', trimColor: '#d4a73a', sailColor: '#ead9ae' }, cost: { gold: 7500, oak: 320, iron: 140, canvas: 150 } },
   { id: 'manowar',    name: 'Man of War',  side: 10, minSide: 8, maxSide: 20, len: 74, beam: 18.5, depth: 9.6, masts: 3, rig: 'line',     speed: 15,   turn: 0.24, hull: 3400, sails: 700, crew: 340, decks: 3, level: 22, look: { hullColor: '#191715', trimColor: '#e2b84a', sailColor: '#f4f0e4' }, cost: { gold: 16000, oak: 600, iron: 300, canvas: 260 } },
-  // The Leviathan: a monstrous five-decked ironclad ship of the line. Flagship only: it never sails in a fleet and no AI captain can own one.
-  { id: 'leviathan',  name: 'Leviathan',   side: 30, minSide: 24, maxSide: 60, sizeGuns: [30, 60], len: 112, beam: 30, depth: 17, masts: 4, rig: 'leviathan', speed: 13.5, turn: 0.17, hull: 11000, sails: 1700, crew: 1100, decks: 5, level: 40, armor: 0.6, flagshipOnly: true, look: { hullColor: '#141210', trimColor: '#c4932e', sailColor: '#ece6d6' }, cost: { gold: 60000, oak: 1800, iron: 1000, canvas: 700, powder: 200 } },
+  // The Sovereign: a four-decked royal first-rate, gilded from stem to stern. Flagship only.
+  { id: 'sovereign',  name: 'Sovereign',   side: 16, minSide: 12, maxSide: 34, sizeGuns: [18, 34], len: 90, beam: 27, depth: 11.5, masts: 3, rig: 'sovereign', speed: 14.5, turn: 0.21, hull: 6400, sails: 1100, crew: 640, decks: 4, level: 30, armor: 0.8, flagshipOnly: true, look: { hullColor: '#22407e', trimColor: '#e8bd4a', sailColor: '#f6f1e2' }, cost: { gold: 32000, oak: 1100, iron: 560, canvas: 420, powder: 80 } },
+  // The Leviathan: a monstrous, broad five-decked ironclad ship of the line. Flagship only: it never sails in a fleet and no AI captain can own one.
+  { id: 'leviathan',  name: 'Leviathan',   side: 30, minSide: 24, maxSide: 60, sizeGuns: [30, 60], len: 116, beam: 40, depth: 12.5, masts: 4, rig: 'leviathan', speed: 13.5, turn: 0.17, hull: 11000, sails: 1700, crew: 1100, decks: 5, level: 40, armor: 0.6, flagshipOnly: true, look: { hullColor: '#141210', trimColor: '#c4932e', sailColor: '#ece6d6' }, cost: { gold: 60000, oak: 1800, iron: 1000, canvas: 700, powder: 200 } },
+  // The Titan: cheat-only (dev console: `ship titan`). Cannot be hurt, carries 150 guns a side, black sails.
+  { id: 'titan',      name: 'Titan',       side: 150, minSide: 150, maxSide: 150, len: 150, beam: 52, depth: 14, masts: 5, rig: 'titan', speed: 22, turn: 0.32, hull: 99999, sails: 9999, crew: 3000, decks: 6, level: 1, armor: 0, reload: 1.2, invincible: true, cheatOnly: true, flagshipOnly: true, look: { hullColor: '#0b0a0c', trimColor: '#b3201c', sailColor: '#2a1515' }, cost: { gold: 0 } },
 ];
-/** Highest tier index an AI captain (or a fleet ship) may sail: everything but the flagship-only Leviathan. */
+/** Highest tier index an AI captain (or a fleet ship) may sail: everything up to the Man of War. */
 export const AI_TOP_TIER = 5;
+/** Tiers anyone can buy or build (the Titan only comes from the dev console). */
+export const shopTiers = () => TIERS.filter((t) => !t.cheatOnly);
 export const tierById = (id) => TIERS.find((t) => t.id === id) || TIERS[0];
 /** Most cannons per side a hull of this tier can carry at a given size (85%..120%). Bigger hulls fit more:
  *  a Leviathan carries 30 a side at 85% and 60 at 120%; other tiers scale their limit with size. */

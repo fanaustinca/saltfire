@@ -16,7 +16,7 @@ const world = (seed = 42) => { const W = E.newWorld(seed); generateIslands(W); r
 const rng = (s = 1) => () => ((s = (s * 16807) % 2147483647) / 2147483647);
 
 T('ship tiers match the spec cannon counts', () => {
-  const want = { sloop: 1, schooner: 1, brigantine: 2, frigate: 3, galleon: 5, manowar: 10, leviathan: 30 };
+  const want = { sloop: 1, schooner: 1, brigantine: 2, frigate: 3, galleon: 5, manowar: 10, sovereign: 16, leviathan: 30, titan: 150 };
   for (const t of TIERS) ok(t.side === want[t.id], t.id);
   for (const t of TIERS) { const st = E.shipStats(E.shipSpec(t.id)); const g = gunLayout(st); ok(g.filter((x) => x.side === 'L').length === t.side && g.filter((x) => x.side === 'R').length === t.side, 'layout ' + t.id); }
 });
@@ -293,6 +293,34 @@ T('leviathan: flagship-only ship of the line; cannon limit grows with hull size 
   // AI captains never get one, even around a Leviathan
   const lead = sim.ships.get('p:u'); lead.docked = null; lead.x = 2500; lead.z = 2500;
   for (let i = 0; i < 80; i++) { const s = sim.spawnAI(200, lead, { strong: true }); if (s) ok(s.spec.tier !== 'leviathan', 'AI leviathan'); }
+});
+T('sovereign sits between man of war and leviathan; titan is cheat-only and cannot be hurt', () => {
+  const ids = TIERS.map((t) => t.id);
+  ok(ids.indexOf('manowar') < ids.indexOf('sovereign') && ids.indexOf('sovereign') < ids.indexOf('leviathan'), 'order');
+  const sv = E.shipStats(E.shipSpec('sovereign')), mow = E.shipStats(E.shipSpec('manowar')), lv = E.shipStats(E.shipSpec('leviathan'));
+  ok(sv.hull > mow.hull && sv.hull < lv.hull && sv.side > mow.side && sv.side < lv.side && sv.len > mow.len && sv.len < lv.len, 'in between');
+  ok(gunLayout(E.shipStats(E.shipSpec('sovereign', { size: 1.2 }), { side: 40 })).every((g) => g.y > 1.2), 'sovereign gun decks dry');
+  ok(TIERS.find((t) => t.id === 'sovereign').flagshipOnly, 'sovereign flagship only');
+  ok(lv.beam / lv.len > 0.3, 'leviathan is broad');
+  const W = world(); const sim = new Sim(W, { rand: rng(33) }); const { p } = joinPlayer(sim, 'u', 'U');
+  p.level = 200; p.inv = { gold: 1e7, oak: 1e6, iron: 1e6, canvas: 1e6, powder: 1e5 };
+  const me = sim.spawnPlayer('u'); me.x = 150; me.z = 0; me.spd = 0; handleAct(sim, 'u', { type: 'dock' });
+  ok(handleAct(sim, 'u', { type: 'buyShip', tier: 'titan' }).err, 'titan cannot be bought');
+  ok(!handleAct(sim, 'u', { type: 'buyShip', tier: 'sovereign' }).err, 'sovereign can');
+  const ti = E.shipSpec('titan'); p.fleet.push(ti); p.flag = ti.uid; const s = sim.spawnPlayer('u'); s.docked = null;
+  ok(s.stats.side === 150 && gunLayout(s.stats).filter((g) => g.side === 'L').length === 150, 'titan: 150 guns a side');
+  for (let i = 0; i < 50; i++) sim.hurt(s, 1e6, 1e6, 1e6, 'x');
+  ok(s.sink === 0 && s.hull === s.stats.hull && s.sails === s.stats.sails && s.crew === s.stats.crew, 'titan unhurt');
+});
+T('base islands grow a lot with buildings, but never into a neighbour', () => {
+  const W = world(); const sim = new Sim(W, { rand: rng(34) }); void sim;
+  const b = W.bases.find((x) => x.owner === 'ai:wild');
+  const r0 = baseRadius(b);
+  for (let i = 0; i < 16; i++) b.buildings.push({ id: 'g' + i, type: 'watchtower', slot: i, hp: 1 });
+  ok(baseRadius(b) > r0 * 1.8 || baseRadius(b) >= b.room - 0.01, `grows ${r0.toFixed(0)} -> ${baseRadius(b).toFixed(0)} (room ${b.room.toFixed(0)})`);
+  for (const a of W.bases) for (let i = 0; i < 20; i++) a.buildings.push({ id: 'h' + i, type: 'watchtower', slot: i, hp: 1 });
+  for (const a of W.bases) for (const c of W.bases) if (a !== c) ok(Math.hypot(a.x - c.x, a.z - c.z) > (baseRadius(a) + baseRadius(c)) * 1.12 + 40, 'overlap ' + a.id + ' ' + c.id);
+  for (const a of W.bases) for (const i of W.islands) ok(Math.hypot(a.x - i.x, a.z - i.z) > baseRadius(a) * 1.12 + i.r * 1.1, 'islet overlap ' + a.id + ' ' + i.id);
 });
 T('cannons reload fast; R repairs at sea with oak', () => {
   ok(BASE_RELOAD <= 3.5, 'reload ' + BASE_RELOAD);

@@ -5,7 +5,21 @@ import { baseGrowth } from './economy.js';
 import { islandShape } from './islandshape.js';
 
 export const dockAngle = (b) => ((b.seed || 0) % 628) / 100;
-export const baseRadius = (b) => b.r * baseGrowth(b);
+/** Island radius: grows with every building, but never into a neighbour (b.room, see assignRoom). */
+export const baseRadius = (b) => Math.max(b.r, Math.min(b.r * baseGrowth(b), b.room ?? b.r * 2.1));
+/** How far each base island may grow before its shore (and harbour) would reach a neighbour. */
+export function assignRoom(W) {
+  const others = [...(W.islands || []).map((i) => ({ x: i.x, z: i.z, r: i.r * 1.15, id: i.id })), ...W.bases.map((b) => ({ x: b.x, z: b.z, base: b, id: b.id }))];
+  for (const b of W.bases) {
+    let room = b.r * 3.2;
+    for (const o of others) {
+      if (o.id === b.id) continue;
+      const d = Math.hypot(o.x - b.x, o.z - b.z);
+      room = Math.min(room, o.base ? (d - 60) / 2 : d - o.r - 45);
+    }
+    b.room = Math.max(b.r, room / 1.15);
+  }
+}
 export const baseShape = (b) => islandShape({ seed: b.seed || 3, R: baseRadius(b), bayA: dockAngle(b), kind: b.hold ? 'hold' : 'base' });
 
 const ground = (S, dx, dz) => Math.max(1.4, S.hWorld(dx, dz));

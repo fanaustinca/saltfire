@@ -17,7 +17,7 @@ function mats() {
   if (MAT) return MAT;
   const st = stone();
   MAT = {
-    terrain: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, flatShading: false }),
+    terrain: terrainMat(),
     vc: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85 }),
     vcGlow: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, emissive: 0xffaa44, emissiveIntensity: 0.5 }),
     stone: new THREE.MeshStandardMaterial({ color: 0xc9c2b4, map: st, roughness: 0.9 }),
@@ -31,7 +31,7 @@ function mats() {
     dmg: new THREE.MeshStandardMaterial({ color: 0x2a2420, roughness: 1 }),
     buoyR: new THREE.MeshStandardMaterial({ color: 0xd23a2a, roughness: 0.6 }),
     buoyW: new THREE.MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.6 }),
-    river: (() => { const t = flowTex(); const m = new THREE.MeshStandardMaterial({ color: 0x5ec4e0, map: t, roughness: 0.12, metalness: 0.15, transparent: true, opacity: 0.9, emissive: 0x0d4a5c, emissiveIntensity: 0.6, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 }); m.userData.tex = t; return m; })(),
+    river: (() => { const t = flowTex(); const m = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, map: t, roughness: 0.3, metalness: 0, transparent: true, opacity: 0.9, emissive: 0x041e26, emissiveIntensity: 0.4, side: THREE.DoubleSide, depthWrite: false }); m.userData.tex = t; return m; })(),
     path: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 }),
     timber: new THREE.MeshStandardMaterial({ color: 0x3a2616, roughness: 0.85 }),
     shingle: new THREE.MeshStandardMaterial({ color: 0x5e2a1c, roughness: 0.85 }),
@@ -43,27 +43,93 @@ function mats() {
 function flowTex() {
   const c = document.createElement('canvas'); c.width = 64; c.height = 256;
   const g = c.getContext('2d');
-  g.fillStyle = '#9fd8ea'; g.fillRect(0, 0, 64, 256);
-  for (let i = 0; i < 90; i++) { g.fillStyle = `rgba(255,255,255,${0.15 + Math.random() * 0.35})`; g.fillRect(Math.random() * 64, Math.random() * 256, 1 + Math.random() * 3, 8 + Math.random() * 40); }
+  g.fillStyle = '#c8e6ee'; g.fillRect(0, 0, 64, 256);
+  for (let i = 0; i < 70; i++) { g.fillStyle = `rgba(255,255,255,${0.12 + Math.random() * 0.3})`; g.fillRect(Math.random() * 64, Math.random() * 256, 1 + Math.random() * 2, 10 + Math.random() * 40); }
   for (let i = 0; i < 40; i++) { g.fillStyle = `rgba(20,90,120,${0.2 + Math.random() * 0.3})`; g.fillRect(Math.random() * 64, Math.random() * 256, 2 + Math.random() * 4, 10 + Math.random() * 30); }
   const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }
 
 // ------------------------------------------------------------------ terrain
-/** Terrain mesh for a pure island shape (islandshape.js): beaches, cove, sea cliffs, hills. */
-export function terrainFromShape(S, kind = 'green', seed = 1) {
+/** A 1 m raster over an island that river beds, banks and footpaths are stamped into before the
+ *  terrain mesh is built, so they become part of the ground (carved + painted) instead of floating strips. */
+export class GroundPaint {
+  constructor(R) {
+    this.cell = R > 160 ? 1.25 : 1;
+    this.n = Math.ceil((R * 2.9) / this.cell); this.o = -this.n * this.cell / 2;
+    const N = this.n * this.n;
+    this.path = new Float32Array(N); this.wet = new Float32Array(N); this.carve = new Float32Array(N); this.bed = new Float32Array(N);
+  }
+  /** Stamp a soft disc: full strength inside r, fading out over `soft` metres. */
+  stamp(ch, x, z, r, soft = 1.5, val = 1) {
+    const A = this[ch], c = this.cell, n = this.n, R2 = r + soft;
+    const i0 = Math.max(0, Math.floor((x - R2 - this.o) / c)), i1 = Math.min(n - 1, Math.ceil((x + R2 - this.o) / c));
+    const j0 = Math.max(0, Math.floor((z - R2 - this.o) / c)), j1 = Math.min(n - 1, Math.ceil((z + R2 - this.o) / c));
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+      const d = Math.hypot(this.o + i * c - x, this.o + j * c - z);
+      if (d > R2) continue;
+      const t = d <= r ? 1 : 1 - (d - r) / soft, v = val * t * t * (3 - 2 * t), k = j * n + i;
+      if (v > A[k]) A[k] = v;
+    }
+  }
+  at(ch, x, z) {
+    const A = this[ch], c = this.cell, n = this.n;
+    const fx = (x - this.o) / c, fz = (z - this.o) / c, i = Math.floor(fx), j = Math.floor(fz);
+    if (i < 0 || j < 0 || i >= n - 1 || j >= n - 1) return 0;
+    const tx = fx - i, tz = fz - j, k = j * n + i;
+    return (A[k] * (1 - tx) + A[k + 1] * tx) * (1 - tz) + (A[k + n] * (1 - tx) + A[k + n + 1] * tx) * tz;
+  }
+}
+const hash2 = (x, z) => { const s = Math.sin(x * 127.1 + z * 311.7) * 43758.5453; return s - Math.floor(s); };
+function vnoise2(x, z) {
+  const i = Math.floor(x), j = Math.floor(z), fx = x - i, fz = z - j, ux = fx * fx * (3 - 2 * fx), uz = fz * fz * (3 - 2 * fz);
+  const a = hash2(i, j), b = hash2(i + 1, j), c = hash2(i, j + 1), d = hash2(i + 1, j + 1);
+  return a + (b - a) * ux + (c - a) * uz + (a - b - c + d) * ux * uz;
+}
+const fbm = (x, z) => vnoise2(x, z) * 0.55 + vnoise2(x * 2.3 + 17, z * 2.3 - 9) * 0.3 + vnoise2(x * 5.1 - 4, z * 5.1 + 31) * 0.15;
+
+/** Terrain mesh for a pure island shape (islandshape.js): beaches, cove, sea cliffs, hills.
+ *  `paint` (GroundPaint) carves river beds and paints paths, banks and wet sand into it. */
+export function terrainFromShape(S, kind = 'green', seed = 1, { paint = null, hi = false } = {}) {
   const r = rng(seed * 3 + 1);
   const R = S.R;
-  const rings = 46, seg = 150;
+  const rings = hi ? Math.min(130, Math.round(60 + R * 0.35)) : 64, seg = hi ? Math.min(420, Math.round(200 + R * 1.3)) : 210;
   const pos = [], col = [], idx = [];
-  const sand = C('#d9b56c'), wetSand = C('#a8854c'), under = C('#2f8f86');
-  const grass = C(kind === 'sulphur' ? '#c8a52a' : kind === 'rock' ? '#5f7a3a' : '#3c9a2a'), grass2 = C(kind === 'sulphur' ? '#8a7a2a' : '#1c6322');
-  const rock = C(kind === 'sulphur' ? '#c9a630' : '#6a5848'), rock2 = C(kind === 'sulphur' ? '#8a6a14' : '#3e332a'), dirt = C('#8a6a45');
-  const c = new THREE.Color();
-  const n = (x, z) => 0.5 + 0.5 * Math.sin(x * 0.13 + seed) * Math.sin(z * 0.11 + seed * 0.7) * 0.8 + 0.1 * Math.sin(x * 0.41 - z * 0.37);
+  const sand = C('#e3c27e'), sand2 = C('#cfa865'), wetSand = C('#a8854c'), under = C('#2f8f86');
+  const grass = C(kind === 'sulphur' ? '#c8a52a' : kind === 'rock' ? '#5f7a3a' : '#3f8e2c'), grass2 = C(kind === 'sulphur' ? '#8a7a2a' : '#22672a');
+  const meadow = C(kind === 'sulphur' ? '#b09030' : '#6c9e36'), forest = C('#1d5426');
+  const rock = C(kind === 'sulphur' ? '#c9a630' : '#76675a'), rock2 = C(kind === 'sulphur' ? '#8a6a14' : '#463b31'), dirt = C('#8a6a45');
+  const pathC = C('#b08e5e'), pathEdge = C('#7d6a3c'), mud = C('#4f5a2c'), bedC = C('#5d5442');
+  const c = new THREE.Color(), tmp = new THREE.Color();
   const highRock = S.arche === 2 ? S.H * 1.6 : S.H * 0.85;
-  pos.push(0, S.hAt(0, 0), 0); c.copy(grass2); col.push(c.r, c.g, c.b);
+  const sx = seed * 0.37;
+  const vert = (d, a) => {
+    const x = Math.cos(a) * d, z = Math.sin(a) * d;
+    let h = S.hAt(d, a);
+    const e = S.edge(a), k = d / e, cl = S.cliff(a);
+    const n1 = fbm(x * 0.045 + sx, z * 0.045), n2 = fbm(x * 0.17 - sx, z * 0.17 + 3);
+    // gentle bumps on the land so slopes are not glassy-smooth (kept small: the sim uses the pure shape)
+    if (h > 1.8 && k < 0.9) h += (n2 - 0.5) * 0.7 * Math.min(1, (h - 1.8) / 3);
+    if (h < -0.2) c.copy(under).lerp(wetSand, Math.max(0, 1 + h / 3));
+    else if (cl > 0.35 && k > 0.78 && h > 1.2) { c.copy(rock).lerp(rock2, 0.5 + 0.5 * Math.sin(h * 1.4 + a * 3 + n2 * 2)); }
+    else if (k > 0.83 || h < 1.9) { c.copy(k > 0.97 ? wetSand : sand).lerp(sand2, n2 * 0.6); if (k > 0.8 && k < 0.88 && h > 1.6) c.lerp(grass, 0.25 * n1); }
+    else if (kind === 'rock' || (h > highRock && n1 > 0.35)) c.copy(rock).lerp(grass2, kind === 'rock' ? 0.15 : 0.45 - (h - highRock) * 0.03).lerp(rock2, n2 * 0.4);
+    else {
+      // meadows on gentle low ground, darker forest floor inland, a sprinkle of bare earth
+      c.copy(grass).lerp(meadow, Math.max(0, n1 - 0.45) * 1.6).lerp(forest, Math.max(0, 0.5 - n1) * 1.2 + Math.min(0.35, (h / (S.H + 1)) * 0.35));
+      c.lerp(tmp.copy(grass2), n2 * 0.3);
+      if (n2 > 0.78) c.lerp(dirt, (n2 - 0.78) * 2.5);
+    }
+    if (paint && h > -0.5) {
+      const w = paint.at('wet', x, z), p = paint.at('path', x, z), cv = paint.at('carve', x, z), bd = paint.at('bed', x, z);
+      if (w > 0) c.lerp(mud, w * 0.75);
+      if (p > 0) { c.lerp(p < 0.6 ? pathEdge : pathC, Math.min(1, p * 1.3) * (0.82 + 0.18 * n2)); h += p * 0.05; }
+      if (bd > 0) c.lerp(bedC, bd);
+      if (cv > 0) h -= cv * 1.5;
+    }
+    pos.push(x, h, z); col.push(c.r, c.g, c.b);
+  };
+  vert(0, 0);
   for (let i = 1; i <= rings; i++) {
     const f = i / rings;
     for (let j = 0; j < seg; j++) {
@@ -71,15 +137,7 @@ export function terrainFromShape(S, kind = 'green', seed = 1) {
       const e = S.edge(a);
       // rings hug the shoreline (denser near the coast so cliffs stay crisp)
       const d = f < 0.8 ? e * Math.pow(f / 0.8, 1.05) * 0.86 : e * (0.86 + (f - 0.8) / 0.2 * 0.42);
-      const h = S.hAt(d, a);
-      pos.push(Math.cos(a) * d, h, Math.sin(a) * d);
-      const k = d / e, cl = S.cliff(a);
-      if (h < -0.2) c.copy(under).lerp(wetSand, Math.max(0, 1 + h / 3));
-      else if (cl > 0.35 && k > 0.78 && h > 1.2) c.copy(rock).lerp(rock2, 0.5 + 0.5 * Math.sin(h * 1.4 + a * 3));
-      else if (k > 0.83 || h < 1.9) c.copy(k > 0.97 ? wetSand : sand);
-      else if (kind === 'rock' || h > highRock) c.copy(rock).lerp(grass2, kind === 'rock' ? 0.15 : 0.3);
-      else c.copy(grass).lerp(grass2, n(Math.cos(a) * d, Math.sin(a) * d) * 0.75).lerp(dirt, (kind === 'res' ? 0 : 0.08) * r());
-      col.push(c.r, c.g, c.b);
+      vert(d, a);
     }
   }
   for (let j = 0; j < seg; j++) idx.push(0, 1 + ((j + 1) % seg), 1 + j);
@@ -91,17 +149,38 @@ export function terrainFromShape(S, kind = 'green', seed = 1) {
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
   g.setIndex(idx); g.computeVertexNormals();
-  // steep faces are bare rock whatever the biome
+  // steep faces are bare, layered rock whatever the biome
   const nr = g.attributes.normal, cc = g.attributes.color, pp = g.attributes.position;
   for (let i = 0; i < nr.count; i++) {
     const ny = nr.getY(i), y = pp.getY(i);
-    if (ny < 0.68 && y > 0.6) { const t = Math.min(1, (0.68 - ny) / 0.3); c.setRGB(cc.getX(i), cc.getY(i), cc.getZ(i)).lerp(Math.sin(y * 1.7) > 0 ? rock : rock2, t); cc.setXYZ(i, c.r, c.g, c.b); }
+    if (ny < 0.62 && y > 0.6) { const t = Math.min(1, (0.62 - ny) / 0.25) * (0.55 + 0.45 * fbm(pp.getX(i) * 0.06, pp.getZ(i) * 0.06)); const strata = 0.5 + 0.5 * Math.sin(y * 1.9 + fbm(pp.getX(i) * 0.1, pp.getZ(i) * 0.1) * 3); c.setRGB(cc.getX(i), cc.getY(i), cc.getZ(i)).lerp(tmp.copy(rock).lerp(rock2, strata), t); cc.setXYZ(i, c.r, c.g, c.b); }
   }
   return { geo: g, hAt: S.hAt, shore: S.shore, R, S };
+}
+/** Terrain material: vertex colours plus world-space grain so grass, sand and rock read up close. */
+function terrainMat() {
+  const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95 });
+  m.onBeforeCompile = (sh) => {
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vWP;').replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nvWP = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
+varying vec3 vWP;
+float th(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * .1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+float tn(vec2 p){ vec2 i = floor(p), f = fract(p); vec2 u = f*f*(3.-2.*f); return mix(mix(th(i), th(i+vec2(1,0)), u.x), mix(th(i+vec2(0,1)), th(i+vec2(1,1)), u.x), u.y); }`).replace('#include <color_fragment>', `#include <color_fragment>
+{ vec2 q = vWP.xz; float g = tn(q*0.9)*0.5 + tn(q*2.7)*0.3 + tn(q*7.3)*0.2; float big = tn(q*0.08);
+  diffuseColor.rgb *= 0.8 + 0.32*g + 0.12*(big-0.5); }`);
+  };
+  return m;
 }
 
 // ------------------------------------------------------------------ props (vertex coloured, merged)
 function colorize(g, hex) { g = g.index ? g.toNonIndexed() : g; const c = C(hex); const a = new Float32Array(g.attributes.position.count * 3); for (let i = 0; i < a.length; i += 3) { a[i] = c.r; a[i + 1] = c.g; a[i + 2] = c.b; } g.setAttribute('color', new THREE.BufferAttribute(a, 3)); for (const k of Object.keys(g.attributes)) if (!['position', 'normal', 'color'].includes(k)) g.deleteAttribute(k); return g; }
+/** Gable roof: ridge along x, `w` long, `d` deep (eaves to eaves), `h` high, base at y = 0. */
+function gableGeo(w, d, h) {
+  const sh = new THREE.Shape(); sh.moveTo(-d / 2, 0); sh.lineTo(d / 2, 0); sh.lineTo(0, h); sh.closePath();
+  const g = new THREE.ExtrudeGeometry(sh, { depth: w, bevelEnabled: false });
+  g.translate(0, 0, -w / 2); g.rotateY(Math.PI / 2);
+  return g;
+}
 const T4 = (g, x, y, z, ry = 0, s = 1) => { g.applyMatrix4(new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, ry, 0)), new THREE.Vector3(s, s, s))); return g; };
 
 let PALM = null, TREE = null, ROCK = null, HOUSE = null;
@@ -137,7 +216,7 @@ function treeGeo() {
   TREE = mergeGeometries(parts);
   return TREE;
 }
-function rockGeo() { if (ROCK) return ROCK; ROCK = colorize(new THREE.IcosahedronGeometry(1, 0), '#8e8a82'); return ROCK; }
+function rockGeo() { if (ROCK) return ROCK; ROCK = boulderGeo(rng(11), 1); ROCK.userData.shared = true; return ROCK; }
 function houseGeo() {
   if (HOUSE) return HOUSE;
   const body = colorize(new THREE.BoxGeometry(6, 4.5, 5).translate(0, 2.25, 0), '#efe0c0');
@@ -157,27 +236,79 @@ function instanced(geo, list, mat) {
   return m;
 }
 
-/** Scatter vegetation on a terrain. */
-function vegetation(T, r, { palms = 20, trees = 0, rocks = 6, avoid = [] } = {}) {
-  const P = [], Tr = [], Rk = [];
-  const ok = (x, z, rad) => avoid.every((a) => Math.hypot(a.x - x, a.z - z) > a.r + rad);
-  for (let i = 0; i < palms * 4 && P.length < palms; i++) {
-    const a = r() * Math.PI * 2, d = T.R * (0.55 + r() * 0.35) * T.shore(a);
-    const x = Math.cos(a) * d, z = Math.sin(a) * d; if (!ok(x, z, 3)) continue;
-    P.push({ x, y: T.hAt(d, a) - 0.2, z, s: 0.8 + r() * 0.5, ry: a + Math.PI + (r() - 0.5) });
+/** Scatter vegetation on a terrain: palms on the coast, clumped forest inland, bushes, grass tufts,
+ *  wild flowers and boulders. Keeps off buildings, rivers and (if painted) footpaths. */
+function vegetation(T, r, { palms = 20, trees = 0, rocks = 6, bushes = 0, tufts = 0, flowers = 0, avoid = [], paint = null } = {}) {
+  const P = [], Tr = [], Pn = [], Rk = [], Bu = [], Tu = [], Fl = [];
+  const ok = (x, z, rad) => avoid.every((a) => Math.hypot(a.x - x, a.z - z) > a.r + rad) && (!paint || paint.at('path', x, z) < 0.15);
+  const S = T.S;
+  const H = (d, a) => T.hAt(d, a);
+  const steep = (x, z) => S ? Math.abs(S.hWorld(x + 2, z) - S.hWorld(x - 2, z)) + Math.abs(S.hWorld(x, z + 2) - S.hWorld(x, z - 2)) : 0;
+  for (let i = 0; i < palms * 5 && P.length < palms; i++) {
+    const a = r() * Math.PI * 2, d = T.R * (0.62 + r() * 0.26) * T.shore(a);
+    const x = Math.cos(a) * d, z = Math.sin(a) * d, h = H(d, a); if (h < 1.2 || !ok(x, z, 3)) continue;
+    P.push({ x, y: h - 0.2, z, s: 0.75 + r() * 0.55, ry: a + Math.PI + (r() - 0.5) });
   }
-  for (let i = 0; i < trees * 4 && Tr.length < trees; i++) {
-    const a = r() * Math.PI * 2, d = T.R * r() * 0.7 * T.shore(a);
-    const x = Math.cos(a) * d, z = Math.sin(a) * d; if (!ok(x, z, 4)) continue;
-    Tr.push({ x, y: T.hAt(d, a) - 0.3, z, s: 0.8 + r() * 0.7, ry: r() * 6 });
+  // forest: trees cluster where a low-frequency noise is high; pines take the high ground
+  for (let i = 0; i < trees * 8 && Tr.length + Pn.length < trees; i++) {
+    const a = r() * Math.PI * 2, d = T.R * Math.sqrt(r()) * 0.72 * T.shore(a);
+    const x = Math.cos(a) * d, z = Math.sin(a) * d, h = H(d, a);
+    if (h < 2 || vnoise2(x * 0.03 + 5, z * 0.03) < 0.42 || steep(x, z) > 5 || !ok(x, z, 4)) continue;
+    (h > (S?.H || 20) * 0.55 && r() < 0.7 ? Pn : Tr).push({ x, y: h - 0.3, z, s: 0.7 + r() * 0.8, ry: r() * 6 });
+  }
+  for (let i = 0; i < bushes * 4 && Bu.length < bushes; i++) {
+    const a = r() * Math.PI * 2, d = T.R * Math.sqrt(r()) * 0.8 * T.shore(a);
+    const x = Math.cos(a) * d, z = Math.sin(a) * d, h = H(d, a); if (h < 1.7 || !ok(x, z, 1.5)) continue;
+    Bu.push({ x, y: h - 0.2, z, s: 0.6 + r() * 0.9, sy: 0.5 + r() * 0.5, ry: r() * 6 });
+  }
+  for (let i = 0; i < tufts * 3 && Tu.length < tufts; i++) {
+    const a = r() * Math.PI * 2, d = T.R * Math.sqrt(r()) * 0.84 * T.shore(a);
+    const x = Math.cos(a) * d, z = Math.sin(a) * d, h = H(d, a); if (h < 1.6 || !ok(x, z, 0.3)) continue;
+    Tu.push({ x, y: h - 0.05, z, s: 0.6 + r() * 0.8, ry: r() * 6 });
+  }
+  for (let i = 0; i < flowers * 3 && Fl.length < flowers; i++) {
+    const a = r() * Math.PI * 2, d = T.R * Math.sqrt(r()) * 0.78 * T.shore(a);
+    const x = Math.cos(a) * d, z = Math.sin(a) * d, h = H(d, a); if (h < 2 || !ok(x, z, 0.5)) continue;
+    Fl.push({ x, y: h, z, s: 0.8 + r() * 0.6, ry: r() * 6, tint: ['#f2e14a', '#f06a8a', '#ffffff', '#b77ff0', '#ff8a3a'][Math.floor(r() * 5)] });
   }
   for (let i = 0; i < rocks; i++) {
-    const a = r() * Math.PI * 2, d = T.R * (0.8 + r() * 0.35) * T.shore(a);
-    Rk.push({ x: Math.cos(a) * d, y: T.hAt(d, a), z: Math.sin(a) * d, s: 1 + r() * 2.5, sy: 0.6 + r(), rx: r(), ry: r() * 6 });
+    const a = r() * Math.PI * 2, d = T.R * (0.5 + r() * 0.6) * T.shore(a);
+    const x = Math.cos(a) * d, z = Math.sin(a) * d; if (!ok(x, z, 2)) continue;
+    Rk.push({ x, y: H(d, a) - 0.2, z, s: 0.8 + r() * 2.2, sy: 0.7 + r() * 0.6, ry: r() * 6 });
   }
   const g = new THREE.Group();
-  for (const [geo, list] of [[palmGeo(), P], [treeGeo(), Tr], [rockGeo(), Rk]]) { const m = instanced(geo, list, mats().vc); if (m) g.add(m); }
+  for (const [geo, list] of [[palmGeo(), P], [treeGeo(), Tr], [pineGeo(), Pn], [rockGeo(), Rk], [bushGeo(), Bu], [tuftGeo(), Tu], [flowerGeo(), Fl]]) {
+    const m = instanced(geo, list, mats().vc); if (!m) continue;
+    if (list === Tu || list === Fl) m.castShadow = false;
+    if (list === Fl) { list.forEach((p, i) => m.setColorAt(i, C(p.tint))); m.instanceColor.needsUpdate = true; }
+    g.add(m);
+  }
   return g;
+}
+let PINE = null, BUSH = null, TUFT = null, FLOWER = null;
+function pineGeo() {
+  if (PINE) return PINE;
+  const parts = [colorize(new THREE.CylinderGeometry(0.25, 0.4, 3, 6).translate(0, 1.5, 0), '#5a3d24')];
+  for (let i = 0; i < 4; i++) parts.push(colorize(new THREE.ConeGeometry(2.6 - i * 0.55, 3.2, 8).translate(0, 3 + i * 1.7, 0), ['#245e33', '#2c6b3a', '#337640', '#3b8247'][i]));
+  PINE = mergeGeometries(parts); return PINE;
+}
+function bushGeo() {
+  if (BUSH) return BUSH;
+  const parts = [];
+  for (const [x, y, z, s, c] of [[0, 0.7, 0, 1.2, '#3f8a34'], [0.9, 0.5, 0.3, 0.9, '#4b9a3c'], [-0.8, 0.55, -0.2, 0.95, '#357a2e'], [0.1, 0.5, -0.9, 0.8, '#55a444']]) parts.push(colorize(new THREE.IcosahedronGeometry(s, 0).translate(x, y, z), c));
+  BUSH = mergeGeometries(parts); return BUSH;
+}
+function tuftGeo() {
+  if (TUFT) return TUFT;
+  const parts = [];
+  for (let i = 0; i < 5; i++) { const a = (i / 5) * Math.PI * 2; const b = new THREE.ConeGeometry(0.12, 0.9 + (i % 2) * 0.4, 3); b.translate(0, 0.45, 0); b.rotateZ(0.35); b.rotateY(a); parts.push(colorize(b, i % 2 ? '#5aa83c' : '#77b847')); }
+  TUFT = mergeGeometries(parts); return TUFT;
+}
+function flowerGeo() {
+  if (FLOWER) return FLOWER;
+  const parts = [];
+  for (let i = 0; i < 4; i++) { const x = Math.cos(i * 1.7) * 0.5, z = Math.sin(i * 1.7) * 0.5; parts.push(colorize(new THREE.CylinderGeometry(0.03, 0.03, 0.5, 3).translate(x, 0.25, z), '#3f7a2a')); parts.push(colorize(new THREE.IcosahedronGeometry(0.15, 0).translate(x, 0.55, z), '#ffffff')); }
+  FLOWER = mergeGeometries(parts); return FLOWER;
 }
 
 // ------------------------------------------------------------------ static islands
@@ -203,10 +334,10 @@ export function buildIsland(isl) {
   const land = new THREE.Mesh(T.geo, mats().terrain); land.receiveShadow = true; land.castShadow = false;
   g.add(land);
   if (isl.kind === 'port') g.add(portTown(isl, T, r));
-  else if (isl.res === 'oak') g.add(vegetation(T, r, { palms: 8, trees: 30, rocks: 4 }));
-  else if (isl.res === 'canvas') { g.add(vegetation(T, r, { palms: 10, rocks: 3 })); g.add(hempField(T, r)); }
-  else if (isl.res === 'iron') { g.add(vegetation(T, r, { palms: 3, rocks: 16 })); g.add(mineProp(T)); }
-  else if (isl.res === 'powder') { g.add(vegetation(T, r, { palms: 2, rocks: 10 })); }
+  else if (isl.res === 'oak') g.add(vegetation(T, r, { palms: 8, trees: 34, rocks: 4, bushes: 18, tufts: 120, flowers: 20 }));
+  else if (isl.res === 'canvas') { g.add(vegetation(T, r, { palms: 10, rocks: 3, bushes: 8, tufts: 90, flowers: 30 })); g.add(hempField(T, r)); }
+  else if (isl.res === 'iron') { g.add(vegetation(T, r, { palms: 3, rocks: 16, bushes: 6, tufts: 40 })); g.add(mineProp(T)); }
+  else if (isl.res === 'powder') { g.add(vegetation(T, r, { palms: 2, rocks: 10, tufts: 20 })); }
   if (isl.kind === 'res') {
     const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 10, 5), mats().wood); pole.position.set(0, T.hAt(0, 0) + 5, 0); g.add(pole);
     const col = { oak: '#4caf50', iron: '#9e9e9e', canvas: '#f5f0dc', powder: '#ffca28' }[isl.res];
@@ -249,7 +380,7 @@ function portTown(isl, T, r) {
     houses.push({ x: Math.cos(a) * d, y: T.hAt(d, a) - 0.3, z: Math.sin(a) * d, s: 0.8 + r() * 0.6, sy: 0.8 + r() * 0.9, ry: Math.round(a / (Math.PI / 2)) * (Math.PI / 2) + (r() - 0.5) * 0.3 });
   }
   g.add(instanced(houseGeo(), houses, mats().vc));
-  g.add(vegetation(T, r, { palms: 24, rocks: 6, avoid: houses.map((h) => ({ ...h, r: 5 })) }));
+  g.add(vegetation(T, r, { palms: 24, rocks: 6, bushes: 20, tufts: 160, flowers: 40, avoid: houses.map((h) => ({ ...h, r: 5 })) }));
   // lighthouse
   const lh = new THREE.Group();
   const tower = new THREE.Mesh(new THREE.CylinderGeometry(3, 4.2, 26, 12), mats().plaster); tower.position.y = 13; lh.add(tower);
@@ -316,21 +447,31 @@ function buildBase(base, W, players) {
   const r = rng(base.seed || 3);
   const owner = base.owner;
   const fac = owner && owner.startsWith('ai:') ? owner.split(':')[1] : null;
-  const T = terrainFromShape(S, 'green', base.seed || 3);
+  const hAtW = (x, z) => Math.max(1.4, S.hWorld(x - base.x, z - base.z));
+  const avoid = [];
+  const placed = base.buildings.map((bd) => ({ bd, p: buildingPos(base, bd) }));
+  for (const { bd, p } of placed) avoid.push({ x: p.x - base.x, z: p.z - base.z, r: p.rad + (bd.type === 'keep' ? 12 : 4) });
+  // rivers and footpaths are carved/painted into the ground itself
+  const paint = new GroundPaint(R);
+  const rivers = [];
+  for (const mode of ['bay', 'cliff']) {
+    const rv = riverPath(S, rng((base.seed || 3) * 13 + 5 + (mode === 'cliff' ? 7 : 0)), avoid, mode);
+    if (!rv) continue;
+    for (const q of rv.pts) { paint.stamp('carve', q.x, q.z, q.w * 0.75, q.w * 0.5 + 1.2); paint.stamp('bed', q.x, q.z, q.w * 0.95, 1.2); paint.stamp('wet', q.x, q.z, q.w + 1.5, 3); avoid.push({ x: q.x, z: q.z, r: q.w + 3 }); }
+    rivers.push(rv);
+  }
+  paths(base, S, paint, avoid);
+  const T = terrainFromShape(S, 'green', base.seed || 3, { paint, hi: true });
   const land = new THREE.Mesh(T.geo, mats().terrain); land.receiveShadow = true; land.castShadow = false;
   land.position.set(base.x, 0, base.z);
   g.add(land);
-  const hAtW = (x, z) => Math.max(1.4, S.hWorld(x - base.x, z - base.z));
-  const avoid = [];
   const pcol = owner && players[owner] ? new THREE.Color().setHSL(players[owner].color / 360, 0.7, 0.5) : fac === 'clan' ? new THREE.Color().setHSL((W.ai?.[owner]?.color || 0) / 360, 0.7, 0.42) : null;
-  for (const bd of base.buildings) {
-    const p = buildingPos(base, bd);
+  for (const { bd, p } of placed) {
     const m = buildingModel(bd.type, bd.hp > 0, pcol, base, r, shipLenFor(base, players));
     m.position.set(p.x, bd.type === 'fort' || bd.type === 'dock' ? 0 : p.y - 0.3, p.z);
     m.rotation.y = bd.type === 'dock' ? -p.ang : -p.ang + Math.PI / 2;
     m.traverse((o) => { o.castShadow = true; o.receiveShadow = true; });
     g.add(m);
-    avoid.push({ x: p.x - base.x, z: p.z - base.z, r: p.rad + 4 });
   }
   // flag on the keep / stockade (owner colours; black for clans; tattered grey for squatters)
   const core = base.buildings.find((b) => b.type === 'keep' || b.type === 'camp');
@@ -339,25 +480,24 @@ function buildBase(base, W, players) {
   const flagMap = !owner ? null : fac === 'wild' ? flagTex(7, '#6b6355', '#d8cfb8') : fac ? flagTex(0, '#0c0c0c', '#' + (pcol || C('#ddd')).getHexString()) : flagTex(6, '#' + (pcol || C('#888')).getHexString(), '#f4ecd8');
   const fmat = new THREE.MeshStandardMaterial({ side: THREE.DoubleSide, roughness: 0.9, map: flagMap, color: owner ? 0xffffff : 0xf4f4f4 });
   const flag = new THREE.Mesh(new THREE.PlaneGeometry(5, 3), fmat); flag.position.set(2.5, 14, 0); fg.add(flag);
-  if (core) { const p = buildingPos(base, core); fg.position.set(p.x, p.y + (core.type === 'keep' ? 13 : 8), p.z); }
-  else fg.position.set(base.x, hAtW(base.x, base.z), base.z);
+  if (core) {
+    const p = buildingPos(base, core);
+    if (core.type === 'keep') { // on the lodge's lookout mast (local -9, -7, rotated with the lodge)
+      const ry = -p.ang + Math.PI / 2, lx = -9, lz = -7;
+      fg.position.set(p.x + lx * Math.cos(ry) + lz * Math.sin(ry), p.y + 12.5, p.z - lx * Math.sin(ry) + lz * Math.cos(ry));
+    } else fg.position.set(p.x, p.y + 8, p.z);
+  } else fg.position.set(base.x, hAtW(base.x, base.z), base.z);
   g.add(fg);
-  // a river tumbling from the hills (over the sea cliff as a waterfall where there is one)
-  for (const mode of ['bay', 'cliff']) {
-    const rv = river(S, rng((base.seed || 3) * 13 + 5), avoid, mode);
-    if (rv) { rv.position.set(base.x, 0, base.z); g.add(rv); }
-  }
-  // dirt paths from the jetty up to every building
-  const pth = paths(base, S, avoid);
-  if (pth) { pth.position.set(base.x, 0, base.z); g.add(pth); }
+  for (const rv of rivers) { const m = riverMesh(S, rv, rng((base.seed || 3) * 31 + 1)); m.position.set(base.x, 0, base.z); g.add(m); }
   const sc = scenery(base, S, r, fac, avoid);
   sc.position.set(base.x, 0, base.z); g.add(sc);
   // the pirate cove village: shacks on the slopes, stilt huts and a boardwalk round the bay
   const vg = village(base, S, r, fac, avoid);
   vg.position.set(base.x, 0, base.z); g.add(vg);
-  // vegetation thins out as the settlement grows
+  // vegetation thins out near the settlement but the island keeps its forests
   const nb = base.buildings.length;
-  const veg = vegetation(T, r, { palms: Math.max(8, 22 - nb), trees: Math.max(2, 12 - nb), rocks: 6, avoid });
+  const big = R / 60;
+  const veg = vegetation(T, r, { palms: Math.round(Math.max(10, 24 - nb) * big), trees: Math.round(Math.max(6, 16 - nb) * big), rocks: Math.round(8 * big), bushes: Math.round(40 * big), tufts: Math.round(260 * big * big), flowers: Math.round(90 * big), avoid, paint });
   veg.position.set(base.x, 0, base.z); g.add(veg);
   const st = seaStacks(S, r, 3); st.position.set(base.x, 0, base.z); g.add(st);
   // safe-haven buoys / offline shield dome
@@ -368,91 +508,117 @@ function buildBase(base, W, players) {
 }
 
 // ------------------------------------------------------------------ river, paths, scenery
-function river(S, r, avoid, mode = 'cliff') {
+/** River course from the island's high ground down to the sea: into one corner of the cove ('bay'),
+ *  or over the sea cliff as a waterfall ('cliff'). Avoids buildings. Returns points with widths. */
+function riverPath(S, r, avoid, mode = 'cliff') {
   const R = S.R;
   if (R < 55) return null;
-  // source: the highest ground on the island
   let best = { h: -1 };
-  for (let k = 0.05; k < 0.75; k += 0.07) for (let a = 0; a < Math.PI * 2; a += 0.2) { const h = S.hAt(R * k, a); if (h > best.h) best = { h, x: Math.cos(a) * R * k, z: Math.sin(a) * R * k }; }
+  for (let k = 0.05; k < 0.75; k += 0.07) for (let a = 0; a < Math.PI * 2; a += 0.2) {
+    const x = Math.cos(a) * R * k, z = Math.sin(a) * R * k, h = S.hAt(R * k, a);
+    if (h > best.h && avoid.every((o) => Math.hypot(o.x - x, o.z - z) > o.r + 4)) best = { h, x, z };
+  }
   if (best.h < 8) return null;
-  // flow toward the sea cliff if there is one (waterfall!), otherwise roll down to the shore away from the docks
   let cliffA = null, cm = 0.35;
   for (let a = 0; a < Math.PI * 2; a += 0.1) { const c = S.cliff(a); if (c > cm) { cm = c; cliffA = a; } }
   if (mode === 'cliff' && cliffA == null) return null;
-  // main river: down through the village into one corner of the cove; stream: over the sea cliff
   const goal = mode === 'cliff' ? cliffA : S.bayA + S.bayHalf * 0.75 * (r() < 0.5 ? 1 : -1);
-  const wide = mode === 'cliff' ? 0.6 : 1.3;
+  const wide = mode === 'cliff' ? 0.65 : 1.15;
   const H = (x, z) => S.hAt(Math.hypot(x, z), Math.atan2(z, x));
+  const near = (x, z, w) => { let p = 0; for (const o of avoid) { const d = Math.hypot(o.x - x, o.z - z) - o.r - w; if (d < 0) p += 4 - d * 0.5; } return p; };
   const pts = [];
   let x = best.x + Math.cos(goal) * 4, z = best.z + Math.sin(goal) * 4, dir = goal;
-  for (let i = 0; i < 260; i++) {
-    const h = H(x, z);
-    pts.push({ x, z, h });
+  for (let i = 0; i < 300; i++) {
+    const h = H(x, z), w = (1.4 + Math.min(1, i / 60) * 3.4) * wide;
+    pts.push({ x, z, h, w });
     if (h < -0.6) break;
     let pick = null;
-    for (let k = -6; k <= 6; k++) {
-      const d = dir + k * 0.17, nx = x + Math.cos(d) * 3.2, nz = z + Math.sin(d) * 3.2;
+    for (let k = -7; k <= 7; k++) {
+      const d = dir + k * 0.16, nx = x + Math.cos(d) * 2.6, nz = z + Math.sin(d) * 2.6;
       const toGoal = Math.cos(d - Math.atan2(Math.sin(goal) * R - z, Math.cos(goal) * R - x));
-      const score = H(nx, nz) - toGoal * 1.1 + Math.abs(k) * 0.08;
-      if (!pick || score < pick.score) pick = { score, d, nx, nz };
+      const score = H(nx, nz) - toGoal * 1.1 + Math.abs(k) * 0.06 + near(nx, nz, w) + Math.sin(i * 0.21 + r() * 0.3) * 0.05 * k;
+      if (!pick || score < pick.score) pick = { score, d };
     }
-    dir = dir + (pick.d - dir) * 0.6; x += Math.cos(dir) * 3.2; z += Math.sin(dir) * 3.2;
+    dir += (pick.d - dir) * 0.5; x += Math.cos(dir) * 2.6; z += Math.sin(dir) * 2.6;
   }
   if (pts.length < 8) return null;
-  const pos = [], uv = [], idx = [], foam = [];
+  // water level never climbs on the way down
+  let wy = Infinity;
+  for (const p of pts) { wy = Math.min(wy, Math.max(0.12, p.h - 0.6)); p.wy = wy; }
+  return { pts, mode };
+}
+function riverMesh(S, rv, r) {
+  const pts = rv.pts;
+  const pos = [], uv = [], col = [], idx = [];
+  const deep = C('#1d5a6e'), shallow = C('#2f7d84'), white = C('#d8eef2'), c = new THREE.Color();
   let along = 0;
   pts.forEach((p, i) => {
     const q = pts[Math.min(pts.length - 1, i + 1)], o = pts[Math.max(0, i - 1)];
     const dx = q.x - o.x, dz = q.z - o.z, L = Math.hypot(dx, dz) || 1;
-    const nx = -dz / L, nz = dx / L, w = (1.6 + (i / pts.length) * 4.2) * wide;
-    if (i) along += Math.hypot(p.x - pts[i - 1].x, p.z - pts[i - 1].z) + Math.abs(p.h - pts[i - 1].h);
-    for (const sd of [-1, 1]) { const sx = p.x + nx * w * sd, sz = p.z + nz * w * sd; pos.push(sx, Math.max(p.h, H(sx, sz)) + 0.35, sz); uv.push(sd < 0 ? 0 : 1, along / 10); }
+    const nx = -dz / L, nz = dx / L, w = p.w * 1.15 + 1.0;
+    if (i) along += Math.hypot(p.x - pts[i - 1].x, p.z - pts[i - 1].z) + Math.abs(p.wy - pts[i - 1].wy);
+    const drop = Math.max(0, (pts[Math.max(0, i - 1)].wy - pts[Math.min(pts.length - 1, i + 1)].wy) / 5.2);
+    c.copy(deep).lerp(white, Math.min(0.7, drop * 1.2));
+    for (const sd of [-1, 1]) { pos.push(p.x + nx * w * sd, p.wy, p.z + nz * w * sd); uv.push(sd < 0 ? 0 : 1, along / 9); const e = C('#000').copy(c).lerp(shallow, 0.35); col.push(e.r, e.g, e.b); }
     if (i) { const a = (i - 1) * 2; idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
-    if (i && pts[i - 1].h - p.h > 2.2) foam.push(p);
-    avoid.push({ x: p.x, z: p.z, r: w + 3 });
   });
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
   geo.setIndex(idx); geo.computeVertexNormals();
   const g = new THREE.Group();
   const mat = mats().river;
   const m = new THREE.Mesh(geo, mat); m.receiveShadow = true;
-  m.onBeforeRender = () => { mat.userData.tex.offset.y = -((performance.now() / 1000) * 0.55 % 1); };
+  m.onBeforeRender = () => { mat.userData.tex.offset.y = -((performance.now() / 1000) * 0.5 % 1); };
   g.add(m);
-  // white water where it plunges, and a pool of foam at the bottom of the falls
+  // white water: flat churned patches on the rapids, a plume where it meets the sea
   const fparts = [];
-  for (const p of foam) { fparts.push(colorize(new THREE.CircleGeometry(3.2, 10).rotateX(-Math.PI / 2).translate(p.x, Math.max(0.3, p.h + 0.5), p.z), '#e8f6fa')); fparts.push(colorize(new THREE.SphereGeometry(1.6, 7, 5).scale(1.4, 0.7, 1.4).translate(p.x, Math.max(0.3, p.h + 0.8), p.z), '#f4fbfd')); }
   const last = pts[pts.length - 1];
-  fparts.push(colorize(new THREE.CircleGeometry(7, 14).rotateX(-Math.PI / 2).translate(last.x, 0.45, last.z), '#d8f0f6'));
-  // rocks along the banks
-  for (let i = 3; i < pts.length; i += 5) { const p = pts[i]; const sd = i % 2 ? 1 : -1; const g2 = new THREE.DodecahedronGeometry(0.8 + r() * 1.1, 0); g2.translate(p.x + sd * (3 + r() * 3), p.h + 0.4, p.z + sd * (1 + r() * 2)); fparts.push(colorize(g2, '#7a7468')); }
-  const fm = new THREE.Mesh(mergeGeometries(fparts), mats().vc); fm.castShadow = false; g.add(fm);
+  fparts.push(colorize(new THREE.CircleGeometry(last.w * 2.2, 16).rotateX(-Math.PI / 2).translate(last.x, 0.35, last.z), '#cdeef4'));
+  // boulders along the banks, half-sunk
+  for (let i = 4; i < pts.length - 2; i += 4) { const p = pts[i]; if (r() < 0.35) continue; const sd = r() < 0.5 ? 1 : -1; const q = pts[i + 1]; const L = Math.hypot(q.x - p.x, q.z - p.z) || 1; const nx = -(q.z - p.z) / L, nz = (q.x - p.x) / L; const rr = 0.6 + r() * 1.2; const g2 = boulderGeo(r, rr); g2.translate(p.x + nx * sd * (p.w + rr * 0.6), p.wy + rr * 0.15, p.z + nz * sd * (p.w + rr * 0.6)); fparts.push(g2); }
+  const fm = new THREE.Mesh(mergeGeometries(fparts), mats().vc); fm.castShadow = false; fm.receiveShadow = true; g.add(fm);
   return g;
 }
-function paths(base, S, avoid) {
-  const da = dockAngle(base), from = { x: Math.cos(da) * S.edge(da) * 0.82, z: Math.sin(da) * S.edge(da) * 0.82 };
-  const parts = [];
-  const H = (x, z) => S.hAt(Math.hypot(x, z), Math.atan2(z, x));
-  for (const bd of base.buildings) {
-    if (bd.type === 'dock' || BUILDINGS[bd.type].slot === 'sea' || bd.hp <= 0) continue;
-    const p = buildingPos(base, bd), tx = p.x - base.x, tz = p.z - base.z;
-    const L = Math.hypot(tx - from.x, tz - from.z), n = Math.max(2, Math.ceil(L / 3));
-    const dx = (tx - from.x) / L, dz = (tz - from.z) / L;
-    const pos = [], idx = [];
+/** Irregular boulder (jittered, flat-shaded, mottled grey-brown). */
+function boulderGeo(r, s = 1) {
+  const g = new THREE.IcosahedronGeometry(1, 1).toNonIndexed();
+  const p = g.attributes.position, k = 1000 * r();
+  const key = (x, y, z) => Math.round(x * 100) + ',' + Math.round(y * 100) + ',' + Math.round(z * 100);
+  const jit = new Map();
+  for (let i = 0; i < p.count; i++) { const kk = key(p.getX(i), p.getY(i), p.getZ(i)); if (!jit.has(kk)) jit.set(kk, 0.75 + hash2(i + k, kk.length + k) * 0.5); const j = jit.get(kk); p.setXYZ(i, p.getX(i) * j * s, p.getY(i) * j * s * 0.7, p.getZ(i) * j * s); }
+  g.computeVertexNormals();
+  const col = new Float32Array(p.count * 3), c = new THREE.Color();
+  for (let i = 0; i < p.count; i += 3) { c.set('#8a8378').lerp(C('#5e574d'), hash2(i, k)).lerp(C('#6f7a52'), p.getY(i) > s * 0.3 ? 0.35 : 0); for (let v = 0; v < 3; v++) col.set([c.r, c.g, c.b], (i + v) * 3); }
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  g.deleteAttribute('uv');
+  return g;
+}
+/** Footpaths: a little network from the jetty — every building joins the nearest point already on it. */
+function paths(base, S, paint, avoid) {
+  const da = dockAngle(base);
+  const root = { x: Math.cos(da) * S.edge(da) * 0.86, z: Math.sin(da) * S.edge(da) * 0.86 };
+  const nodes = [root];
+  const targets = base.buildings.filter((bd) => bd.type !== 'dock' && BUILDINGS[bd.type].slot !== 'sea' && bd.hp > 0)
+    .map((bd) => { const p = buildingPos(base, bd); return { x: p.x - base.x, z: p.z - base.z, rad: p.rad, slot: typeof bd.slot === 'number' ? bd.slot : 1 }; })
+    .sort((a, b) => Math.hypot(a.x - root.x, a.z - root.z) - Math.hypot(b.x - root.x, b.z - root.z));
+  for (const t of targets) {
+    let from = nodes[0], bd = Infinity;
+    for (const n of nodes) { const d = Math.hypot(n.x - t.x, n.z - t.z); if (d < bd) { bd = d; from = n; } }
+    // stop at the building's doorstep, curve gently, and drop waypoints others can branch from
+    const L = Math.hypot(t.x - from.x, t.z - from.z), stopK = Math.max(0, 1 - (t.rad * 0.7) / Math.max(1, L));
+    const nx = -(t.z - from.z) / (L || 1), nz = (t.x - from.x) / (L || 1), bend = Math.sin(t.slot * 2.7 + 1) * Math.min(10, L * 0.18);
+    const n = Math.max(4, Math.ceil(L / 1.2));
     for (let i = 0; i <= n; i++) {
-      const t = i / n, wig = Math.sin(t * Math.PI * 2 + bd.slot) * Math.min(6, L * 0.06) * Math.sin(t * Math.PI);
-      const cx = from.x + (tx - from.x) * t - dz * wig, cz = from.z + (tz - from.z) * t + dx * wig;
-      for (const sd of [-1, 1]) { const sx = cx - dz * 1.2 * sd, sz = cz + dx * 1.2 * sd; pos.push(sx, Math.max(1.45, H(sx, sz)) + 0.12, sz); }
-      if (i) { const a = (i - 1) * 2; idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
+      const u = (i / n) * stopK, b2 = 4 * u * (1 - u) * bend;
+      const x = from.x + (t.x - from.x) * u + nx * b2, z = from.z + (t.z - from.z) * u + nz * b2;
+      const wob = 1.25 + vnoise2(x * 0.2, z * 0.2) * 0.7;
+      paint.stamp('path', x, z, wob, 1.1);
+      if (i % 6 === 3) nodes.push({ x, z });
     }
-    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx);
-    parts.push(colorize(g, '#b09468'));
+    nodes.push({ x: t.x, z: t.z });
   }
-  if (!parts.length) return null;
-  const geo = mergeGeometries(parts); geo.computeVertexNormals();
-  const m = new THREE.Mesh(geo, mats().path); m.receiveShadow = true;
-  return m;
 }
 /** Lighthouse on the cove's headland, rowboats in the bay, vegetable plots, a careening beach, lookout. */
 function scenery(base, S, r, fac, avoid) {
@@ -530,10 +696,10 @@ function shackGeos() {
     colorize(new THREE.BoxGeometry(0.4, 1.4, 0.4).translate(1.1, 8.0, -0.6), '#5b5048'),
   ]);
   // C: the tavern — long, gabled, with a hanging sign and barrels
-  const roof = new THREE.CylinderGeometry(3.6, 3.6, 9, 3, 1); roof.rotateZ(Math.PI / 2); roof.scale(1, 0.55, 1);
+  const roof = gableGeo(9.4, 7, 2.8);
   const C3 = mergeGeometries([
     colorize(new THREE.BoxGeometry(8.6, 4, 6).translate(0, 2, 0), plankWall),
-    colorize(roof.translate(0, 4.9, 0), roofA),
+    colorize(roof.translate(0, 4, 0), roofA),
     colorize(new THREE.BoxGeometry(1.6, 2.4, 0.1).translate(0, 1.2, 3.03), dark),
     ...[-3, -1.6, 1.6, 3].map((x) => colorize(new THREE.BoxGeometry(0.9, 0.8, 0.1).translate(x, 2.2, 3.03), win)),
     colorize(new THREE.BoxGeometry(0.15, 0.15, 1.6).translate(2.4, 3.3, 3.8), post),
@@ -728,9 +894,12 @@ function buildingModel(type, alive, pcol, base, r, shipLen = 30) {
       for (let i = 0; i < 7; i++) add(box(0.4, 4.6, 0.3), T, -8.3 + i * 2.77, 9.4, 5.05);
       for (const y of [7.2, 11.6]) add(box(17.2, 0.4, 0.3), T, 0, y, 5.05);
       for (let i = 0; i < 3; i++) { const br = add(box(0.3, 5.2, 0.3), T, -5.5 + i * 5.5, 9.4, 5.1); br.rotation.z = i % 2 ? 0.75 : -0.75; }
-      const roof = new THREE.CylinderGeometry(8.4, 8.4, 18.4, 3, 1); roof.rotateZ(Math.PI / 2); roof.scale(1, 0.55, 0.92);
-      add(roof, M.shingle, 0, 14.2, -1).rotation.x = 0;
-      add(box(1.4, 3, 1.4), M.stone, 4.5, 18, -3);
+      add(gableGeo(18.6, 13.6, 5.6), M.shingle, 0, 11.7, -1);
+      add(box(18.2, 0.3, 0.3), T, 0, 17.25, -1); // ridge beam
+      for (const sx of [-1, 1]) { const gb = add(gableGeo(0.3, 12, 4.9), M.plaster, sx * 8.5, 11.7, -1); gb.rotation.y = Math.PI / 2; gb.rotation.y = 0; }
+      add(box(1.4, 4.2, 1.4), M.stone, 4.5, 15.5, -3.5); add(box(1.8, 0.4, 1.8), M.stone, 4.5, 17.7, -3.5);
+      // dormer facing the bay
+      add(box(3.4, 2.4, 2.6), M.plaster, -3.5, 13.4, 3.3); add(gableGeo(2.8, 3.8, 1.6), M.shingle, -3.5, 14.6, 3.3).rotation.y = Math.PI / 2; add(box(1.6, 1.2, 0.2), M.glow, -3.5, 13.4, 4.65);
       for (const x of [-5.5, -2, 2, 5.5]) add(box(1.6, 1.4, 0.2), M.glow, x, 9.6, 5.25);
       for (const x of [-5.5, 5.5]) add(box(1.6, 1.4, 0.2), M.glow, x, 4.6, 4.55);
       add(box(2.6, 3.6, 0.3), T, 0, 3.6, 4.6);
@@ -799,7 +968,7 @@ function buildingModel(type, alive, pcol, base, r, shipLen = 30) {
       const c = add(new THREE.CylinderGeometry(0.22, 0.3, 2.4, 8), M.iron, 0, 20.2, 3.6); c.rotation.x = Math.PI / 2;
       break;
     }
-    case 'warehouse': add(box(14, 7, 9), M.wood, 0, 3.5, 0); add(new THREE.CylinderGeometry(5.2, 5.2, 14, 3, 1), M.roof2, 0, 8.4, 0).rotation.z = Math.PI / 2; add(box(4, 5, 0.3), M.iron, 0, 2.5, 4.6); for (let i = 0; i < 6; i++) add(new THREE.CylinderGeometry(0.7, 0.7, 1.6, 8), M.wood, -6 + i * 2.2, 0.8, 6.2); break;
+    case 'warehouse': add(box(14, 7, 9), M.wood, 0, 3.5, 0); add(gableGeo(14.8, 10, 3.6), M.roof2, 0, 7, 0); add(box(4, 5, 0.3), M.iron, 0, 2.5, 4.6); for (let i = 0; i < 6; i++) add(new THREE.CylinderGeometry(0.7, 0.7, 1.6, 8), M.wood, -6 + i * 2.2, 0.8, 6.2); break;
     case 'lumber': {
       add(box(9, 5, 7), M.wood, 0, 2.5, 0); add(new THREE.ConeGeometry(6.6, 3, 4), M.roof, 0, 6.5, 0, Math.PI / 4);
       for (let i = 0; i < 9; i++) { const l = add(new THREE.CylinderGeometry(0.5, 0.5, 7, 8), M.wood, 6.5 + (i % 3) * 1.05, 0.55 + Math.floor(i / 3) * 0.95, -2 + (Math.floor(i / 3) % 2) * 0.5); l.rotation.x = Math.PI / 2; }
@@ -807,7 +976,7 @@ function buildingModel(type, alive, pcol, base, r, shipLen = 30) {
       break;
     }
     case 'mine': add(new THREE.DodecahedronGeometry(6, 0), M.stone, 0, 1, 0); add(box(4.5, 4.5, 2), M.wood, 0, 2.2, 5.2); add(box(3.2, 3.6, 0.4), M.dmg, 0, 2, 6.3); for (let i = 0; i < 5; i++) add(new THREE.DodecahedronGeometry(0.8 + r() * 0.5, 0), M.iron, 4 + r() * 3, 0.6, 5 + r() * 2); break;
-    case 'loft': add(box(14, 5, 6), M.plaster, 0, 2.5, 0); add(new THREE.CylinderGeometry(4.2, 4.2, 14, 3, 1), M.roof, 0, 6.4, 0).rotation.z = Math.PI / 2; for (let i = 0; i < 3; i++) { add(box(0.3, 5, 0.3), M.wood, -5 + i * 5, 2.5, 6); const c = add(new THREE.PlaneGeometry(4.4, 3.5), M.canvas, -2.5 + i * 5, 3, 6); c.rotation.y = 0.05; } break;
+    case 'loft': add(box(14, 5, 6), M.plaster, 0, 2.5, 0); add(gableGeo(14.8, 7, 2.8), M.roof, 0, 5, 0); for (let i = 0; i < 3; i++) { add(box(0.3, 5, 0.3), M.wood, -5 + i * 5, 2.5, 6); const c = add(new THREE.PlaneGeometry(4.4, 3.5), M.canvas, -2.5 + i * 5, 3, 6); c.rotation.y = 0.05; } break;
     case 'powderhouse': add(box(7, 4.5, 7), M.stone, 0, 2.25, 0); add(new THREE.ConeGeometry(5.4, 3, 4), M.roof, 0, 6, 0, Math.PI / 4); for (let i = 0; i < 6; i++) add(new THREE.CylinderGeometry(0.6, 0.6, 1.4, 8), new THREE.MeshStandardMaterial({ color: 0x9a2a1a }), -3 + (i % 3) * 1.5, 0.7, 4.6 + Math.floor(i / 3) * 1.4); break;
     case 'cannon': {
       add(new THREE.CylinderGeometry(3.4, 3.8, 1.6, 10), M.stone, 0, 0.8, 0);

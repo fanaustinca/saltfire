@@ -49,7 +49,7 @@ export function generateIslands(W) {
   const nameOf = () => { for (let i = 0; i < 50; i++) { const n = PRE[Math.floor(r() * PRE.length)] + ' ' + SUF[Math.floor(r() * SUF.length)]; if (!used.has(n)) { used.add(n); return n; } } return 'Nameless Isle'; };
   for (let i = 0; i < 8; i++) {
     const rad = 74 + r() * 12;
-    const p = put(rad, 1700, WORLD_R - 350);
+    const p = put(rad * 2.2, 1700, WORLD_R - 350);
     if (!p) continue;
     const b = { id: 'h' + i, name: HOLD_NAMES[i], x: p.x, z: p.z, r: rad, owner: null, buildings: [], haven: { safe: false, fee: 0 }, paid: {}, seed: Math.floor(r() * 1e6), hold: true };
     b.owner = newClan(W, i, b.id);
@@ -65,7 +65,7 @@ export function generateIslands(W) {
   // wild islands: claim them by beating the squatters (harder the further out you go)
   for (let i = 0; i < 64; i++) {
     const rad = 50 + r() * 18;
-    const p = put(rad, 430, WORLD_R - 350);
+    const p = put(rad * 2.4, 430, WORLD_R - 350);
     if (!p) continue;
     const b = { id: 'b' + i, name: nameOf(), x: p.x, z: p.z, r: rad, owner: 'ai:wild', buildings: [], haven: { safe: false, fee: 0, allies: true, allow: [] }, paid: {}, seed: Math.floor(r() * 1e6) };
     wildGarrison(b, Math.hypot(p.x, p.z));

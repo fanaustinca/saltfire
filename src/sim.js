@@ -13,7 +13,7 @@ import {
   instantBuy, placeOrder, NPC_PRICES,
 } from './economy.js';
 import { gunLayout } from './layout.js';
-import { buildingPos, harborPoint, baseRadius, baseShape, dockAngle } from './basegeo.js';
+import { buildingPos, harborPoint, baseRadius, baseShape, dockAngle, assignRoom } from './basegeo.js';
 import { heightAt } from './waves.js';
 import { islandShape } from './islandshape.js';
 import { newClan } from './worldgen.js';
@@ -73,6 +73,7 @@ export function migrateWorld(W) {
   let ci = Object.keys(W.ai).filter((k) => k.startsWith('ai:clan:')).length;
   for (const b of W.bases) if (b.owner === 'ai:pirates') b.owner = newClan(W, ci++, b.id);
   for (const p of Object.values(W.players)) for (const s of p.fleet || []) s.out = false;
+  assignRoom(W);
 }
 
 export class Sim {
@@ -363,6 +364,7 @@ export class Sim {
   }
   hurt(s, hull, sail, crew, by, quiet = false) {
     if (s.sink > 0) return;
+    if (s.stats.invincible) { if (!quiet) s.hitT = this.time; return; } // the Titan shrugs everything off
     s.hull -= hull; s.sails = Math.max(0, s.sails - sail); s.crew = Math.max(0, s.crew - crew);
     if (!quiet) s.hitT = this.time;
     if (by) { if (!this.damagers.has(s.id)) this.damagers.set(s.id, new Map()); const m = this.damagers.get(s.id); m.set(by, (m.get(by) || 0) + hull + sail * 0.5); s.lastBy = by; }

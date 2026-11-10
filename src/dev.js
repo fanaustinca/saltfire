@@ -11,6 +11,7 @@ const CMDS = {
   level: ['n', 'Set captain level (grants upgrade points for new levels)'],
   points: ['n=5', 'Add upgrade points'],
   ship: ['tier', `Give yourself a new flagship (${TIERS.map((t) => t.id).join(', ')})`],
+  titan: ['', 'Cheat ship: the invincible Titan (150 guns a side) as your flagship'],
   heal: ['', 'Fully repair hull, sails and crew'],
   god: ['on=true', 'Invulnerable flagship'],
   speed: ['k=1', 'Game speed multiplier'],
@@ -66,6 +67,7 @@ export function installDev(app) {
       const ns = g().sim.spawnPlayer(g().pid); Object.assign(ns, keep); ns.local = true;
       return done(`Flagship is now a ${tier}`);
     },
+    titan() { return dev.ship('titan'); },
     heal() { host(); const s = me(); s.hull = s.stats.hull; s.sails = s.stats.sails; s.crew = s.stats.crew; s.fire = 0; return done('Healed'); },
     god(on = true) { host(); const s = me(); if (on) { s._hurt = g().sim.hurt; g().sim.hurt = function (t, ...a) { if (t === g().me()) return; return s._hurt.call(this, t, ...a); }; } else if (s._hurt) g().sim.hurt = s._hurt; return done(`God mode ${on ? 'on' : 'off'}`); },
     speed(k = 1) { g().timeScale = k; return done(`Speed ×${k}`); },

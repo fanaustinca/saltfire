@@ -18,11 +18,15 @@ export const DESIGN = {
   galleon:    { transom: 0.78, sternRise: 0.42, bowRise: 0.32, entry: 0.75, run: 0.8, deadrise: 0.4, tumble: 0.22, rake: 0.0, bow: 'beak', stern: 'castle' },
   // ship of the line: three gun decks, wall-sided, broad stern with triple galleries
   manowar:    { transom: 0.72, sternRise: 0.5, bowRise: 0.22, entry: 0.8, run: 0.85, deadrise: 0.3, tumble: 0.14, rake: 0.0, bow: 'head', stern: 'galleries3' },
-  // Leviathan: five-decked ironclad monster — sheer black walls, armoured belt, iron ram, towering stern
-  leviathan:  { transom: 0.66, sternRise: 0.62, bowRise: 0.44, entry: 0.85, run: 0.9, deadrise: 0.3, tumble: 0.17, rake: 0.0, bow: 'ram', stern: 'galleries5' },
+  // Sovereign: royal four-decked first rate — gilded everywhere, crowned stern with four galleries
+  sovereign:  { transom: 0.74, sternRise: 0.46, bowRise: 0.26, entry: 0.82, run: 0.85, deadrise: 0.3, tumble: 0.13, rake: 0.0, bow: 'head', stern: 'crown' },
+  // Leviathan: broad five-decked ironclad monster — armoured belt, iron ram, an armoured citadel stern
+  leviathan:  { transom: 0.8, sternRise: 0.3, bowRise: 0.26, entry: 0.8, run: 0.85, deadrise: 0.22, tumble: 0.08, rake: 0.0, bow: 'ram', stern: 'citadel' },
+  // Titan (cheat ship): even broader black ironclad with a fortress stern and six gun decks
+  titan:      { transom: 0.82, sternRise: 0.28, bowRise: 0.24, entry: 0.8, run: 0.85, deadrise: 0.2, tumble: 0.07, rake: 0.0, bow: 'ram', stern: 'citadel' },
 };
 /** Vertical spacing between gun decks. */
-export const deckGap = (H) => Math.min(3.0, Math.max(1.7, H.depth * 0.28));
+export const deckGap = (H) => Math.min(H.decks >= 4 ? 2.6 : 3.0, Math.max(1.7, H.depth * 0.28));
 
 /** Hull proportions per tier. */
 export function hullShape(tier, len, beam, depth) {
@@ -87,7 +91,7 @@ export function gunLayout(stats) {
   for (let d = 0; d < decks; d++) {
     const cnt = per[d];
     const y0 = deckY(H, 0.5) - d * deckGap(H) + 0.55;
-    const lv = H.id === 'leviathan';
+    const lv = H.decks >= 5;
     const u0 = (lv ? 0.12 : 0.2) + d * 0.03, u1 = (lv ? 0.86 : 0.78) - d * 0.04;
     for (let i = 0; i < cnt; i++) {
       const u = cnt === 1 ? 0.5 : u0 + ((u1 - u0) * i) / (cnt - 1);

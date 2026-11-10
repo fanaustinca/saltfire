@@ -25,7 +25,8 @@ export function islandShape(o) {
   const r = rng(o.seed * 7 + 13);
   const n1 = vnoise(r), n2 = vnoise(r), n3 = vnoise(r);
   const R = o.R;
-  const arche = o.arche ?? (o.kind === 'res' ? [0, 1, 2, 1][o.seed % 4] : o.kind === 'port' ? 0 : o.seed % 4);
+  // player/wild bases never roll the sheer-walled mesa (it reads as a cake once the island grows); clan holds keep it
+  const arche = o.arche ?? (o.kind === 'res' ? [0, 1, 2, 1][o.seed % 4] : o.kind === 'port' ? 0 : o.kind === 'base' && o.seed % 4 === 2 ? 3 : o.seed % 4);
   const hasBay = o.bayA != null;
   const bayA = hasBay ? o.bayA : 0;
   const bayHalf = hasBay ? (arche === 3 ? 0.78 : 0.5) : 0;
@@ -33,8 +34,10 @@ export function islandShape(o) {
   const cliffA = bayA + Math.PI + (r() - 0.5) * 1.2;
   const cliffHalf = arche === 2 ? 0 : 0.7 + r() * 0.7;
   const big = o.kind === 'res' ? 0.75 : 1;
-  const H = (o.kind === 'port' ? 14 : R * (0.22 + r() * 0.1) + 5) * big;
-  const cliffH = Math.max(6, R * 0.1 + 4) * big;
+  // big (grown) islands get broader, not proportionally taller
+  const Rh = R <= 70 ? R : 70 + (R - 70) * 0.45;
+  const H = (o.kind === 'port' ? 14 : Rh * (0.22 + r() * 0.1) + 5) * big;
+  const cliffH = Math.max(6, Rh * 0.1 + 4) * big;
   // hills: [x, z, height, width] in island-local metres
   const peaks = [];
   const back = (off, d) => [Math.cos(bayA + Math.PI + off) * R * d, Math.sin(bayA + Math.PI + off) * R * d];
@@ -42,7 +45,7 @@ export function islandShape(o) {
   else if (arche === 1) { peaks.push([...back(0.75, 0.38), H * 1.2, 0.3]); peaks.push([...back(-0.75, 0.38), H, 0.3]); }
   else if (arche === 2) { peaks.push([0, 0, H * 0.35, 0.7]); }
   else { for (let i = -2; i <= 2; i++) peaks.push([...back(i * 0.55, 0.55), H * (1 - Math.abs(i) * 0.15), 0.26]); }
-  const mesaH = arche === 2 ? H * 0.75 + 4 : 0;
+  const mesaH = arche === 2 ? Math.min(H * 0.75 + 4, 24) : 0;
 
   const shore = (a) => 1 + (n1(a) - 0.5) * 0.24 + (n2(a * 2) - 0.5) * 0.08 - bayDepth * Math.pow(win(a, bayA, bayHalf), 0.7);
   const cliff = (a) => {

@@ -59,7 +59,8 @@ export function shipStats(spec, upg = {}) {
     hull: Math.round(T.hull * (1 + u('hull')) * s),
     sails: Math.round(T.sails * (1 + u('sails')) * s),
     crew: Math.round(T.crew * (1 + u('crew')) * s),
-    reload: (BASE_RELOAD / (1 + u('reload'))) * (1 + 0.015 * Math.max(0, side - 3)),
+    reload: T.reload ?? (BASE_RELOAD / (1 + u('reload'))) * (1 + 0.015 * Math.max(0, side - 3)),
+    invincible: !!T.invincible,
     range: rangeFor(T.id) * rangeK,
     muzzle: MUZZLE * Math.sqrt(rangeK),
     dmg: 1 + u('damage'), armor: (1 - u('armor')) * (T.armor ?? 1), spread: 1 - u('accuracy'), regen: u('repair'),
@@ -118,6 +119,7 @@ export function craft(p, kind, times = 1) {
 // ------------------------------------------------------------------ ships
 export function buyShip(p, tier, opts = {}) {
   const T = tierById(tier);
+  if (T.cheatOnly) return 'That ship cannot be bought';
   if (p.level < T.level) return `Requires level ${T.level}`;
   if (!pay(p.inv, T.cost)) return 'Not enough resources';
   const s = shipSpec(T.id, opts);
@@ -129,6 +131,7 @@ export function buildCustomShip(W, p, baseId, o) {
   if (!b || b.owner !== p.id) return 'You must be at your own base';
   if (!b.buildings.some((x) => x.type === 'shipyard' && x.hp > 0)) return 'Build a Shipyard first';
   const T = tierById(o.tier);
+  if (T.cheatOnly) return 'That hull cannot be built';
   if (p.level < T.level) return `Requires level ${T.level}`;
   const size = clamp(o.size || 1, 0.85, 1.2);
   const side = clampInt(o.side, T.minSide, maxSideFor(T, size));
@@ -144,7 +147,7 @@ export const flagship = (p) => p.fleet.find((s) => s.uid === p.flag) || p.fleet[
 // ------------------------------------------------------------------ bases
 export function landSlotsUsed(b) { return b.buildings.filter((x) => BUILDINGS[x.type].slot === 'land').length; }
 /** Island visual "size" grows with the number of buildings. */
-export function baseGrowth(b) { return 1 + Math.min(1.1, b.buildings.length * 0.075); }
+export function baseGrowth(b) { return 1 + Math.min(2.2, b.buildings.length * 0.14); }
 
 export function build(W, p, baseId, type, at = null) {
   const b = W.bases.find((x) => x.id === baseId);

@@ -9,8 +9,13 @@ peer-to-peer multiplayer over WebRTC. **Play: https://fanaustinca.github.io/salt
   distinct procedural designs: a plain little single-masted **Sloop**, a two-masted all-gaff **Schooner**, a square-fore
   **Brigantine** with quarterdeck, a black-and-ochre full-rigged **Frigate**, a **Galleon** with a towering painted
   stern castle, beakhead and lateen mizzens, and a three-decked **Man of War** with triple stern galleries, studding
-  sails, gilt lion figurehead and up to 20 guns a side — and the flagship-only **Leviathan**, a 112 m five-decked ironclad ship of the line: armoured belt, iron
-  ram, pivot guns, carronade-lined spar deck, five tiers of stern galleries and four masts with five tiers of sail.
+  sails, gilt lion figurehead and up to 20 guns a side. Two flagship-only giants sit above it: the royal-blue
+  **Sovereign**, a four-decked first rate with a gilded crowned stern (18–34 guns a side), and the **Leviathan**, a
+  broad 116 m five-decked ironclad: armoured belt, iron ram, pivot guns, carronade-lined spar deck, an armoured
+  citadel stern with stern-chaser batteries, gun towers on the quarters and a glowing-eyed gilt skull, and four masts
+  with five tiers of sail.
+- **Cheat ship** — the dev console (`` ` `` then `titan`, or `dev.titan()`) gives you the **Titan**: a 150 m black-sailed
+  six-decker with 150 guns a side that cannot be damaged. It can't be bought or built.
 - **Battle damage** — shot holes appear exactly where balls strike, hulls char and smoulder, damaged ships settle
   and list, sails tear and topmasts get shot away.
 - **3rd-person helm + visual targeting** — the mouse shows the firing sector on the aimed side and a 3D trajectory
@@ -20,8 +25,9 @@ peer-to-peer multiplayer over WebRTC. **Play: https://fanaustinca.github.io/salt
   sets ships ablaze.
 - **Progression** — 200 levels and ~240 upgrade ranks across 17 upgrades (broadside guns, chasers, firing rate,
   range, damage, accuracy, speed, turning, sails, hull, armour, crew, at-sea repairs, foraging, plunder, fleet size).
-  Ship tiers start at 1/1/2/3/5/10/30 cannons per side. The most a hull can carry grows with its size
-  (85%–120% in your shipyard): a Man of War carries 20 at full size, a Leviathan 30 at 85% and 60 at 120%.
+  Ship tiers start at 1/1/2/3/5/10/16/30 cannons per side. The most a hull can carry grows with its size
+  (85%–120% in your shipyard): a Man of War carries 20 at full size, a Sovereign 18 at 85% and 34 at 120%, a
+  Leviathan 30 at 85% and 60 at 120%.
 - **Repairs at sea** — `R` sends your carpenters to patch the hull (and some canvas) with oak from your hold and put
   out fires, even mid-battle (short cooldown).
 - **Wake trails** — buy coloured trails with gold (Wake Trails tab in any port): gilded, ember, blood tide, emerald,
@@ -32,12 +38,13 @@ peer-to-peer multiplayer over WebRTC. **Play: https://fanaustinca.github.io/salt
 - **Custom shipyards** — build custom-sized ships with custom cannon counts (within tier limits), name them, paint
   hull/trim/sails and pick a flag, with a live 3D preview.
 - **Empire** — a big sea (12 km across) with ~70 claimable pirate-cove islands: sheltered bays with docks and stilt
-  huts, sea cliffs, hills, rivers running down to the cove (and waterfalls off the cliffs), dirt paths, lighthouses,
+  huts, sea cliffs, hills, rivers carved into the ground running down to the cove (and waterfalls off the cliffs),
+  worn footpaths between your buildings, meadows, forests, flowers, boulders, lighthouses,
   vegetable plots, rowboats, careened ships and a timber Captain's Lodge with a crow's-nest lookout; long jetties
   sized for your flagship. Wild islands are held by squatters
   (stronger further out) — beat them and pay a colony charter that grows with every island you hold. Docks,
   shipyards, watchtowers, mills, mines, lofts, powder houses, warehouses, shore cannons and sea forts appear on the
-  island as you build.
+  island as you build, and the island itself grows much larger with each one (it never grows into a neighbour).
 - **Pirate clans** — eight clans hold fortresses (skull rocks included). They fortify them over time, buying what
   they lack on the market and selling surplus, patrol their waters, raid wild islands, rival clans and players, and
   can be conquered (smash the keep, sink the defenders, hold position). Broken clans rise again elsewhere.

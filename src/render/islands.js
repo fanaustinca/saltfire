@@ -1,6 +1,7 @@
 // Islands: vibrant stylised terrain (sand, grass, rock), palms + trees, the Free Port town, resource
 // islets, and player/AI bases whose 3D model grows and changes as buildings are added.
 import * as THREE from 'three';
+import { mergeStatic, disposeGroup } from './merge.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { rng } from '../worldgen.js';
 import { islandShape } from '../islandshape.js';
@@ -80,7 +81,8 @@ export class GroundPaint {
     return (A[k] * (1 - tx) + A[k + 1] * tx) * (1 - tz) + (A[k + n] * (1 - tx) + A[k + n + 1] * tx) * tz;
   }
 }
-const hash2 = (x, z) => { const s = Math.sin(x * 127.1 + z * 311.7) * 43758.5453; return s - Math.floor(s); };
+// integer lattice hash (no trig: terrain building calls this ~1M times)
+const hash2 = (x, z) => { let h = Math.imul(x | 0, 374761393) + Math.imul(z | 0, 668265263); h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
 function vnoise2(x, z) {
   const i = Math.floor(x), j = Math.floor(z), fx = x - i, fz = z - j, ux = fx * fx * (3 - 2 * fx), uz = fz * fz * (3 - 2 * fz);
   const a = hash2(i, j), b = hash2(i + 1, j), c = hash2(i, j + 1), d = hash2(i + 1, j + 1);
@@ -94,7 +96,9 @@ export function terrainFromShape(S, kind = 'green', seed = 1, { paint = null, hi
   const r = rng(seed * 3 + 1);
   const R = S.R;
   const rings = hi ? Math.min(130, Math.round(60 + R * 0.35)) : 64, seg = hi ? Math.min(420, Math.round(200 + R * 1.3)) : 210;
-  const pos = [], col = [], idx = [];
+  const NV = 1 + rings * seg;
+  const pos = new Float32Array(NV * 3), col = new Float32Array(NV * 3), idx = new Uint32Array(seg * 3 + (rings - 1) * seg * 6);
+  let vi = 0, ii = 0;
   const sand = C('#e3c27e'), sand2 = C('#cfa865'), wetSand = C('#a8854c'), under = C('#2f8f86');
   const grass = C(kind === 'sulphur' ? '#c8a52a' : kind === 'rock' ? '#5f7a3a' : '#3f8e2c'), grass2 = C(kind === 'sulphur' ? '#8a7a2a' : '#22672a');
   const meadow = C(kind === 'sulphur' ? '#b09030' : '#6c9e36'), forest = C('#1d5426');
@@ -103,10 +107,10 @@ export function terrainFromShape(S, kind = 'green', seed = 1, { paint = null, hi
   const c = new THREE.Color(), tmp = new THREE.Color();
   const highRock = S.arche === 2 ? S.H * 1.6 : S.H * 0.85;
   const sx = seed * 0.37;
-  const vert = (d, a) => {
-    const x = Math.cos(a) * d, z = Math.sin(a) * d;
+  const vert = (d, a, ca = Math.cos(a), sa = Math.sin(a), e = S.edge(a), cl = S.cliff(a)) => {
+    const x = ca * d, z = sa * d;
     let h = S.hAt(d, a);
-    const e = S.edge(a), k = d / e, cl = S.cliff(a);
+    const k = d / e;
     const n1 = fbm(x * 0.045 + sx, z * 0.045), n2 = fbm(x * 0.17 - sx, z * 0.17 + 3);
     // gentle bumps on the land so slopes are not glassy-smooth (kept small: the sim uses the pure shape)
     if (h > 1.8 && k < 0.9) h += (n2 - 0.5) * 0.7 * Math.min(1, (h - 1.8) / 3);
@@ -127,28 +131,27 @@ export function terrainFromShape(S, kind = 'green', seed = 1, { paint = null, hi
       if (bd > 0) c.lerp(bedC, bd);
       if (cv > 0) h -= cv * 1.5;
     }
-    pos.push(x, h, z); col.push(c.r, c.g, c.b);
+    pos[vi * 3] = x; pos[vi * 3 + 1] = h; pos[vi * 3 + 2] = z; col[vi * 3] = c.r; col[vi * 3 + 1] = c.g; col[vi * 3 + 2] = c.b; vi++;
   };
   vert(0, 0);
+  // per-angle values are the same on every ring
+  const AA = new Float64Array(seg), AC = new Float64Array(seg), AS = new Float64Array(seg), AE = new Float64Array(seg), ACL = new Float64Array(seg);
+  for (let j = 0; j < seg; j++) { const a = (j / seg) * Math.PI * 2; AA[j] = a; AC[j] = Math.cos(a); AS[j] = Math.sin(a); AE[j] = S.edge(a); ACL[j] = S.cliff(a); }
   for (let i = 1; i <= rings; i++) {
     const f = i / rings;
-    for (let j = 0; j < seg; j++) {
-      const a = (j / seg) * Math.PI * 2;
-      const e = S.edge(a);
-      // rings hug the shoreline (denser near the coast so cliffs stay crisp)
-      const d = f < 0.8 ? e * Math.pow(f / 0.8, 1.05) * 0.86 : e * (0.86 + (f - 0.8) / 0.2 * 0.42);
-      vert(d, a);
-    }
+    // rings hug the shoreline (denser near the coast so cliffs stay crisp)
+    const rk = f < 0.8 ? Math.pow(f / 0.8, 1.05) * 0.86 : 0.86 + (f - 0.8) / 0.2 * 0.42;
+    for (let j = 0; j < seg; j++) vert(AE[j] * rk, AA[j], AC[j], AS[j], AE[j], ACL[j]);
   }
-  for (let j = 0; j < seg; j++) idx.push(0, 1 + ((j + 1) % seg), 1 + j);
+  for (let j = 0; j < seg; j++) { idx[ii++] = 0; idx[ii++] = 1 + ((j + 1) % seg); idx[ii++] = 1 + j; }
   for (let i = 1; i < rings; i++) {
     const a0 = 1 + (i - 1) * seg, b0 = 1 + i * seg;
-    for (let j = 0; j < seg; j++) { const j1 = (j + 1) % seg; idx.push(a0 + j, a0 + j1, b0 + j, a0 + j1, b0 + j1, b0 + j); }
+    for (let j = 0; j < seg; j++) { const j1 = (j + 1) % seg; idx[ii++] = a0 + j; idx[ii++] = a0 + j1; idx[ii++] = b0 + j; idx[ii++] = a0 + j1; idx[ii++] = b0 + j1; idx[ii++] = b0 + j; }
   }
   const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-  g.setIndex(idx); g.computeVertexNormals();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  g.setIndex(new THREE.BufferAttribute(idx, 1)); g.computeVertexNormals();
   // steep faces are bare, layered rock whatever the biome
   const nr = g.attributes.normal, cc = g.attributes.color, pp = g.attributes.position;
   for (let i = 0; i < nr.count; i++) {
@@ -346,7 +349,7 @@ export function buildIsland(isl) {
   }
   g.add(seaStacks(S, r, 2));
   g.userData.T = T;
-  return g;
+  return mergeStatic(g);
 }
 /** Tall rock pillars just off the cliffs. */
 function seaStacks(S, r, n) {
@@ -429,19 +432,22 @@ function shipLenFor(base, players) {
   return base.owner?.startsWith('ai:clan') ? 60 : 30;
 }
 export class BaseView {
-  constructor(scene) { this.scene = scene; this.group = null; this.sig = ''; }
+  constructor(scene) { this.scene = scene; this.group = null; this.sig = ''; this.cache = {}; }
+  sigOf(base, W, players) { return JSON.stringify([shipLenFor(base, players), base.owner, base.buildings.map((b) => [b.type, typeof b.slot === 'number' ? b.slot.toFixed(2) : b.slot, b.hp > 0]), base.haven?.safe, shielded(W, base.owner), players[base.owner]?.color]); }
+  /** True when the drawn base no longer matches the world (new building, destroyed, captured…). */
+  stale(base, W, players) { return this.sigOf(base, W, players) !== this.sig; }
   update(base, W, players) {
-    const sig = JSON.stringify([shipLenFor(base, players), base.owner, base.buildings.map((b) => [b.type, typeof b.slot === 'number' ? b.slot.toFixed(2) : b.slot, b.hp > 0]), base.haven?.safe, shielded(W, base.owner), players[base.owner]?.color]);
+    const sig = this.sigOf(base, W, players);
     if (sig === this.sig) return;
     this.sig = sig;
-    if (this.group) { this.scene.remove(this.group); this.group.traverse((o) => { if (o.geometry && !o.geometry.userData.shared) o.geometry.dispose(); }); }
-    this.group = buildBase(base, W, players);
+    if (this.group) { this.scene.remove(this.group); disposeGroup(this.group); }
+    this.group = buildBase(base, W, players, this.cache);
     this.scene.add(this.group);
   }
-  dispose() { if (this.group) this.scene.remove(this.group); }
+  dispose() { if (this.group) { this.scene.remove(this.group); disposeGroup(this.group); } this.cache.T?.geo.dispose(); this.cache = {}; }
 }
 
-function buildBase(base, W, players) {
+function buildBase(base, W, players, cache = {}) {
   const g = new THREE.Group();
   const S = baseShape(base);
   const R = S.R;
@@ -449,20 +455,30 @@ function buildBase(base, W, players) {
   const owner = base.owner;
   const fac = owner && owner.startsWith('ai:') ? owner.split(':')[1] : null;
   const hAtW = (x, z) => Math.max(1.4, S.hWorld(x - base.x, z - base.z));
-  const avoid = [];
+  let avoid = [];
   const placed = base.buildings.map((bd) => ({ bd, p: buildingPos(base, bd) }));
   for (const { bd, p } of placed) avoid.push({ x: p.x - base.x, z: p.z - base.z, r: p.rad + (bd.type === 'keep' ? 12 : 4) });
-  // rivers and footpaths are carved/painted into the ground itself
-  const paint = new GroundPaint(R);
-  const rivers = [];
-  for (const mode of ['bay', 'cliff']) {
-    const rv = riverPath(S, rng((base.seed || 3) * 13 + 5 + (mode === 'cliff' ? 7 : 0)), avoid, mode);
-    if (!rv) continue;
-    for (const q of rv.pts) { paint.stamp('carve', q.x, q.z, q.w * 0.75, q.w * 0.5 + 1.2); paint.stamp('bed', q.x, q.z, q.w * 0.95, 1.2); paint.stamp('wet', q.x, q.z, q.w + 1.5, 3); avoid.push({ x: q.x, z: q.z, r: q.w + 3 }); }
-    rivers.push(rv);
+  // the terrain (with rivers + paths carved in) only depends on where buildings stand, so captures, shields,
+  // repaint etc. reuse it instead of re-sculpting 50k vertices
+  const tkey = JSON.stringify([R, base.seed, placed.map(({ bd, p }) => [bd.type, Math.round(p.x), Math.round(p.z), bd.hp > 0])]);
+  let rivers, T, paint;
+  if (cache.key === tkey) ({ rivers, T, paint } = cache), avoid = cache.avoid.slice();
+  else {
+    // rivers and footpaths are carved/painted into the ground itself
+    paint = new GroundPaint(R);
+    rivers = [];
+    for (const mode of ['bay', 'cliff']) {
+      const rv = riverPath(S, rng((base.seed || 3) * 13 + 5 + (mode === 'cliff' ? 7 : 0)), avoid, mode);
+      if (!rv) continue;
+      for (const q of rv.pts) { paint.stamp('carve', q.x, q.z, q.w * 0.75, q.w * 0.5 + 1.2); paint.stamp('bed', q.x, q.z, q.w * 0.95, 1.2); paint.stamp('wet', q.x, q.z, q.w + 1.5, 3); avoid.push({ x: q.x, z: q.z, r: q.w + 3 }); }
+      rivers.push(rv);
+    }
+    paths(base, S, paint, avoid);
+    T = terrainFromShape(S, 'green', base.seed || 3, { paint, hi: true });
+    T.geo.userData.shared = true; // owned by the cache, freed by BaseView.dispose
+    cache.T?.geo.dispose();
+    Object.assign(cache, { key: tkey, rivers, T, paint, avoid: avoid.slice() });
   }
-  paths(base, S, paint, avoid);
-  const T = terrainFromShape(S, 'green', base.seed || 3, { paint, hi: true });
   const land = new THREE.Mesh(T.geo, mats().terrain); land.receiveShadow = true; land.castShadow = false;
   land.position.set(base.x, 0, base.z);
   g.add(land);
@@ -505,7 +521,7 @@ function buildBase(base, W, players) {
   if (base.haven?.safe && owner && !fac) { const b = havenBuoys(HAVEN_R * 0.75, 20); b.position.set(base.x, 0, base.z); g.add(b); }
   if (shielded(W, owner)) g.add(shieldDome(base.x, base.z, R + 60));
   g.userData.T = T;
-  return g;
+  return mergeStatic(g);
 }
 
 // ------------------------------------------------------------------ river, paths, scenery

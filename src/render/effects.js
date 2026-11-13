@@ -2,7 +2,7 @@
 // cannonball meshes and floating loot crates.
 import * as THREE from 'three';
 import { puff } from './textures.js';
-import { heightAt } from '../waves.js';
+import { heightAt, CALM_MIN, CALM_W } from '../waves.js';
 import { TRAILS } from '../config.js';
 
 const trailCache = new Map();
@@ -85,49 +85,98 @@ class PointPool {
   }
 }
 
-/** Flat additive foam decals on the water surface. */
+/** Flat additive foam decals that ride the water surface. Everything after `add` happens on the GPU: each decal
+ *  is one instance in a ring buffer (centre, birth time, life, size, alpha, yaw, stretch, tint), and the vertex
+ *  shader ages it and drapes every corner on the same Gerstner field (calm + distance fade) as the ocean mesh. */
+const FOAM_VERT = /* glsl */`
+attribute vec4 iA; // x, z, birth, life
+attribute vec4 iB; // s0, s1, alpha, yaw
+attribute vec4 iC; // stretch, r, g, b
+uniform float uTime; uniform float uSea; uniform vec4 uWaves[5]; uniform vec3 uCalm[32]; uniform int uCalmCount;
+varying vec3 vFoamCol;
+float foamCalm(vec2 p) {
+  float cf = 1.0;
+  for (int i = 0; i < 32; i++) { if (i >= uCalmCount) break; vec3 c = uCalm[i]; float r0 = c.z * 0.9; cf = min(cf, smoothstep(r0, r0 + CALM_W, length(p - c.xy))); }
+  return CALM_MIN + (1.0 - CALM_MIN) * cf;
+}
+vec3 foamDisp(vec2 p, float fade) {
+  vec3 d = vec3(0.0); float calm = foamCalm(p);
+  for (int i = 0; i < 5; i++) {
+    vec4 w = uWaves[i]; float k = 6.2831853 / w.z; float c = sqrt(9.81 / k);
+    float a = w.w * uSea * calm * (i > 2 ? fade * 0.6 + 0.4 : fade) / k;
+    float f = k * (dot(w.xy, p) - c * uTime);
+    d.x += w.x * a * cos(f); d.z += w.y * a * cos(f); d.y += a * sin(f);
+  }
+  return d;
+}
+`;
 class Foam {
-  constructor(scene) {
-    const MAX = 2500;
-    this.max = MAX;
-    const tex = puff();
-    const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, color: 0xffffff });
-    const geo = new THREE.PlaneGeometry(1, 1); geo.rotateX(-Math.PI / 2);
-    this.mesh = new THREE.InstancedMesh(geo, mat, MAX);
-    this.mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX * 3), 3);
+  constructor(scene, ocean) {
+    const MAX = 5000;
+    this.max = MAX; this.w = 0; this.adds = 0; this.now = 0;
+    const base = new THREE.PlaneGeometry(1, 1); base.rotateX(-Math.PI / 2);
+    const geo = new THREE.InstancedBufferGeometry();
+    geo.index = base.index; geo.setAttribute('position', base.attributes.position); geo.setAttribute('uv', base.attributes.uv);
+    this.A = new Float32Array(MAX * 4); this.B = new Float32Array(MAX * 4); this.C = new Float32Array(MAX * 4);
+    for (let i = 0; i < MAX; i++) { this.A[i * 4 + 2] = -1e9; this.A[i * 4 + 3] = 1; }
+    this.attrs = [['iA', this.A], ['iB', this.B], ['iC', this.C]].map(([k, arr]) => { const at = new THREE.InstancedBufferAttribute(arr, 4).setUsage(THREE.DynamicDrawUsage); geo.setAttribute(k, at); return at; });
+    geo.instanceCount = MAX;
+    geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e7);
+    const mat = new THREE.MeshBasicMaterial({ map: puff(), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, color: 0xffffff });
+    const U = ocean.uniforms;
+    mat.onBeforeCompile = (sh) => {
+      Object.assign(sh.uniforms, { uTime: U.uTime, uSea: U.uSea, uWaves: U.uWaves, uCalm: U.uCalm, uCalmCount: U.uCalmCount });
+      sh.vertexShader = `#define CALM_MIN ${CALM_MIN.toFixed(3)}\n#define CALM_W ${CALM_W.toFixed(1)}\n` + FOAM_VERT + sh.vertexShader.replace('#include <begin_vertex>', `
+        float fAge = uTime - iA.z, fK = fAge / max(iA.w, 1e-3);
+        vec3 transformed = vec3(0.0, -1e5, 0.0);
+        vFoamCol = vec3(0.0);
+        if (fK >= 0.0 && fK < 1.0) {
+          float s = iB.x + (iB.y - iB.x) * sqrt(fK);
+          vec2 l = vec2(position.x * s, position.z * s * iC.x);
+          float cy = cos(iB.w), sy = sin(iB.w);
+          vec2 wp = iA.xy + vec2(l.x * cy + l.y * sy, -l.x * sy + l.y * cy);
+          float fade = 1.0 - smoothstep(900.0, 2400.0, length(wp - cameraPosition.xz));
+          vec2 q = wp; vec3 d;
+          for (int it = 0; it < 3; it++) { d = foamDisp(q, fade); q = wp - d.xz; }
+          d = foamDisp(q, fade);
+          transformed = vec3(wp.x, d.y + 0.12, wp.y);
+          vFoamCol = iC.yzw * iB.z * (1.0 - fK) * (fK < 0.08 ? fK / 0.08 : 1.0);
+        }`);
+      sh.fragmentShader = 'varying vec3 vFoamCol;\n' + sh.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n diffuseColor.rgb *= vFoamCol;');
+    };
+    this.mesh = new THREE.Mesh(geo, mat);
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = 1;
     scene.add(this.mesh);
-    this.p = [];
-    this.m4 = new THREE.Matrix4(); this.q = new THREE.Quaternion(); this.c = new THREE.Color();
   }
-  add(x, z, s0, s1, life, a = 0.5, yaw = 0, stretch = 1, col = null) { if (this.p.length >= this.max) this.p.shift(); this.p.push({ x, z, s0, s1, life, age: 0, a, yaw, stretch, col }); }
+  get count() { let n = 0; for (let i = 0; i < this.max; i++) if (this.now - this.A[i * 4 + 2] < this.A[i * 4 + 3]) n++; return n; }
+  add(x, z, s0, s1, life, a = 0.5, yaw = 0, stretch = 1, col = null) {
+    const i = this.w, o = i * 4;
+    this.w = (this.w + 1) % this.max; this.adds++;
+    this.A[o] = x; this.A[o + 1] = z; this.A[o + 2] = this.now; this.A[o + 3] = life;
+    this.B[o] = s0; this.B[o + 1] = s1; this.B[o + 2] = a; this.B[o + 3] = yaw;
+    this.C[o] = stretch; this.C[o + 1] = col ? col.r : 1; this.C[o + 2] = col ? col.g : 1; this.C[o + 3] = col ? col.b : 1;
+  }
   update(dt, t) {
-    this.p = this.p.filter((q) => (q.age += dt) < q.life);
-    let i = 0;
-    const UP = this.up ||= new THREE.Vector3(0, 1, 0), P = this.pv ||= new THREE.Vector3(), SC = this.sv ||= new THREE.Vector3();
-    for (const q of this.p) {
-      const k = q.age / q.life, s = q.s0 + (q.s1 - q.s0) * Math.sqrt(k);
-      this.q.setFromAxisAngle(UP, q.yaw);
-      this.m4.compose(P.set(q.x, heightAt(q.x, q.z, t) + 0.12, q.z), this.q, SC.set(s, 1, s * q.stretch));
-      this.mesh.setMatrixAt(i, this.m4);
-      const a = q.a * (1 - k) * (k < 0.08 ? k / 0.08 : 1);
-      if (q.col) this.c.setRGB(a * q.col.r, a * q.col.g, a * q.col.b); else this.c.setRGB(a, a, a);
-      this.mesh.setColorAt(i, this.c);
-      i++;
+    this.now = t;
+    if (!this.adds) return;
+    const n = Math.min(this.adds, this.max), start = (this.w - n + this.max) % this.max;
+    for (const at of this.attrs) {
+      at.clearUpdateRanges();
+      if (start + n <= this.max) at.addUpdateRange(start * 4, n * 4);
+      else { at.addUpdateRange(start * 4, (this.max - start) * 4); at.addUpdateRange(0, (start + n - this.max) * 4); }
+      at.needsUpdate = true;
     }
-    this.mesh.count = i;
-    this.mesh.instanceMatrix.needsUpdate = true;
-    if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
+    this.adds = 0;
   }
 }
 
 export class Effects {
-  constructor(scene) {
+  constructor(scene, ocean) {
     this.scene = scene;
     this.smoke = new PointPool(scene, THREE.NormalBlending);
     this.glow = new PointPool(scene, THREE.AdditiveBlending);
-    this.foam = new Foam(scene);
+    this.foam = new Foam(scene, ocean);
     // debris chunks
     const dg = new THREE.BoxGeometry(0.5, 0.25, 1.4);
     this.debris = new THREE.InstancedMesh(dg, new THREE.MeshStandardMaterial({ color: 0x6b4a2b, roughness: 0.9 }), 600);

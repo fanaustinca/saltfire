@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { Stage } from './render/scene.js';
 import { buildShip } from './render/shipmodel.js';
 import { buildIsland, BaseView } from './render/islands.js';
+import { disposeGroup } from './render/merge.js';
 import { Effects } from './render/effects.js';
 import { KrakenView } from './render/kraken.js';
 import { Sim, joinPlayer, arcOf, solveElev, localToWorld, SAIL_STEPS, wrapA } from './sim.js';
@@ -22,9 +23,9 @@ export class Game {
     this.app = app; this.ui = app.ui; this.welcome = welcome;
     this.role = role; this.room = room; this.pid = pid; this.rec = rec;
     const q = new URLSearchParams(location.search);
-    this.stage = new Stage(document.getElementById('view'), { quality: q.get('q') || app.settings.quality || 'high', preserve: q.has('test') });
+    this.stage = new Stage(document.getElementById('view'), { quality: q.get('q') || app.settings.quality || 'high', preserve: q.has('test'), autoRes: (!q.has('test') || q.has('autores')) && app.settings.autoRes !== false });
     this.scene = this.stage.scene; this.camera = this.stage.camera;
-    this.fx = new Effects(this.scene);
+    this.fx = new Effects(this.scene, this.stage.ocean);
     this.krakenView = new KrakenView(this.scene);
     this.sim = new Sim(W, { authority: role === 'host' });
     this.views = new Map();   // ship id -> view
@@ -78,14 +79,38 @@ export class Game {
   /** Distance LOD for islands + bases; also refreshes the ocean's shallows/calm set. */
   updateWorldLOD(focus) {
     const BUILD = 3300, DROP = 4300;
+    // heavy builds (terrain, buildings) go through a queue drained a few ms per frame, nearest first,
+    // so sailing into a new stretch of sea never stalls a frame on half a dozen islands at once
+    const pend = [];
     for (const e of this.islandGroups) {
       const d = Math.hypot(e.isl.x - focus.x, e.isl.z - focus.z);
-      if (!e.group && d < BUILD) { e.group = buildIsland(e.isl); this.scene.add(e.group); }
-      else if (e.group && d > DROP) { this.scene.remove(e.group); e.group.traverse((o) => { if (o.geometry && !o.isInstancedMesh) o.geometry.dispose(); }); e.group = null; }
+      if (!e.group && d < BUILD) pend.push({ d, run: () => { if (!e.group) { e.group = buildIsland(e.isl); this.scene.add(e.group); } } });
+      else if (e.group && d > DROP) { this.scene.remove(e.group); disposeGroup(e.group); e.group = null; }
     }
+    for (const b of this.W.bases) {
+      let v = this.baseViews.get(b.id);
+      if (!v) { v = new BaseView(this.scene); this.baseViews.set(b.id, v); }
+      const d = Math.hypot(b.x - focus.x, b.z - focus.z);
+      // your own islands and anything close rebuild first (a building you just placed shows up at once)
+      if (d < BUILD) { if (v.stale(b, this.W, this.W.players)) pend.push({ d: v.group ? d * 0.25 : d, run: () => v.update(b, this.W, this.W.players) }); }
+      else if (d > DROP && v.group) { v.dispose(); v.group = null; v.sig = ''; }
+    }
+    this.buildQ = pend.sort((a, b) => a.d - b.d);
     this.updateShallows();
     this.stage.ocean.setIslands(this.shallows, focus);
-    // ground clutter LOD: grass + flowers only near the camera, bushes/boulders a bit further
+    this.updateClutterLOD();
+  }
+  /** Run queued world builds: everything on the first frame (behind the loading fade), then ~5 ms per frame. */
+  drainBuilds() {
+    const q = this.buildQ; if (!q?.length) return;
+    const t0 = performance.now(), budget = this.worldWarm ? 5 : 1e9;
+    let n = 0;
+    while (q.length && (n === 0 || performance.now() - t0 < budget)) { q.shift().run(); n++; }
+    this.worldWarm = true;
+    if (!q.length) this.updateClutterLOD();
+  }
+  /** Ground clutter LOD: grass + flowers only near the camera, bushes/boulders a bit further. */
+  updateClutterLOD() {
     const cam = this.camera.position;
     const groups = [...this.islandGroups.map((e) => e.group), ...[...this.baseViews.values()].map((v) => v.group)];
     for (const g of groups) {
@@ -96,15 +121,6 @@ export class Game {
         const d = Math.hypot(c.x - cam.x, c.z - cam.z);
         o.visible = d < (o.userData.lod === 1 ? 650 : 1500);
       }
-    }
-  }
-  syncBases(focus) {
-    for (const b of this.W.bases) {
-      let v = this.baseViews.get(b.id);
-      if (!v) { v = new BaseView(this.scene); this.baseViews.set(b.id, v); }
-      const d = Math.hypot(b.x - focus.x, b.z - focus.z);
-      if (d < 3300) v.update(b, this.W, this.W.players);
-      else if (d > 4300 && v.group) { v.dispose(); v.group = null; v.sig = ''; }
     }
   }
 
@@ -651,22 +667,25 @@ export class Game {
     const t = this.sim.time;
     this.frames++;
     this.fps += (1 / Math.max(1e-3, dt) - this.fps) * 0.05;
+    { const now = performance.now(); if (!this.perf || now - this.perf.last > 400) this.perf = { t0: now, n: 0 }; this.perf.n++; this.perf.last = now; if (now - this.perf.t0 > 2000) { this.stage.adapt(this.perf.n * 1000 / (now - this.perf.t0)); this.perf = { t0: now, n: 0, last: now }; } } // dynamic resolution (a hidden tab restarts the window)
     const me = this.me();
     const focus = me ? { x: me.x, z: me.z } : { x: this.camera.position.x, z: this.camera.position.z };
     this.lodT = (this.lodT || 0) - dt;
-    if (this.lodT <= 0) { this.lodT = 0.5; this.updateWorldLOD(focus); this.syncBases(focus); }
+    if (this.lodT <= 0) { this.lodT = 0.5; this.updateWorldLOD(focus); }
+    this.drainBuilds();
     this.updateTreasureMarks(t);
     // ships
     for (const [id, v] of this.views) if (!this.sim.ships.has(id)) this.dropView(id);
-    let built = 0;
+    let built = 0; const tb = performance.now();
     for (const s of this.sim.ships.values()) {
       let v = this.views.get(s.id);
       const dist = Math.hypot(s.x - focus.x, s.z - focus.z);
       const far = 700 + s.stats.len * 20;
       if (dist > far + 300 && s !== me) { if (v) this.dropView(s.id); continue; }
-      const key = s.spec.uid + ':' + (s.rev || 0) + ':' + JSON.stringify({ ...s.look, trail: undefined });
+      if (s._vk?.look !== s.look || s._vk.rev !== s.rev || s._vk.uid !== s.spec.uid) s._vk = { look: s.look, rev: s.rev, uid: s.spec.uid, key: s.spec.uid + ':' + (s.rev || 0) + ':' + JSON.stringify({ ...s.look, trail: undefined }) };
+      const key = s._vk.key;
       if (!v || v.key !== key) {
-        if (built >= 3 && v == null && s !== me) continue; // spread model building over frames
+        if (built > 0 && performance.now() - tb > 6 && v == null && s !== me) continue; // spread model building over frames
         if (v) this.dropView(s.id);
         const model = buildShip(s.stats, s.look || s.spec);
         this.scene.add(model.root);
@@ -679,7 +698,7 @@ export class Game {
       { const cd = s === me ? 0 : Math.hypot(s.x - this.camera.position.x, s.z - this.camera.position.z), L = s.stats.len; v.model.setLOD(cd > 900 + L * 6 ? 2 : cd > 300 + L * 3 ? 1 : 0); }
       const p = this.pose(s);
       this.poseShip(v, s, p, t, dt);
-      if (s.sink === 0) this.fx.wake({ ...s, x: p.x, z: p.z, yaw: p.yaw }, t);
+      if (s.sink === 0) { const w = (this._wk ||= {}); w.x = p.x; w.z = p.z; w.yaw = p.yaw; w.spd = s.spd; w.sink = s.sink; w.stats = s.stats; w.look = s.look; this.fx.wake(w, t); }
       if (s.fire > 0 && Math.random() < 0.6) { const [fx, , fz] = localToWorld({ ...s, ...p }, (Math.random() - 0.5) * s.stats.beam, 0, (Math.random() - 0.5) * s.stats.len * 0.7); this.fx.fire(fx, v.model.root.position.y + s.stats.depth * 0.7, fz); }
       // battle damage: holes clear when repaired, smoke thickens and fires break out as the hull fails
       const hf = Math.max(0, s.hull / s.stats.hull);

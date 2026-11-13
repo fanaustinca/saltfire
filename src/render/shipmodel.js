@@ -72,13 +72,33 @@ function hullMat() {
   m.customProgramCacheKey = () => 'hull-dmg';
   return m;
 }
+// Sails are batched: every sail hanging from the same spar group is one mesh. Per-vertex `aPivot` (where the sail
+// hangs) and `aSail` (kind, height) let the vertex shader furl/fill each sail from the ship-wide uniforms, so a
+// 30-sail Titan costs a handful of draw calls instead of thirty (and the shadow pass matches via the depth material).
+const SAIL_VERT_PARS = `
+uniform float uLvl; uniform float uWind; uniform float uSailT;
+attribute vec3 aPivot; attribute vec2 aSail;
+vec3 sailScale() {
+  if (aSail.x < 0.5) return vec3(1.0, max(0.04, uLvl), 0.4 + 0.6 * uLvl * uWind + sin(uSailT * 1.7 + aSail.y) * 0.04);
+  if (uLvl <= 0.05) return vec3(0.0);
+  return aSail.x < 1.5 ? vec3(0.6 + 0.4 * uLvl, 1.0, 1.0) : vec3(1.0);
+}`;
+function sailVertex(sh, U) {
+  Object.assign(sh.uniforms, { uLvl: U.lvl, uWind: U.wind, uSailT: U.t });
+  sh.vertexShader = sh.vertexShader
+    .replace('#include <common>', '#include <common>\n' + SAIL_VERT_PARS)
+    .replace('#include <beginnormal_vertex>', '#include <beginnormal_vertex>\n{ vec3 sc = sailScale(); objectNormal = normalize(objectNormal / max(sc, vec3(0.04))); }')
+    .replace('#include <begin_vertex>', '#include <begin_vertex>\ntransformed = aPivot + (position - aPivot) * sailScale();');
+}
 function sailMat(color) {
   const m = new THREE.MeshStandardMaterial({ color, map: sailcloth(), roughness: 0.95, side: THREE.DoubleSide, emissive: color.clone().multiplyScalar(0.32), emissiveMap: sailcloth() });
   m.userData.damage = { value: 0 };
+  const U = m.userData.sail = { lvl: { value: 1 }, wind: { value: 1 }, t: { value: 0 } };
   const nz = noiseTex();
   m.onBeforeCompile = (sh) => {
     sh.uniforms.uDamage = m.userData.damage;
     sh.uniforms.uNoise = { value: nz };
+    sailVertex(sh, U);
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', '#include <common>\nuniform float uDamage;\nuniform sampler2D uNoise;')
       .replace('#include <map_fragment>', `#include <map_fragment>
@@ -87,8 +107,39 @@ function sailMat(color) {
           float burn = smoothstep(uDamage * 0.75 - 0.05, uDamage * 0.75 + 0.03, n);
           diffuseColor.rgb *= mix(0.25, 1.0, burn); }`);
   };
-  m.customProgramCacheKey = () => 'sail-dmg';
+  m.customProgramCacheKey = () => 'sail-dmg-batch';
+  // shadow pass: same furling, so a furled ship doesn't cast full-sail shadows
+  const d = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, side: THREE.DoubleSide });
+  d.onBeforeCompile = (sh) => sailVertex(sh, U);
+  d.customProgramCacheKey = () => 'sail-depth-batch';
+  m.userData.depth = d;
   return m;
+}
+/** Merge the sails under each parent into one mesh carrying the per-vertex pivot/kind attributes. */
+function batchSails(sails, smat) {
+  const byParent = new Map();
+  for (const sl of sails) { const par = sl.mesh.parent; if (!par) continue; if (!byParent.has(par)) byParent.set(par, []); byParent.get(par).push(sl); }
+  const out = [];
+  for (const [par, list] of byParent) {
+    const geos = list.map((sl) => {
+      const g = strip(sl.mesh.geometry.clone());
+      const pv = sl.mesh.position, n = g.attributes.position.count;
+      g.translate(pv.x, pv.y, pv.z);
+      const piv = new Float32Array(n * 3), ks = new Float32Array(n * 2), kind = sl.kind === 'square' ? 0 : sl.kind === 'fore-aft' ? 1 : 2;
+      for (let i = 0; i < n; i++) { piv[i * 3] = pv.x; piv[i * 3 + 1] = pv.y; piv[i * 3 + 2] = pv.z; ks[i * 2] = kind; ks[i * 2 + 1] = sl.h || 0; }
+      g.setAttribute('aPivot', new THREE.Float32BufferAttribute(piv, 3));
+      g.setAttribute('aSail', new THREE.Float32BufferAttribute(ks, 2));
+      return g;
+    });
+    for (const sl of list) { par.remove(sl.mesh); sl.mesh.geometry.dispose(); }
+    const mesh = new THREE.Mesh(mergeGeometries(geos), smat);
+    geos.forEach((g) => g.dispose());
+    mesh.castShadow = true; mesh.receiveShadow = true;
+    mesh.customDepthMaterial = smat.userData.depth;
+    par.add(mesh);
+    out.push(mesh);
+  }
+  return out;
 }
 
 // ------------------------------------------------------------------ geometry helpers
@@ -987,6 +1038,7 @@ export function buildShip(stats, look = {}) {
     }
   }
 
+  const sailMeshes = batchSails(sails, smat);
   // assemble merged static meshes
   // LOD: `near` details vanish first (mid range), `small` ones far away; hull, deck, spars and sails always stay
   const lodNear = [], lodFar = [];
@@ -1009,7 +1061,7 @@ export function buildShip(stats, look = {}) {
 
   // ---------------------------------------------------------------- animation API
   const api = {
-    root, body, sails, flag: flags[0]?.mesh, flag2, guns, H, sailMat: smat, rig, holes,
+    root, body, sails: sailMeshes, flag: flags[0]?.mesh, flag2, guns, H, sailMat: smat, rig, holes,
     sailLevel: 1, damage: 0, hullDamage: 0,
     setSailLevel(l) { this.sailLevel = l; },
     /** sail damage 0..1: holes in the canvas, and topmasts shot away as it gets worse. */
@@ -1050,17 +1102,13 @@ export function buildShip(stats, look = {}) {
       for (const o of lodFar) o.visible = l < 2;
       holes.visible = l < 1;
       for (const g of mastGroups) g.upper.traverse((o) => { if (o.isLineSegments) o.visible = l < 1; });
-      root.traverse((o) => { if (o.isMesh) o.castShadow = l < 2 && o !== holes; });
+      root.traverse((o) => { if (o.isMesh) { o.userData.cs0 ??= o.castShadow; o.castShadow = l < 2 && o.userData.cs0 && o !== holes; } });
     },
     /** Carpenters plug a share of the shot-holes. */
     patchHoles(frac) { holeN = Math.floor(Math.min(holeN, MAXH) * (1 - frac)); holes.count = holeN; },
     update(t, wind = 1) {
-      const lvl = this.sailLevel;
-      for (const s of sails) {
-        if (s.kind === 'square') { s.mesh.scale.set(1, Math.max(0.04, lvl), 0.4 + 0.6 * lvl * wind + Math.sin(t * 1.7 + s.h) * 0.04); }
-        else if (s.kind === 'jib') { s.mesh.visible = lvl > 0.05; }
-        else { s.mesh.visible = lvl > 0.05; s.mesh.scale.set(0.6 + 0.4 * lvl, 1, 1); }
-      }
+      const U = smat.userData.sail;
+      U.lvl.value = this.sailLevel; U.wind.value = wind; U.t.value = t;
       if (this.lod > 0) return; // flags only ripple up close
       for (const f of flags) {
         if (!f.mesh.visible || (f.mesh.parent && !f.mesh.parent.visible)) continue;
@@ -1076,7 +1124,7 @@ export function buildShip(stats, look = {}) {
     },
     dispose() {
       root.traverse((o) => { if (o.geometry && o.geometry !== HOLE) o.geometry.dispose(); });
-      hull.material.dispose(); smat.dispose(); flagMat.dispose(); pennantMat.dispose(); trimMat.dispose();
+      hull.material.dispose(); smat.dispose(); smat.userData.depth.dispose(); flagMat.dispose(); pennantMat.dispose(); trimMat.dispose();
     },
   };
   return api;

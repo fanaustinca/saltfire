@@ -130,6 +130,16 @@ export class UI {
     return JSON.stringify([p.trail, (p.trails || []).length, (p.cards || []).length, p.wheel, (p.holiday?.days || []).length, p.inv, p.level, p.points, p.upg, p.fleet.map((s) => s.uid + s.name + (s.out ? 'o' : '') + (s.wrecked ? 'w' : '') + (s.hp ?? '')), p.flag, p.alliance, W.market.length, W.trades.length, W.proposals.length, W.treaties.length, b && b.buildings.map((x) => [x.type, Math.round(x.hp)]), b?.haven, Object.values(W.players).map((x) => x.online + x.name), this.tab]);
   }
   frame(game, dt) {
+    // optional frame-rate readout next to the version tag
+    this.fpsT = (this.fpsT || 0) - dt;
+    if (this.fpsT <= 0) {
+      this.fpsT = 0.5;
+      let el = $('#fpsbox');
+      if (game.app.settings.showFps) {
+        if (!el && $('#room')) { el = document.createElement('span'); el.id = 'fpsbox'; el.className = 'ver'; $('#room').appendChild(el); }
+        if (el) el.textContent = `${Math.round(game.fps)} fps${game.stage.pr < game.stage.maxPR - 0.01 ? ` · ${Math.round((game.stage.pr / game.stage.maxPR) * 100)}% res` : ''}`;
+      } else el?.remove();
+    }
     const me = game.me(); if (!me || !$('#shippanel')) return;
     const st = me.stats;
     const set = (id, v, max, txt) => { const b = $('#b-' + id); if (b) b.style.width = Math.max(0, Math.min(100, (v / max) * 100)) + '%'; const t = $('#t-' + id); if (t) t.textContent = txt; };
@@ -329,6 +339,8 @@ export class UI {
         <label>Graphics <select id="q-sel"><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select></label>
         <label>Volume <input type="range" id="vol" min="0" max="1" step="0.05" value="${sfx.volume}"></label>
         <label><input type="checkbox" id="mus" ${sfx.music ? 'checked' : ''}> Shanty music</label>
+        <label><input type="checkbox" id="autores" ${q.autoRes !== false ? 'checked' : ''}> Auto resolution <span class="muted small">(keeps the frame rate smooth on slower PCs)</span></label>
+        <label><input type="checkbox" id="showfps" ${q.showFps ? 'checked' : ''}> Show frame rate</label>
         <p class="muted small">${game.role === 'host' ? `World saved ${game.lastSave ? new Date(game.lastSave).toLocaleTimeString() : 'automatically'} in this browser.` : 'The host saves your empire.'}</p>
       </div>`, [
       { label: 'Resume', primary: true },
@@ -339,6 +351,8 @@ export class UI {
     qs.onchange = () => { game.app.setSetting('quality', qs.value); this.toast('Graphics setting applies after reload.', 'info'); };
     $('#vol').oninput = (e) => sfx.setVolume(+e.target.value);
     $('#mus').onchange = (e) => sfx.setMusic(e.target.checked);
+    $('#autores').onchange = (e) => { game.app.setSetting('autoRes', e.target.checked); game.stage.autoRes = e.target.checked; if (!e.target.checked) { game.stage.pr = game.stage.maxPR; game.stage.renderer.setPixelRatio(game.stage.pr); game.stage.resize(); } };
+    $('#showfps').onchange = (e) => { game.app.setSetting('showFps', e.target.checked); };
   }
 
   // ------------------------------------------------------------------ map

@@ -4,10 +4,12 @@ import { Sky } from 'three/examples/jsm/objects/Sky.js';
 import { Ocean } from './ocean.js';
 
 export class Stage {
-  constructor(canvas, { quality = 'high', preserve = false } = {}) {
+  constructor(canvas, { quality = 'high', preserve = false, autoRes = false } = {}) {
     this.quality = quality;
     const r = new THREE.WebGLRenderer({ canvas, antialias: quality !== 'low', powerPreference: 'high-performance', preserveDrawingBuffer: preserve });
-    r.setPixelRatio(Math.min(devicePixelRatio, quality === 'high' ? 2 : 1));
+    this.maxPR = this.pr = Math.min(devicePixelRatio, quality === 'high' ? 2 : 1);
+    this.autoRes = autoRes; this.good = 0;
+    r.setPixelRatio(this.pr);
     r.toneMapping = THREE.ACESFilmicToneMapping;
     r.toneMappingExposure = 0.75;
     r.outputColorSpace = THREE.SRGBColorSpace;
@@ -68,6 +70,16 @@ export class Stage {
     this.scene.environment = pm.fromCubemap(rt.texture).texture;
     this.scene.environmentIntensity = 0.8;
     pm.dispose();
+  }
+  /** Dynamic resolution: drop the render scale when the frame rate sags, creep back up when it recovers. */
+  adapt(fps) {
+    if (!this.autoRes) return;
+    const max = this.maxPR, min = Math.max(0.5, max * 0.5);
+    let pr = this.pr;
+    if (fps < 45 && pr > min) { pr = Math.max(min, pr - (fps < 30 ? 0.25 : 0.12)); this.good = 0; }
+    else if (fps > 57) { if (++this.good >= 3 && pr < max) { pr = Math.min(max, pr + 0.1); this.good = 0; } }
+    else this.good = 0;
+    if (Math.abs(pr - this.pr) > 1e-3) { this.pr = pr; this.renderer.setPixelRatio(pr); this.resize(); }
   }
   resize() {
     const w = innerWidth, h = innerHeight;

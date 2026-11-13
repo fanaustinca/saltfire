@@ -19,6 +19,7 @@ import { heightAt } from './waves.js';
 import { islandShape } from './islandshape.js';
 import { newClan } from './worldgen.js';
 
+const SIDES = new Set(['L', 'R', 'bow', 'stern']);
 export const SAIL_STEPS = [0, 0.34, 0.67, 1];
 export const SAIL_NAMES = ['Anchored', 'Battle Sails', 'Half Sail', 'Full Sail'];
 const TAU = Math.PI * 2;
@@ -301,8 +302,12 @@ export class Sim {
   }
   /** Fire: consumes ammo + starts reload. `balls` may come from a client (trusted) or be planned here. */
   fire(s, side, ax, az, ammo = 'ball', given = null) {
+    if (!SIDES.has(side)) return { err: 'No such battery' };
+    if (!Object.hasOwn(AMMO, ammo)) ammo = 'ball';
+    if (!Number.isFinite(ax) || !Number.isFinite(az)) return { err: 'No target' };
     const p = s.pid ? this.W.players[s.pid] : null;
-    if (ammo !== 'ball' && p && (p.inv[ammo] || 0) <= 0) ammo = 'ball';
+    if (ammo !== 'ball' && p && !((p.inv[ammo] || 0) > 0)) ammo = 'ball';
+    if (given != null) { given = this.checkBalls(s, side, given, ammo); if (!given) return { err: 'Bad broadside' }; }
     const plan = given ? { balls: given } : this.planBroadside(s, side, ax, az, ammo);
     if (plan.err) return plan;
     if (ammo !== 'ball' && p) { p.inv[ammo] = Math.max(0, p.inv[ammo] - plan.balls.length); this.dirty.prof.add(p.id); }
@@ -312,6 +317,23 @@ export class Sim {
     for (const b of plan.balls) this.spawnBall(s, b);
     this.fx.push({ t: 'fire', ship: s.id, side, n: plan.balls.length, balls: plan.balls.map((b) => [b.x, b.y, b.z, b.vx, b.vy, b.vz, b.delay || 0, ...(b.gl ? [...b.gl, b.yaw0] : [])]), ammo });
     return plan;
+  }
+  /** A client plans its own broadside (so it lands where that player aimed); the host still sanity-checks it:
+   *  no more balls than guns on that side, starting at the ship, flying no faster than a cannon can shoot. */
+  checkBalls(s, side, balls, ammo) {
+    if (!Array.isArray(balls) || !balls.length) return null;
+    const nGuns = s.guns.filter((g) => g.side === side).length;
+    if (!nGuns || (s.reload[side] || 0) > 0.6 || s.sink > 0 || s.docked) return null;
+    const vmax = (s.stats.muzzle || MUZZLE) * 1.25, reach = s.stats.len + 40;
+    const out = [];
+    for (const b of balls.slice(0, nGuns)) {
+      if (!b || typeof b !== 'object') return null;
+      const n = ['x', 'y', 'z', 'vx', 'vy', 'vz'].map((k) => +b[k]);
+      if (!n.every(Number.isFinite) || Math.hypot(n[0] - s.x, n[2] - s.z) > reach || Math.hypot(n[3], n[4], n[5]) > vmax) return null;
+      const gl = Array.isArray(b.gl) && b.gl.length === 3 && b.gl.every((v) => Number.isFinite(+v)) ? b.gl.map(Number) : null;
+      out.push({ x: n[0], y: n[1], z: n[2], vx: n[3], vy: n[4], vz: n[5], ammo, delay: Math.max(0, Math.min(2, +b.delay || 0)), dmg: Math.min(BALL_DMG * (s.stats.dmg || 1) * 1.01, Math.max(0, +b.dmg || BALL_DMG)), gl, yaw0: Number.isFinite(+b.yaw0) ? +b.yaw0 : s.yaw });
+    }
+    return out;
   }
   spawnBall(s, b) {
     const dmg = Math.min(BALL_DMG * 2, b.dmg || BALL_DMG);

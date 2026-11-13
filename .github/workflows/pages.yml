@@ -30,6 +30,7 @@ jobs:
       - run: npx puppeteer browsers install chrome
       - run: npm run build
       - run: npm run test:logic
+      - run: node tests/fuzz.mjs 5 3
       - run: npm run test:e2e
       - name: Upload screenshots
         if: always()

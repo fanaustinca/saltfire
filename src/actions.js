@@ -31,6 +31,11 @@ export function repairCost(s) {
 }
 
 export function handleAct(sim, pid, a) {
+  if (!a || typeof a !== 'object') return { err: 'Bad request' };
+  try { return act(sim, pid, a); }
+  catch (e) { console.error('action failed', a?.type, e); return { err: 'That did not work — try again' }; }
+}
+function act(sim, pid, a) {
   const W = sim.W;
   const p = W.players[pid];
   if (!p) return { err: 'Unknown captain' };

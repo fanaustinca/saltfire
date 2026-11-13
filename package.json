@@ -8,10 +8,11 @@
     "dev": "vite --port 8963 --host",
     "build": "vite build",
     "preview": "vite preview --port 8964",
-    "test": "npm run build && node tests/logic.mjs && node tests/e2e.mjs",
+    "test": "npm run build && node tests/logic.mjs && node tests/fuzz.mjs 4 3 && node tests/e2e.mjs",
     "test:logic": "node tests/logic.mjs",
     "test:e2e": "node tests/e2e.mjs",
-    "shots": "node tests/shots.mjs"
+    "shots": "node tests/shots.mjs",
+    "test:fuzz": "node tests/fuzz.mjs"
   },
   "dependencies": {
     "peerjs": "^1.5.5",

@@ -9,9 +9,10 @@ export const uid = (p = '') => p + Math.random().toString(36).slice(2, 8) + Date
 
 // ------------------------------------------------------------------ inventory
 export function emptyInv() { const o = {}; for (const r of RES) o[r] = 0; for (const a of AMMO_ORDER) if (a !== 'ball') o[a] = 0; return o; }
-export function canAfford(inv, cost) { for (const k in cost) if ((inv[k] || 0) < cost[k]) return false; return true; }
+// costs must be real, non-negative numbers: NaN or negative 'costs' from bad input would corrupt or mint stock
+export function canAfford(inv, cost) { for (const k in cost) if (!(cost[k] >= 0) || !Number.isFinite(cost[k]) || (inv[k] || 0) < cost[k]) return false; return true; }
 export function pay(inv, cost) { if (!canAfford(inv, cost)) return false; for (const k in cost) inv[k] -= cost[k]; return true; }
-export function gain(inv, items, mul = 1) { for (const k in items) inv[k] = (inv[k] || 0) + Math.round(items[k] * mul); }
+export function gain(inv, items, mul = 1) { for (const k in items) { const v = Math.round(items[k] * mul); if (Number.isFinite(v)) inv[k] = (inv[k] || 0) + v; } }
 export function costText(cost) { return Object.entries(cost).filter(([, v]) => v).map(([k, v]) => `${v} ${k}`).join(', ') || 'free'; }
 
 // ------------------------------------------------------------------ profiles
@@ -40,7 +41,8 @@ export function shipSpec(tier, o = {}) {
   };
 }
 
-export const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+/** Clamp; anything that isn't a finite number (NaN, junk from a peer) falls back to the low bound. */
+export const clamp = (v, a, b) => { v = +v; return Number.isFinite(v) ? Math.max(a, Math.min(b, v)) : a; };
 export const clampInt = (v, a, b) => clamp(Math.round(v), a, b);
 
 /** Derived combat/handling stats for a ship spec under a profile's upgrades. */
@@ -432,9 +434,10 @@ export function placeOrder(W, pid, o) {
   const p = escrow(W, pid);
   const side = o.side === 'buy' ? 'buy' : 'sell';
   const item = o.item;
-  const price = Math.max(1, Math.round(o.price));
+  if (!Number.isFinite(+o.price) || (item !== 'ship' && !Number.isFinite(+o.qty))) return { err: 'Enter a quantity and a price' };
+  const price = clampInt(o.price, 1, 1e8);
   if (item !== 'ship' && !MARKET_ITEMS_SET.has(item)) return { err: 'Item not tradeable' };
-  let qty = item === 'ship' ? 1 : Math.max(1, Math.round(o.qty));
+  let qty = item === 'ship' ? 1 : clampInt(o.qty, 1, 1e7);
   const order = { id: uid('o'), side, item, qty, price, owner: pid, at: Date.now() };
   if (side === 'sell') {
     if (item === 'ship') {

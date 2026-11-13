@@ -172,19 +172,25 @@ export class Game {
     this.save();
   }
   hostMsg(peer, m) {
-    const info = this.peers.get(peer); if (!info || !m) return;
+    // a misbehaving (or out-of-date) peer must never take the host's world down with it
+    try { this.hostMsg1(peer, m); } catch (e) { console.warn('bad message from peer', e); }
+  }
+  hostMsg1(peer, m) {
+    const info = this.peers.get(peer); if (!info || !m || typeof m !== 'object') return;
     info.seen = performance.now();
     const s = this.sim.ships.get('p:' + info.pid);
     if (m.k === 'st' && s) {
       if ((m.life || 0) !== (s.life || 0)) return; // stale state from before a respawn
       if (s.sink > 0) return;
-      s.x = m.x; s.z = m.z; s.yaw = m.yaw; s.spd = m.spd; s.sail = m.sail; s.sailNow = m.sn; s.rud = m.rud; s.recoil = m.rc || 0;
-      pushBuf(s, this.sim.time, m);
+      const f = (v, d = 0) => (Number.isFinite(v) ? v : d);
+      if (!Number.isFinite(m.x) || !Number.isFinite(m.z)) return;
+      s.x = m.x; s.z = m.z; s.yaw = f(m.yaw, s.yaw); s.spd = Math.max(-5, Math.min(80, f(m.spd))); s.sail = Math.max(0, Math.min(1, f(m.sail))); s.sailNow = Math.max(0, Math.min(1, f(m.sn, s.sail))); s.rud = Math.max(-1, Math.min(1, f(m.rud))); s.recoil = Math.max(-2, Math.min(2, f(m.rc)));
+      pushBuf(s, this.sim.time, s);
     } else if (m.k === 'fire' && s) {
       const r = this.sim.fire(s, m.side, m.ax, m.az, m.ammo, m.balls);
       if (!r.err) sfx.cannon(this.distTo(s.x, s.z), r.balls.length);
     } else if (m.k === 'act') {
-      const res = handleAct(this.sim, info.pid, m.a || {});
+      const res = handleAct(this.sim, info.pid, m.a && typeof m.a === 'object' ? m.a : {});
       this.room.send(peer, { k: 'res', id: m.id, res });
     } else if (m.k === 'chat') {
       this.sim.msgs.push({ to: null, text: `${this.W.players[info.pid]?.name}: ${String(m.text).slice(0, 140)}`, kind: 'chat' });

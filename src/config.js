@@ -174,3 +174,7 @@ export const claimFee = (owned) => Math.round(300 * Math.pow(Math.max(1, owned),
 // AI pirate clans (each holds a fortress and upgrades it over time)
 export const CLAN_NAMES = ['Blackfang Clan', 'Red Tide Brotherhood', 'Skullcrag Raiders', 'Iron Gull Corsairs', 'The Widowmakers', 'Salt Wraiths', 'Kraken\'s Teeth', 'Ember Fleet', 'Bone Harbour Band', 'Crimson Gulls', 'Storm Jackals', 'Gilded Knives', 'Rotten Anchors', 'Deadlight Company', 'Black Lantern Gang', 'Hangman\'s Crew', 'Sunken Crown Syndicate', 'Rook Brothers', 'Maw Reavers', 'Stormwall Corsairs'];
 export const CLAN_PLAN = ['cannon', 'watchtower', 'cannon', 'lumber', 'dock', 'cannon', 'mine', 'warehouse', 'fort', 'cannon', 'powderhouse', 'cannon', 'fort', 'loft', 'cannon', 'cannon', 'fort', 'cannon', 'cannon', 'cannon'];
+
+// Lookup tables are indexed by ids that arrive from peers: give them no prototype, so 'constructor',
+// '__proto__' and friends are simply unknown ids instead of Object built-ins.
+for (const t of [RES_LABEL, RES_ICON, AMMO, RECIPES, UPGRADES, BUILDINGS, TREATY_TYPES, TRAILS]) Object.setPrototypeOf(t, null);

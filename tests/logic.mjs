@@ -524,5 +524,24 @@ T('host rejects broken broadsides from peers', () => {
   const g0 = p.inv.gold; sim.fire(me, 'L', me.x, me.z + 100, 'gold'); ok(p.inv.gold === g0 && Number.isFinite(p.inv.gold), 'gold is not ammo');
   sim.fire(me, 'R', me.x, me.z + 100, 'constructor'); ok(!Object.hasOwn(p.inv, 'constructor'), 'no prototype keys');
 });
+T('boarding: capture a crippled ship into the fleet, or plunder and scuttle it', () => {
+  const W = world(); const sim = new Sim(W, { rand: rng(43) }); const { p } = joinPlayer(sim, 'u', 'U');
+  const me = sim.spawnPlayer('u'); me.x = 3000; me.z = 0; me.docked = null; me.spd = 0; me.yaw = 0;
+  const mk = () => { const o = sim.spawnAI(5, me, { role: 'pirate', tier: 'brigantine', dist: 10, strong: true }); o.x = me.x + 12; o.z = me.z; o.spd = 0; o.yaw = 0; return o; };
+  let o = mk();
+  ok(handleAct(sim, 'u', { type: 'board' }).err, 'healthy ship cannot be boarded');
+  o.hull = o.stats.hull * 0.2; o.crew = 1;
+  ok(sim.boardTarget(me) === o, 'target found');
+  const n0 = p.fleet.length;
+  const r = handleAct(sim, 'u', { type: 'board', mode: 'capture' });
+  ok(r.ok && r.data.win && r.data.mode === 'capture' && p.fleet.length === n0 + 1 && !sim.ships.has(o.id), 'captured: ' + JSON.stringify(r));
+  ok(p.fleet.at(-1).tier === 'brigantine' && p.fleet.at(-1).hp > 0, 'prize in fleet, battered');
+  ok(handleAct(sim, 'u', { type: 'board' }).err, 'cooldown');
+  me.boardT = 0; o = mk(); o.hull = o.stats.hull * 0.2; o.crew = 1;
+  const g0 = p.inv.gold; const r2 = handleAct(sim, 'u', { type: 'board', mode: 'plunder' });
+  ok(r2.ok && r2.data.win && p.inv.gold > g0 && o.sink > 0, 'plundered + scuttled');
+  me.boardT = 0; o = mk(); o.tag = 'bounty'; o.hull = o.stats.hull * 0.2; o.crew = 1;
+  ok(!sim.capturable(o) && handleAct(sim, 'u', { type: 'board', mode: 'capture' }).data?.mode === 'plunder', 'wanted ships are only plundered');
+});
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

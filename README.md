@@ -5,7 +5,7 @@ peer-to-peer multiplayer over WebRTC. **Play: https://fanaustinca.github.io/salt
 
 ## Features
 - **Ocean & ships** — Gerstner-wave ocean with foam, sky reflections, sun glint and shoreline surf. Ships ride the
-  same wave field the GPU draws (heave, pitch, roll, heel, recoil); the sea calms in the lee of islands. Seven
+  same wave field the GPU draws (heave, pitch, roll, heel, recoil); the sea calms in the lee of islands. Ten
   distinct procedural designs: a plain little single-masted **Sloop**, a two-masted all-gaff **Schooner**, a square-fore
   **Brigantine** with quarterdeck, a black-and-ochre full-rigged **Frigate**, a **Galleon** with a towering painted
   stern castle, beakhead and lateen mizzens, and a three-decked **Man of War** with triple stern galleries, studding
@@ -14,6 +14,22 @@ peer-to-peer multiplayer over WebRTC. **Play: https://fanaustinca.github.io/salt
   broad 116 m five-decked ironclad: armoured belt, iron ram, pivot guns, carronade-lined spar deck, an armoured
   overhanging stern of lit galleries above an iron belt of chase guns, quarter galleries and a glowing-eyed skull, and four masts
   with five tiers of sail.
+- **Xebec** (level 8) — a lean Barbary raider with three lateen sails, overhanging bow and counter stern, oar ports
+  and a striped awning: the fastest hull you can buy. **War Junk** (level 12) — teak-hulled and armoured, red
+  battened fan sails, a towering stern house with lanterns and upturned eaves, painted eyes on the bow.
+- **Ghost Ship** — a drowned frigate with glowing, see-through, permanently tattered sails, green lanterns and
+  drifting will-o'-the-wisps; its hull knits itself back together out of combat. Reward card only: the Wheel of
+  Fortune (0.4%) or sinking **the Phantom**, which haunts the night seas.
+- **Day & night** — a 24-minute day: sunrises and sunsets, a starry night with a moon, moonlight glinting on the
+  water, cabin windows and lanterns glowing, lighthouse beams sweeping the dark, your stern lantern lighting the
+  deck, and gulls wheeling over the islands by day (toggle in the menu).
+- **Storms** — every so often black clouds roll in: rain, lightning and thunder, heavy seas that toss every ship,
+  closer fog and wild gunnery (shots scatter wider), then the weather clears.
+- **The Phantom** — at nightfall a spectral ghost ship may rise near a captain. Sink it before dawn for 15,000 gold,
+  explosive shells, a Wheel spin, a treasure map and a 15% chance of a Ghost Ship card; at sunrise it fades away.
+- **Boarding** — batter a ship until its hull (under 35%) or crew breaks, come alongside and match speed, then `B`
+  to board and capture her into your fleet, or `V` to strip her holds and scuttle her. Crew strength decides it;
+  flagships, wanted men and phantoms can only be plundered.
 - **Titan** — a 150 m black-sailed six-decker (120 guns a side, 150 above 100% size) that cannot be bought: win it as
   a reward card on the Wheel of Fortune (0.1%) or by claiming every day of the Holiday Tides event. Dev: `titan`.
 - **Rewards (`J`)** — Wheel of Fortune: one free spin a day, more for 20,000 gold (Titan 0.1%, Leviathan 0.5%,
@@ -68,12 +84,23 @@ peer-to-peer multiplayer over WebRTC. **Play: https://fanaustinca.github.io/salt
 
 ## Controls
 `W`/`S` sails · `A`/`D` steer · mouse aim · click / `Space` fire · `1`–`4` / `Q` ammo · `E` dock / claim / port / dig for treasure ·
-hold `F` harvest · `R` repair at sea · `M` map · `G` fleet command (side drawer at sea) · right-drag orbit · wheel zoom · `C` reset camera · `H` help · `Esc` menu.
+hold `F` harvest · `R` repair at sea · `B` / `V` board (capture / plunder) · `M` map · `G` fleet command (side drawer at sea) · right-drag orbit · wheel zoom · `C` reset camera · `H` help · `Esc` menu.
 
 ## Dev console
 Open the browser console and run `dev.help()`, or press `` ` `` in game for a command prompt
 (`kraken`, `give all 500`, `ship manowar`, `fleet frigate 3`, `clans`, `raid`, `spawn pirate frigate 3`,
-`event treasure`, `event bounty`, `tmap`, `tp port`, `sea 1.4`, `unlock`, …).
+`event treasure`, `event bounty`, `event phantom`, `event storm`, `calm`, `time 21`, `tmap`, `tp port`, `sea 1.4`, `unlock`, …).
+
+## Performance
+Islands and bases are batched into a few draws per material, every ship's sails are one mesh per mast group
+(furled/filled in the vertex shader), wake foam and rain live entirely on the GPU, heavy world building is queued
+nearest-first a few milliseconds per frame, and the render scale adapts to keep the frame rate up on slower PCs
+(menu: *Auto resolution*, *Show frame rate*).
+
+## Testing
+`npm test` builds, then runs the logic suite, a fuzz soak (`tests/fuzz.mjs`: long multiplayer sims with random
+helm/gunnery/events and every action fed valid, malformed and hostile parameters — fails on any exception, NaN,
+negative stock or runaway growth) and the Puppeteer browser suite.
 
 ## Development
 ```bash

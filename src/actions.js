@@ -59,6 +59,14 @@ function act(sim, pid, a) {
       mark();
       return { ok: true, data: site };
     }
+    case 'board': {
+      if (!s || s.sink > 0) return r('No ship');
+      if (docked) return r('Cast off first');
+      const res = sim.board(s, a.mode === 'plunder' ? 'plunder' : 'capture');
+      if (res.err) return r(res.err);
+      E.addXp(p, res.win ? 25 : 5); mark();
+      return r(null, res);
+    }
     case 'undock': if (s) { s.docked = null; s.sail = 0.34; } mark(); return r();
     case 'seaRepair': {
       // carpenters patch the hull (and some canvas) with oak from the hold — works mid-battle

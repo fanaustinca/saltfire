@@ -22,7 +22,7 @@ const sm = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a)));
 // ------------------------------------------------------------------ shared materials
 let M = null;
 /** Night makes lanterns, stern lights and glowing ports burn brighter (k 0..1). */
-export function setShipGlow(k) { const m = mats(); m.lantern.emissiveIntensity = 1.6 * (1 + k * 1.6); m.ghostLamp.emissiveIntensity = 2.2 * (1 + k); }
+export function setShipGlow(k) { const m = mats(); m.lantern.emissiveIntensity = 1.6 * (1 + k * 1.6); m.ghostLamp.emissiveIntensity = 2.2 * (1 + k); m.glass.emissive.setRGB(0.2 + k * 0.8, 0.13 + k * 0.45, k * 0.12); m.glass.emissiveIntensity = 0.4 + k * 1.4; } // cabin windows light up after dark
 function mats() {
   if (M) return M;
   const pl = planks();

@@ -29,7 +29,7 @@ for (const pid of pids) { const p = W.players[pid]; p.level = 40; p.points = 60;
 
 const JUNK = [undefined, null, NaN, Infinity, -Infinity, -1, 0, 1e12, -1e12, '', 'x', '__proto__', 'constructor', [], {}, { x: 1 }, true, 3.7, '5', 'port'];
 const junk = () => { const v = pick(JUNK); return v && typeof v === 'object' ? JSON.parse(JSON.stringify(v)) : v; };
-const ACTIONS = ['dock', 'undock', 'seaRepair', 'spinWheel', 'buyMap', 'dig', 'voyage', 'claimHoliday', 'buySizeCard', 'buyTrail', 'setTrail', 'repair', 'craft', 'upgrade', 'buyShip', 'customShip', 'flagship', 'deploy', 'deployAll', 'recall', 'recallAll', 'repairFleet', 'renameShip', 'claim', 'setHome', 'build', 'demolish', 'repairBase', 'haven', 'payFee', 'order', 'instantBuy', 'instantSell', 'cancel', 'buyListing', 'propose', 'answer', 'alliance', 'harvest', 'ammo', 'rename', 'nonsense', undefined];
+const ACTIONS = ['dock', 'undock', 'seaRepair', 'spinWheel', 'buyMap', 'dig', 'voyage', 'claimHoliday', 'buySizeCard', 'buyTrail', 'setTrail', 'repair', 'craft', 'upgrade', 'buyShip', 'customShip', 'flagship', 'deploy', 'deployAll', 'recall', 'recallAll', 'repairFleet', 'renameShip', 'claim', 'setHome', 'build', 'demolish', 'repairBase', 'haven', 'payFee', 'order', 'instantBuy', 'instantSell', 'cancel', 'buyListing', 'propose', 'answer', 'alliance', 'harvest', 'ammo', 'rename', 'board', 'nonsense', undefined];
 
 /** A plausible (mostly valid) action for this player, so the fuzz reaches deep code paths, not just early returns. */
 function goodAction(pid) {
@@ -57,6 +57,7 @@ function goodAction(pid) {
     case 'alliance': return { type: t, name: 'Fuzz Pact' };
     case 'harvest': return { type: t, on: R() < 0.5 };
     case 'ammo': return { type: t, ammo: pick(AMMO_ORDER) };
+    case 'board': { const o = [...sim.ships.values()].find((x) => !x.pid && x.sink === 0); if (o && s && R() < 0.5) { o.x = s.x + 10; o.z = s.z; o.spd = s.spd; o.yaw = s.yaw; o.hull = o.stats.hull * 0.2; } return { type: t, mode: pick(['capture', 'plunder', junk()]) }; }
     case 'buyTrail': case 'setTrail': return { type: t, id: pick(Object.keys(TRAILS)) };
     case 'voyage': return { type: t, to: R() < 0.5 ? 'port' : b?.id };
     case 'spinWheel': return { type: t, paid: R() < 0.7 };

@@ -5,7 +5,7 @@ import { Stage } from './render/scene.js';
 import { buildShip } from './render/shipmodel.js';
 import { buildIsland, BaseView } from './render/islands.js';
 import { disposeGroup } from './render/merge.js';
-import { Effects, Rain, Lightning } from './render/effects.js';
+import { Effects, Rain, Lightning, Birds } from './render/effects.js';
 import { setShipGlow } from './render/shipmodel.js';
 import { setIslandGlow } from './render/islands.js';
 import { KrakenView } from './render/kraken.js';
@@ -30,6 +30,7 @@ export class Game {
     this.fx = new Effects(this.scene, this.stage.ocean);
     this.rain = new Rain(this.scene);
     this.bolt = new Lightning(this.scene);
+    this.birds = new Birds(this.scene);
     // the flagship's stern lantern: lit at night (always in the scene so toggling it never recompiles shaders)
     this.lantern = new THREE.PointLight(0xffb066, 0, 70, 1.6);
     this.scene.add(this.lantern);
@@ -364,7 +365,8 @@ export class Game {
       case 'dirt': case 'stone': this.fx.dustPuff(f.x, f.y, f.z); sfx.crack(d * 1.3); break;
       case 'shield': this.fx.glow.add({ x: f.x, y: f.y, z: f.z, vx: 0, vy: 0, vz: 0, age: 0, life: 0.6, s0: 6, s1: 14, a: 0.8, c: new THREE.Color(0.4, 0.75, 1) }); break;
       case 'collapse': this.fx.explosion(f.x, f.y + 4, f.z, 1.2); this.fx.dustPuff(f.x, f.y, f.z, 0x9a9080); sfx.boom(d); break;
-      case 'fade': for (let i = 0; i < 60; i++) this.fx.glow.add({ x: f.x + (Math.random() - 0.5) * 50, y: 2 + Math.random() * 25, z: f.z + (Math.random() - 0.5) * 50, vx: 0, vy: 1 + Math.random() * 3, vz: 0, age: 0, life: 2 + Math.random() * 2, s0: 4, s1: 0.5, a: 0.6, c: GHOST_GLOW, drag: 0.3 }); break;
+      case 'board': for (let i = 0; i < 4; i++) setTimeout(() => sfx.crack(d), i * 160); for (let i = 0; i < 18; i++) this.fx.smoke.add({ x: f.x + (Math.random() - 0.5) * 12, y: 4 + Math.random() * 4, z: f.z + (Math.random() - 0.5) * 12, vx: 0, vy: 1.5, vz: 0, age: 0, life: 2.5, s0: 2, s1: 7, a: 0.45, c: BOARD_SMOKE, drag: 0.8 }); for (let i = 0; i < 10; i++) this.fx.glow.add({ x: f.x + (Math.random() - 0.5) * 10, y: 5, z: f.z + (Math.random() - 0.5) * 10, vx: (Math.random() - 0.5) * 6, vy: Math.random() * 4, vz: (Math.random() - 0.5) * 6, age: 0, life: 0.3, s0: 1.2, s1: 0.2, a: 1, c: GHOST_GLOW.clone().setRGB(1, 0.8, 0.4) }); break;
+      case 'fade': if (f.quiet) break; for (let i = 0; i < 60; i++) this.fx.glow.add({ x: f.x + (Math.random() - 0.5) * 50, y: 2 + Math.random() * 25, z: f.z + (Math.random() - 0.5) * 50, vx: 0, vy: 1 + Math.random() * 3, vz: 0, age: 0, life: 2 + Math.random() * 2, s0: 4, s1: 0.5, a: 0.6, c: GHOST_GLOW, drag: 0.3 }); break;
       case 'sink': this.fx.explosion(f.x, 3, f.z, 1); for (let i = 0; i < 25; i++) this.fx.addChunk(f.x + (Math.random() - 0.5) * 10, 3, f.z + (Math.random() - 0.5) * 10); sfx.boom(d); break;
       case 'pickup': sfx.coin(); break;
       case 'repair': {
@@ -411,6 +413,8 @@ export class Game {
         case 'KeyG': if (this.ui.panel && this.ui.remote) this.ui.closePanel(this); else this.ui.port(this, 'fleet', !me?.docked); break;
         case 'KeyJ': if (this.ui.panel && this.ui.tab === 'rewards') this.ui.closePanel(this); else this.ui.port(this, 'rewards', !me?.docked); break;
         case 'KeyR': this.seaRepair(); break;
+        case 'KeyB': this.board('capture'); break;
+        case 'KeyV': this.board('plunder'); break;
         default: break;
       }
     };
@@ -469,6 +473,16 @@ export class Game {
     this.sailIdx = 0; me.sail = 0;
     sfx.bell();
     this.ui.port(this);
+  }
+  async board(mode) {
+    const me = this.me(); if (!me || me.sink > 0 || me.docked) return;
+    const r = await this.act({ type: 'board', mode });
+    if (r.err) { this.ui.toast(r.err, 'bad'); return; }
+    const d = r.data;
+    if (!d.win) this.ui.toast(`Repelled! The ${d.name}'s crew threw your boarders back — ${d.lost} hands lost.`, 'bad', 4);
+    else if (d.mode === 'capture') this.ui.toast(`Prize taken! The ${d.name} is yours (${d.lost} hands lost) — she waits in your fleet (G).`, 'event', 5);
+    else this.ui.toast(`Plundered the ${d.name}: +${d.loot.gold.toLocaleString()} gold, ${d.loot.oak} oak, ${d.loot.iron} iron, ${d.loot.canvas} canvas, ${d.loot.powder} powder (${d.lost} hands lost).`, 'good', 5);
+    sfx.bell(); this.ui.refresh(this);
   }
   async seaRepair() {
     const me = this.me(); if (!me || me.sink > 0) return;
@@ -770,6 +784,9 @@ export class Game {
     this.rain.update(Math.max(0, (storm - 0.25) / 0.75), t, this.camera.position);
     this.fx.setLight(Math.max(0.22, 1 - night * 0.72 - storm * 0.3 + (st.flash || 0) * 0.6));
     this.bolt.update(dt);
+    // gulls over the nearest islands (refreshed with the LOD tick), daytime and fair weather only
+    if (!this.gullIsles || (this.gullT = (this.gullT || 0) - dt) <= 0) { this.gullT = 2; const c = this.camera.position; this.gullIsles = this.W.islands.filter((i) => i.kind !== 'rock').map((i) => ({ i, d: Math.hypot(i.x - c.x, i.z - c.z) })).sort((a, b) => a.d - b.d).slice(0, 4).map((x) => x.i); }
+    this.birds.update(t, this.gullIsles, (1 - night) * (1 - storm), this.camera.position);
     if (storm > 0.55) {
       this.boltT = (this.boltT ?? 4) - dt;
       if (this.boltT <= 0) {
@@ -824,7 +841,7 @@ export class Game {
   }
 }
 
-const GHOST_GLOW = new THREE.Color(0.3, 1, 0.72);
+const GHOST_GLOW = new THREE.Color(0.3, 1, 0.72), BOARD_SMOKE = new THREE.Color(0.75, 0.72, 0.66);
 function pushBuf(s, t, m) {
   s.buf ||= [];
   s.buf.push({ t, x: m.x, z: m.z, yaw: m.yaw, spd: m.spd });

@@ -5,7 +5,7 @@
 // advances visual cannonballs and effects; ship state arrives in snapshots.
 import {
   AI_TOP_TIER, TIERS, tierById, tierIndex, tierRank, AMMO, GRAVITY, MUZZLE, SECTOR_HALF, CHASE_HALF, MIN_RANGE, BUILDINGS,
-  HAVEN_R, WORLD_R, MAX_LEVEL, UPGRADES, CLAN_PLAN, claimFee, TREASURE, BOUNTY_NAMES,
+  HAVEN_R, WORLD_R, MAX_LEVEL, UPGRADES, CLAN_PLAN, claimFee, TREASURE, BOUNTY_NAMES, BOARD,
 } from './config.js';
 import {
   shipStats, shipSpec, crewEff, flagship, addXp, hostile, shielded, havenAccess, sinkLoot, gain, produce,
@@ -139,6 +139,69 @@ export class Sim {
     s.hull = s.stats.hull * fh; s.sails = s.stats.sails * fs; s.crew = Math.round(s.stats.crew * fc);
     s.rev = (s.rev || 0) + 1;
     this.dirty.meta = true;
+  }
+  /** The ship `s` could board right now: an AI hull alongside, beaten down (hull or crew broken), not racing away. */
+  boardTarget(s) {
+    if (!s || s.sink > 0 || s.docked) return null;
+    let best = null, bd = Infinity;
+    for (const o of this.ships.values()) {
+      if (o === s || o.pid || o.sink > 0 || o.role === 'fleet' || o.owner === s.owner) continue;
+      const d = Math.hypot(o.x - s.x, o.z - s.z), reach = (s.stats.beam + o.stats.beam) / 2 + BOARD.gap + Math.min(s.stats.len, o.stats.len) * 0.3;
+      if (d > reach || d >= bd) continue;
+      if (o.hull / o.stats.hull > BOARD.hull && o.crew / o.stats.crew > BOARD.crew) continue;
+      const rv = Math.hypot(Math.sin(o.yaw) * o.spd - Math.sin(s.yaw) * s.spd, Math.cos(o.yaw) * o.spd - Math.cos(s.yaw) * s.spd);
+      if (rv > BOARD.relSpeed) continue;
+      best = o; bd = d;
+    }
+    return best;
+  }
+  /** Can this prize be taken into a fleet (vs only stripped)? */
+  capturable(o) { return !['treasure', 'bounty', 'phantom', 'escort'].includes(o.tag) && tierIndex(o.spec.tier) <= AI_TOP_TIER; }
+  /** Boarding action: crews fight it out. Returns { win, mode, name, lost, loot?, prize? } or { err }. */
+  board(s, mode = 'capture') {
+    const p = this.W.players[s.pid];
+    if (!p) return { err: 'No captain' };
+    if ((s.boardT || 0) > this.time) return { err: `Your boarders are regrouping (${Math.ceil(s.boardT - this.time)}s)` };
+    const o = this.boardTarget(s);
+    if (!o) return { err: 'Come alongside a crippled ship (hull under 35% or crew broken) and match its speed' };
+    if (this.inHaven(s.x, s.z)) return { err: 'No fighting inside a safe haven' };
+    if (mode === 'capture' && !this.capturable(o)) mode = 'plunder';
+    if (mode === 'capture' && (p.fleet?.length || 0) >= BOARD.fleetMax) return { err: `Your fleet is full (${BOARD.fleetMax} ships) — sell or scuttle one first, or plunder instead (V)` };
+    s.boardT = this.time + BOARD.cd;
+    const elite = o.tag && o.tag !== 'escort' ? 1.6 : o.role === 'navy' ? 1.3 : o.role === 'merchant' ? 0.7 : 1;
+    const mine = s.crew * crewEff(s.crew, s.stats.crew), theirs = Math.max(1, o.crew) * elite;
+    const win = this.rand() < mine / (mine + theirs * 1.1);
+    const name = o.name;
+    this.fx.push({ t: 'board', x: (s.x + o.x) / 2, z: (s.z + o.z) / 2, win });
+    if (!win) {
+      const lost = Math.round(s.crew * 0.35);
+      s.crew = Math.max(1, s.crew - lost); o.crew = Math.max(1, o.crew * 0.8);
+      return { win: false, mode, name, lost };
+    }
+    const lost = Math.max(1, Math.round(Math.min(s.crew * 0.5, theirs * 0.25)));
+    s.crew = Math.max(1, s.crew - lost);
+    const rank = tierRank(o.spec.tier);
+    if (mode === 'capture') {
+      const prize = shipSpec(o.spec.tier, { name: `${name.replace(/^Wanted: /, '')} (prize)`, side: o.spec.side, size: o.spec.size, hullColor: o.look?.hullColor, trimColor: o.look?.trimColor, sailColor: o.look?.sailColor });
+      prize.hp = Math.round(Math.max(o.stats.hull * 0.15, o.hull)); // she comes home battered: repair her in port
+      p.fleet.push(prize);
+      addXp(p, 60 * (rank + 1));
+      p.prizes = (p.prizes || 0) + 1;
+      this.fx.push({ t: 'fade', ship: o.id, x: o.x, z: o.z, quiet: true });
+      this.removeShip(o.id);
+      this.dirty.prof.add(p.id);
+      this.msgs.push({ to: p.id, text: `Prize taken! The ${name} strikes her colours and joins your fleet. Send her out with G, or repair her in port.`, kind: 'event' });
+      return { win: true, mode, name, lost, prize: prize.uid };
+    }
+    // plunder: strip her holds, then scuttle her (normal sinking rewards apply on top)
+    const loot = sinkLoot(o.spec.tier, this.rand);
+    for (const k in loot) loot[k] = Math.round(loot[k] * 2.2);
+    if (o.role === 'merchant') { loot.gold *= 2; loot.canvas *= 2; }
+    gain(p.inv, loot);
+    o.lastBy = p.id;
+    this.hurt(o, o.hull + 1e6, 0, 0, p.id);
+    this.dirty.prof.add(p.id);
+    return { win: true, mode, name, lost, loot };
   }
   removeShip(id) { this.ships.delete(id); this.dirty.meta = true; }
 

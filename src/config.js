@@ -1,7 +1,7 @@
 // Game data: ship tiers, upgrades, ammo, resources, buildings, recipes.
 // Everything balance-related lives here so logic tests and the dev console can read it.
 
-export const VERSION = '2.5.0';
+export const VERSION = '2.6.0';
 
 export const RES = ['gold', 'oak', 'iron', 'canvas', 'powder'];
 export const RES_LABEL = { gold: 'Gold', oak: 'Oak', iron: 'Iron', canvas: 'Canvas', powder: 'Powder' };
@@ -78,6 +78,9 @@ export const WHEEL = {
 /** Holiday Tides: claim a gift every day; claim EVERY day through New Year's Day for a Titan card. */
 // Treasure maps: dropped by sunk pirates (or bought from the Free Port tavern); sail to the X and dig (E).
 export const TREASURE = { price: 2500, max: 3, drop: 0.14, range: 95 };
+// Boarding: come alongside a crippled ship (hull or crew broken) and send your crew across. Capture it into
+// your fleet or strip it bare. Odds follow the crews; flagships, wanted men and phantoms can only be plundered.
+export const BOARD = { hull: 0.35, crew: 0.3, gap: 14, relSpeed: 7, cd: 20, fleetMax: 30 };
 // Voyages: charter passage from a harbour to the Free Port or one of your own islands. Gold per metre travelled.
 export const VOYAGE = { base: 250, perM: 0.35 };
 // Bounty hunts: a wanted captain sails somewhere on the map; sinking them pays the bounty plus a wheel spin.

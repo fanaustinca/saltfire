@@ -15,7 +15,17 @@ import { shielded } from '../economy.js';
 const C = (h) => new THREE.Color(h);
 let MAT = null;
 /** Night lights: windows, lamps and the lighthouse glow brighter after dark (k 0..1). */
-export function setIslandGlow(k) { const m = mats(); m.glow.emissiveIntensity = 2 * (1 + k * 2.2); m.vcGlow.emissiveIntensity = 0.5 * (1 + k * 3); }
+export function setIslandGlow(k) { const m = mats(); m.glow.emissiveIntensity = 2 * (1 + k * 2.2); m.vcGlow.emissiveIntensity = 0.5 * (1 + k * 3); beamMat().uniforms.uOp.value = Math.max(0, (k - 0.25) / 0.75); }
+let BEAM = null;
+/** Lighthouse beam: additive, brightest at the lamp and fading along its length; only lit after dusk. */
+function beamMat() {
+  BEAM ||= new THREE.ShaderMaterial({
+    uniforms: { uOp: { value: 0 } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false,
+    vertexShader: 'varying float vV; void main() { vV = uv.y; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: 'uniform float uOp; varying float vV; void main() { gl_FragColor = vec4(vec3(1.0, 0.92, 0.7) * uOp * pow(vV, 2.2) * 0.42, 1.0); }',
+  });
+  return BEAM;
+}
 function mats() {
   if (MAT) return MAT;
   const st = stone();
@@ -396,6 +406,15 @@ function portTown(isl, T, r) {
   const la = 2.4, ld = T.R * 0.86; lh.position.set(Math.cos(la) * ld, T.hAt(ld, la), Math.sin(la) * ld);
   lh.traverse((o) => { o.castShadow = true; });
   g.add(lh);
+  // twin rotating beams from the lantern room (onBeforeRender keeps them out of static batching)
+  const bg = new THREE.ConeGeometry(16, 320, 20, 1, true); bg.translate(0, -160, 0); bg.rotateZ(Math.PI / 2);
+  for (const off of [0, Math.PI]) {
+    const beam = new THREE.Mesh(bg, beamMat());
+    beam.position.set(lh.position.x, lh.position.y + 27.5, lh.position.z);
+    beam.frustumCulled = false; beam.renderOrder = 3;
+    beam.onBeforeRender = () => { beam.rotation.y = (performance.now() / 1000) * 0.55 + off; };
+    g.add(beam);
+  }
   // piers all around
   for (let k = 0; k < 4; k++) { const a = k * (Math.PI / 2) + 0.4; g.add(pier(Math.cos(a) * T.R * 0.95, Math.sin(a) * T.R * 0.95, a, k % 2 ? 70 : 140, k % 2 ? 7 : 11)); }
   // market stalls + flags

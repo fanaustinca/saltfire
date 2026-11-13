@@ -397,3 +397,37 @@ export class Lightning {
     this.mat.opacity = this.t > 0.22 ? 1 : this.t > 0.14 ? 0.15 : this.t > 0.08 ? 0.9 : Math.max(0, this.t / 0.08);
   }
 }
+
+/** Seagulls wheeling over the islands nearest the camera (daytime only). One instanced mesh; a flap is just the
+ *  V of the wings squashed and flipped through its vertical scale. */
+export class Birds {
+  constructor(scene) {
+    const g = new THREE.BufferGeometry();
+    // two wings meeting at the body: tips out at ±x and up a little
+    g.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0.35, -1.25, 0.35, -0.15, 0, 0, -0.3, 0, 0, 0.35, 0, 0, -0.3, 1.25, 0.35, -0.15], 3));
+    g.computeVertexNormals();
+    this.N = 36;
+    this.mesh = new THREE.InstancedMesh(g, new THREE.MeshBasicMaterial({ color: 0xf2f2ee, side: THREE.DoubleSide }), this.N);
+    this.mesh.frustumCulled = false; this.mesh.count = 0;
+    scene.add(this.mesh);
+    this.b = Array.from({ length: this.N }, (_, i) => ({ r: 30 + Math.random() * 90, h: 18 + Math.random() * 40, w: (0.12 + Math.random() * 0.18) * (Math.random() < 0.5 ? -1 : 1), ph: Math.random() * 6.28, f: 6 + Math.random() * 4, s: 1.5 + Math.random() * 0.7, isl: i % 4 }));
+    this.m = new THREE.Matrix4(); this.q = new THREE.Quaternion(); this.e = new THREE.Euler(); this.v = new THREE.Vector3(); this.sc = new THREE.Vector3();
+  }
+  /** `isles`: nearest few islands [{x, z, r}] ; `k` 0..1 daylight */
+  update(t, isles, k, cam) {
+    if (k < 0.05 || !isles.length) { this.mesh.count = 0; return; }
+    let n = 0;
+    for (const b of this.b) {
+      const I = isles[b.isl % isles.length]; if (!I) continue;
+      if (Math.hypot(I.x - cam.x, I.z - cam.z) > 1200) continue;
+      const a = b.ph + t * b.w, R = I.r * 0.5 + b.r;
+      this.v.set(I.x + Math.cos(a) * R, b.h + Math.sin(t * 0.3 + b.ph) * 6, I.z + Math.sin(a) * R);
+      // face along the circle (tangent), banked into the turn
+      this.e.set(0, -a + (b.w > 0 ? 0 : Math.PI), b.w > 0 ? 0.35 : -0.35, 'YXZ'); this.q.setFromEuler(this.e);
+      const flap = Math.sin(t * b.f + b.ph);
+      this.sc.set(b.s * 1.3, b.s * 1.6 * (flap > -0.2 ? flap : -0.2 + (flap + 0.2) * 0.3), b.s * 1.3);
+      this.m.compose(this.v, this.q, this.sc); this.mesh.setMatrixAt(n++, this.m);
+    }
+    this.mesh.count = n; this.mesh.instanceMatrix.needsUpdate = true;
+  }
+}

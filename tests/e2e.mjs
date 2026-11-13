@@ -239,6 +239,14 @@ await T('multiplayer: 6-digit room code, join, sync, act, fire, offline shield, 
   await shot(H.page, 'e2e-mp-host.png');
   await C.page.bringToFront(); await sleep(800);
   await shot(C.page, 'e2e-mp-guest.png');
+  // weather + time of day reach the guest; a malformed message can't hurt the host
+  await H.page.evaluate(() => { dev.event('storm'); SALT.game.sim.weather.storm = 0.9; dev.time(23); });
+  await C.page.waitForFunction(() => SALT.game.sim.weather.storm > 0.5 && SALT.game.stage.env.night > 0.5, { polling: 200, timeout: 20000 });
+  await C.page.evaluate(() => { const r = SALT.game.room; r.toHost({ k: 'st', x: NaN, z: 'x', yaw: {}, life: SALT.game.me().life || 0 }); r.toHost({ k: 'fire', side: 'L', ax: 1, az: 1, ammo: 'constructor', balls: { length: 5 } }); r.toHost({ k: 'act', a: 'nope' }); r.toHost(null); });
+  await sleep(1500);
+  const hs = await H.page.evaluate(() => { const s = SALT.game.sim.ships.get('p:GUEST1'); return s && Number.isFinite(s.x) && Number.isFinite(s.z) && SALT.game.running; });
+  assert(hs, 'host survived bad messages with sane state');
+  await H.page.evaluate(() => { dev.calm(); dev.time(12); });
   // guest leaves -> offline, base shielded
   await C.page.close();
   await H.page.bringToFront();

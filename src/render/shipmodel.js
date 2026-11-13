@@ -21,6 +21,8 @@ const sm = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a)));
 
 // ------------------------------------------------------------------ shared materials
 let M = null;
+/** Night makes lanterns, stern lights and glowing ports burn brighter (k 0..1). */
+export function setShipGlow(k) { const m = mats(); m.lantern.emissiveIntensity = 1.6 * (1 + k * 1.6); m.ghostLamp.emissiveIntensity = 2.2 * (1 + k); }
 function mats() {
   if (M) return M;
   const pl = planks();
@@ -43,6 +45,7 @@ function mats() {
     plate: new THREE.MeshStandardMaterial({ color: 0x353940, roughness: 0.4, metalness: 0.75 }),
     armour: new THREE.MeshStandardMaterial({ color: 0x50555c, roughness: 0.55, metalness: 0.4 }),
     ember: new THREE.MeshStandardMaterial({ color: 0xff4020, emissive: 0xff2a00, emissiveIntensity: 2.4 }),
+    ghostLamp: new THREE.MeshStandardMaterial({ color: 0x6affd0, emissive: 0x2affb0, emissiveIntensity: 2.2 }),
     pl,
   };
   return M;
@@ -90,10 +93,11 @@ function sailVertex(sh, U) {
     .replace('#include <beginnormal_vertex>', '#include <beginnormal_vertex>\n{ vec3 sc = sailScale(); objectNormal = normalize(objectNormal / max(sc, vec3(0.04))); }')
     .replace('#include <begin_vertex>', '#include <begin_vertex>\ntransformed = aPivot + (position - aPivot) * sailScale();');
 }
-function sailMat(color) {
+function sailMat(color, share = null) {
   const m = new THREE.MeshStandardMaterial({ color, map: sailcloth(), roughness: 0.95, side: THREE.DoubleSide, emissive: color.clone().multiplyScalar(0.32), emissiveMap: sailcloth() });
-  m.userData.damage = { value: 0 };
-  const U = m.userData.sail = { lvl: { value: 1 }, wind: { value: 1 }, t: { value: 0 } };
+  // `share`: furl together with another sail material (e.g. a junk's dark battens with its canvas)
+  m.userData.damage = share ? share.userData.damage : { value: 0 };
+  const U = m.userData.sail = share ? share.userData.sail : { lvl: { value: 1 }, wind: { value: 1 }, t: { value: 0 } };
   const nz = noiseTex();
   m.onBeforeCompile = (sh) => {
     sh.uniforms.uDamage = m.userData.damage;
@@ -118,9 +122,10 @@ function sailMat(color) {
 /** Merge the sails under each parent into one mesh carrying the per-vertex pivot/kind attributes. */
 function batchSails(sails, smat) {
   const byParent = new Map();
-  for (const sl of sails) { const par = sl.mesh.parent; if (!par) continue; if (!byParent.has(par)) byParent.set(par, []); byParent.get(par).push(sl); }
+  for (const sl of sails) { const par = sl.mesh.parent; if (!par) continue; const key = par.uuid + sl.mesh.material.uuid; if (!byParent.has(key)) byParent.set(key, []); byParent.get(key).push(sl); }
   const out = [];
-  for (const [par, list] of byParent) {
+  for (const list of byParent.values()) {
+    const par = list[0].mesh.parent, mat = list[0].mesh.material;
     const geos = list.map((sl) => {
       const g = strip(sl.mesh.geometry.clone());
       const pv = sl.mesh.position, n = g.attributes.position.count;
@@ -132,10 +137,10 @@ function batchSails(sails, smat) {
       return g;
     });
     for (const sl of list) { par.remove(sl.mesh); sl.mesh.geometry.dispose(); }
-    const mesh = new THREE.Mesh(mergeGeometries(geos), smat);
+    const mesh = new THREE.Mesh(mergeGeometries(geos), mat);
     geos.forEach((g) => g.dispose());
     mesh.castShadow = true; mesh.receiveShadow = true;
-    mesh.customDepthMaterial = smat.userData.depth;
+    mesh.customDepthMaterial = mat.userData.depth;
     par.add(mesh);
     out.push(mesh);
   }
@@ -332,6 +337,9 @@ function rigPlan(id) {
     case 'sloop': return { mastH: 1.05, bs: [0.3, 0.16], jibs: 1, masts: [{ u: 0.6, h: 1, gaff: true, main: true, boom: 0.56 }] };
     case 'schooner': return { mastH: 1.15, bs: [0.5, 0.14], jibs: 3, masts: [{ u: 0.3, h: 1, gaff: true, topsail: true, main: true, boom: 0.42 }, { u: 0.63, h: 0.92, gaff: true, topsail: true, boom: 0.3 }] };
     case 'brigantine': return { mastH: 0.98, bs: [0.4, 0.3], jibs: 3, masts: [{ u: 0.36, h: 1, gaff: true, sq: 2, sqStart: 1, main: true, boom: 0.4 }, { u: 0.68, h: 0.92, sq: 3 }] };
+    case 'xebec': return { mastH: 0.98, bs: [0.34, 0.2], jibs: 1, masts: [{ u: 0.2, h: 0.72, lateen: true }, { u: 0.5, h: 1, lateen: true, main: true }, { u: 0.8, h: 0.86, lateen: true }] };
+    case 'junk': return { mastH: 0.8, bs: [0.08, 0.12], jibs: 0, masts: [{ u: 0.19, h: 0.62, junk: true }, { u: 0.5, h: 1, junk: true, main: true }, { u: 0.8, h: 0.8, junk: true }] };
+    case 'ghost': return { mastH: 0.96, bs: [0.36, 0.3], jibs: 2, masts: [{ u: 0.24, h: 0.78, sq: 3, spanker: true }, { u: 0.5, h: 1, sq: 4, main: true }, { u: 0.74, h: 0.88, sq: 3 }] };
     case 'frigate': return { mastH: 0.98, bs: [0.37, 0.32], jibs: 3, masts: [{ u: 0.24, h: 0.76, sq: 3, spanker: true }, { u: 0.5, h: 1, sq: 4, main: true }, { u: 0.73, h: 0.9, sq: 4 }] };
     case 'galleon': return { mastH: 0.8, bs: [0.38, 0.46], jibs: 1, sprit: true, masts: [{ u: 0.1, h: 0.5, lateen: true }, { u: 0.28, h: 0.66, lateen: true }, { u: 0.54, h: 1, sq: 3, main: true }, { u: 0.78, h: 0.84, sq: 2 }] };
     case 'manowar': return { mastH: 0.95, bs: [0.4, 0.3], jibs: 4, sprit: true, masts: [{ u: 0.25, h: 0.8, sq: 3, spanker: true }, { u: 0.5, h: 1, sq: 4, stud: true, main: true }, { u: 0.74, h: 0.92, sq: 4, stud: true }] };
@@ -357,7 +365,8 @@ export function buildShip(stats, look = {}) {
   const root = new THREE.Group();
   const body = new THREE.Group(); root.add(body);
   const titan = id === 'titan', lev = id === 'leviathan' || titan, sov = id === 'sovereign';
-  const big = id === 'manowar' || sov || lev, war = id === 'frigate' || big;
+  const ghost = id === 'ghost', junk = id === 'junk', xebec = id === 'xebec';
+  const big = id === 'manowar' || sov || lev, war = id === 'frigate' || ghost || big;
 
   const TL = tierById(id).look || {};
   const generic = !look.hullColor || (look.hullColor === '#5a3a22' && (!look.trimColor || look.trimColor === '#c9a227'));
@@ -366,16 +375,17 @@ export function buildShip(stats, look = {}) {
   if (generic && TL.sailColor && (!look.sailColor || look.sailColor === '#efe6cf')) look = { ...look, sailColor: TL.sailColor };
   const trimMat = new THREE.MeshStandardMaterial({ color: trim, roughness: 0.45, metalness: 0.5 });
   const colors = {
-    bottom: H.decks > 1 || war ? new THREE.Color(0xb8743f) : new THREE.Color(0x8a8270),
+    bottom: ghost ? new THREE.Color(0x2b3a33) : junk ? new THREE.Color(0x3a2a20) : H.decks > 1 || war ? new THREE.Color(0xb8743f) : new THREE.Color(0x8a8270),
     boot: new THREE.Color(0x1a1410), wale: new THREE.Color(0x15110d), iron: new THREE.Color(0x2c2f33),
     band: trim, rail: hullCol.clone().multiplyScalar(0.7), hull: hullCol, stern: hullCol.clone().multiplyScalar(0.85),
     castle: new THREE.Color(0x7a1d18),
   };
   const paint = {
-    band: lev ? 0.5 : war ? 0.42 : 0.34, wales: big || id === 'galleon', castle: id === 'galleon', stripe: id === 'schooner' || id === 'sloop', ironBand: big,
+    band: lev ? 0.5 : war ? 0.42 : 0.34, wales: big || id === 'galleon', castle: id === 'galleon', stripe: id === 'schooner' || id === 'sloop' || xebec, ironBand: big,
   };
   const hull = new THREE.Mesh(hullGeometry(H, colors, paint), hullMat());
   hull.castShadow = true; hull.receiveShadow = true;
+  if (ghost) { hull.material.emissive.set(0x0c3a2c); trimMat.emissive.set(0x1aff9c); trimMat.emissiveIntensity = 0.9; }
   body.add(hull);
   const deckMesh = new THREE.Mesh(deckGeometry(H), m.deck); deckMesh.receiveShadow = true; body.add(deckMesh);
 
@@ -430,6 +440,41 @@ export function buildShip(stats, look = {}) {
     dark.push(box(x * 2, 0.9, 0.18, [0, qy + 0.35, -L / 2 + L * 0.22]));
     for (let i = 0; i < 9; i++) dark.push(box(0.12, 0.8, 0.12, [-x + (2 * x * i) / 8, qy + 0.45, -L / 2 + L * 0.22]));
     dark.push(box(B * 0.28, 0.3, L * 0.08, [0, dY + 0.15, zU(0.52)]));
+  } else if (xebec) {
+    // low quarterdeck with a striped awning on posts, oar ports along the waist, a beak under the bowsprit
+    const qy = deckY(H, 0.1), x = hullX(H, 0.14, qy) * 0.95;
+    dark.push(box(x * 2, 0.25, L * 0.2, [0, qy + 0.3, -L / 2 + L * 0.12]));
+    for (const sx of [-1, 1]) for (const u of [0.04, 0.12, 0.2]) dark.push(box(0.12, 2.2, 0.12, [sx * x * 0.9, qy + 1.5, zU(u)]));
+    for (let i = 0; i < 5; i++) (i % 2 ? red : white).push(box(x * 1.95, 0.08, L * 0.04, [0, qy + 2.62 + Math.sin(i) * 0.02, zU(0.04 + i * 0.04)], [0.06, 0, 0]));
+    for (let i = 0; i < 12; i++) for (const sx of [-1, 1]) { const u = 0.25 + i * 0.045, y = sheer(H, u) - 0.75; ports.push(box(0.1, 0.22, 0.3, [sx * (hullX(H, u, y) + 0.04), y, zU(u)])); }
+    dark.push(box(B * 0.22, 0.3, L * 0.07, [0, dY + 0.15, zU(0.6)]));
+  } else if (junk) {
+    // towering stern house with a pavilion, upturned eaves and lanterns; a raised foredeck
+    const py = deckY(H, 0.1), pw = hullX(H, 0.13, py) * 0.96, pL = L * 0.24;
+    red.push(box(pw * 2, 2.5, pL, [0, py + 1.25, zU(0.12)]));
+    dark.push(box(pw * 2 + 0.4, 0.26, pL + 0.4, [0, py + 2.55, zU(0.12)]));
+    for (const sx of [-1, 1]) {
+      for (let i = 0; i < 11; i++) gold.push(box(0.1, 0.8, 0.1, [sx * pw, py + 3.05, zU(0.005 + i * 0.023)]));
+      gold.push(box(0.12, 0.12, pL, [sx * pw, py + 3.45, zU(0.12)]));
+      for (let i = 0; i < 3; i++) glass.push(box(0.08, 0.8, 1.0, [sx * (pw + 0.02), py + 1.3, zU(0.05 + i * 0.07)]));
+    }
+    red.push(box(pw * 1.2, 1.7, pL * 0.42, [0, py + 3.5, zU(0.075)]));
+    dark.push(box(pw * 1.55, 0.28, pL * 0.6, [0, py + 4.45, zU(0.075)]));
+    dark.push(box(pw * 1.1, 0.22, pL * 0.45, [0, py + 4.7, zU(0.075)]));
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) gold.push(place(new THREE.ConeGeometry(0.18, 0.9, 5), [sx * pw * 0.78, py + 4.75, zU(0.075) + sz * pL * 0.3], [0, 0, -sx * 0.9]));
+    for (const sx of [-1, 1]) { iron.push(place(cyl(0.04, 0.04, 1.2, 4), [sx * pw * 0.8, py + 3.9, zU(0.2)])); lamps.push(place(new THREE.SphereGeometry(0.42, 10, 8), [sx * pw * 0.8, py + 4.6, zU(0.2)], null, [1, 1.25, 1])); red.push(place(new THREE.SphereGeometry(0.46, 10, 8), [sx * pw * 0.8, py + 4.6, zU(0.2)], null, [1, 1.15, 1])); }
+    const fy = deckY(H, 0.9), fw = hullX(H, 0.88, fy) * 0.95;
+    dark.push(box(fw * 2, 0.9, L * 0.12, [0, fy + 0.45, zU(0.93)]));
+    for (let i = 0; i < 8; i++) gold.push(box(0.1, 0.7, 0.1, [-fw + (2 * fw * i) / 7, fy + 1.25, zU(0.875)]));
+    // the painted eyes that let a junk see its way
+    for (const sx of [-1, 1]) {
+      const ey = sheer(H, 0.93) - 0.9, ex = sx * (hullX(H, 0.93, ey) + 0.06), rot = [0, sx * Math.PI / 2 + sx * 0.35, 0];
+      white.push(place(new THREE.CircleGeometry(1.05, 20), [ex, ey, zU(0.93)], rot));
+      ports.push(place(new THREE.CircleGeometry(0.5, 16), [ex + sx * 0.03, ey, zU(0.93) + 0.04], rot));
+    }
+    // great rudder hung below the transom
+    dark.push(box(0.5, H.depth * 1.1, L * 0.07, [0, keelY(H, 0.02) * 0.4 + 0.6, -L / 2 - L * 0.02]));
+    for (let i = 0; i < 3; i++) dark.push(box(B * 0.24, 0.32, L * 0.06, [0, dY + 0.16, zU(0.36 + i * 0.12)]));
   } else if (war && !lev) {
     // flush spar deck: hatch gratings, boats on skid beams, quarterdeck carronades
     if (!big) for (const u of [0.38, 0.6]) dark.push(box(B * 0.3, 0.35, L * 0.06, [0, dY + 0.17, zU(u)]));
@@ -557,7 +602,7 @@ export function buildShip(stats, look = {}) {
   // warships show a full tier of gunports on every deck, whatever their current battery
   {
     const decks = Math.max(1, H.decks);
-    const per = titan ? 32 : lev ? 26 : sov ? 20 : big ? 15 : id === 'galleon' ? 9 : id === 'frigate' ? 12 : id === 'brigantine' ? 7 : id === 'schooner' ? 4 : 0;
+    const per = titan ? 32 : lev ? 26 : sov ? 20 : big ? 15 : id === 'galleon' ? 9 : id === 'frigate' || ghost ? 12 : junk ? 8 : xebec ? 5 : id === 'brigantine' ? 7 : id === 'schooner' ? 4 : 0;
     for (let d = 0; d < decks; d++) {
       const y = Math.max(0.6, deckY(H, 0.5) - d * deckGap(H) + 0.55);
       const u0 = (lev ? 0.1 : 0.17) + d * 0.025, u1 = (lev ? 0.88 : 0.8) - d * 0.03;
@@ -603,7 +648,10 @@ export function buildShip(stats, look = {}) {
 
   // ---------------------------------------------------------------- masts, tops, yards, sails
   const sails = [];
+  let battenMat = null;
   const smat = sailMat(new THREE.Color(look.sailColor || (big ? '#f3efe2' : '#efe6cf')));
+  // ghost canvas: see-through, glowing, and permanently in tatters
+  if (ghost) { smat.transparent = true; smat.opacity = 0.72; smat.depthWrite = false; smat.emissive.set(0x2affb4).multiplyScalar(0.5); smat.userData.tatter = 0.34; }
   const mastTops = [];
   const mastH = L * plan.mastH;
   const rigLines = [];
@@ -707,6 +755,24 @@ export function buildShip(stats, look = {}) {
       const yA = new V3(0, base + 1.4, z + h * 0.35), yB = new V3(0, base + h * 0.95, z - h * 0.42);
       spar.push(span(yA, yB, 0.15 * gs, 0.1 * gs, 6));
       const sail = new THREE.Mesh(patchSail([yA.clone(), yB.clone(), new V3(0, base + 1.6, z - h * 0.3)], h * 0.08), smat); body.add(sail); sails.push({ mesh: sail, kind: 'fore-aft' });
+    }
+    if (mm.junk) {
+      // (battenMat is shared by every junk mast; created on first use)
+      // battened lug sail: luff a little ahead of the mast, a fan-shaped leech well aft, bamboo battens across
+      const y0 = base + 1.9, y1 = base + h * 0.97, hh = y1 - y0, fw = h * 0.12, aw = h * 0.36;
+      const fb = new V3(0, y0, z + fw), ab = new V3(0, y0 + hh * 0.06, z - aw), ft = new V3(0, y1 - hh * 0.1, z + fw * 0.5), atp = new V3(0, y1 + hh * 0.02, z - aw * 1.55);
+      const sail = new THREE.Mesh(patchSail([ft.clone(), atp.clone(), ab.clone(), fb.clone()], hh * 0.04), smat); body.add(sail); sails.push({ mesh: sail, kind: 'fore-aft' });
+      spar.push(span(ft, atp, 0.14 * gs, 0.1 * gs, 6)); spar.push(span(fb, ab, 0.14 * gs, 0.1 * gs, 6));
+      const nb = Math.max(4, Math.round(hh / 2.6));
+      for (let k = 1; k < nb; k++) {
+        const t = k / nb, a = new V3().lerpVectors(fb, ft, t), b2 = new V3().lerpVectors(ab, atp, t);
+        // the batten follows the sail's belly (patchSail bulges along +x by sin(pi u) sin(pi v))
+        battenMat ||= sailMat(new THREE.Color('#2a1a10'), smat);
+        const segs = [], NB = 6, pt = (u) => new V3(Math.sin(Math.PI * u) * Math.sin(Math.PI * t) * hh * 0.04, a.y + (b2.y - a.y) * u, a.z + (b2.z - a.z) * u);
+        for (let q = 0; q < NB; q++) segs.push(span(pt(q / NB), pt((q + 1) / NB), 0.13, 0.13, 5));
+        const bt = new THREE.Mesh(mergeGeometries(segs.map(strip)), battenMat); body.add(bt); sails.push({ mesh: bt, kind: 'fore-aft' });
+        pushLine(b2, new V3(0, deckY(H, Math.max(0.02, mm.u - 0.12)) + 0.9, z - aw * 1.35));
+      }
     }
     // flags: the main masthead flies the captain's colours; a Man of War flies pennants from every mast
     if (mm.main || big) {
@@ -1042,7 +1108,7 @@ export function buildShip(stats, look = {}) {
   // assemble merged static meshes
   // LOD: `near` details vanish first (mid range), `small` ones far away; hull, deck, spars and sails always stay
   const lodNear = [], lodFar = [];
-  for (const [list, mat, lod] of [[dark, m.darkwood, 0], [spar, m.spar, 0], [iron, m.iron, 2], [gold, m.gold, 2], [ports, m.port, 2], [glass, m.glass, 1], [lamps, m.lantern, 2], [red, m.red, 2], [white, m.white, 2], [trimL, trimMat, 2], [marble, m.marble, 2], [plate, m.plate, 2], [armour, m.armour, 0], [ember, m.ember, 1]]) {
+  for (const [list, mat, lod] of [[dark, m.darkwood, 0], [spar, m.spar, 0], [iron, m.iron, 2], [gold, m.gold, 2], [ports, m.port, 2], [glass, m.glass, 1], [lamps, ghost ? m.ghostLamp : m.lantern, 2], [red, m.red, 2], [white, m.white, 2], [trimL, trimMat, 2], [marble, m.marble, 2], [plate, m.plate, 2], [armour, m.armour, 0], [ember, m.ember, 1]]) {
     const mesh = merged(list, mat); if (!mesh) continue;
     body.add(mesh);
     if (lod === 1) lodNear.push(mesh); else if (lod === 2) lodFar.push(mesh);
@@ -1066,7 +1132,7 @@ export function buildShip(stats, look = {}) {
     setSailLevel(l) { this.sailLevel = l; },
     /** sail damage 0..1: holes in the canvas, and topmasts shot away as it gets worse. */
     setDamage(d) {
-      smat.userData.damage.value = d; this.damage = d;
+      smat.userData.damage.value = Math.max(d, smat.userData.tatter || 0); this.damage = d;
       // aft masts go first, the mainmast last
       const order = mastGroups.map((g, i) => i).sort((a, b) => (mastGroups[a].main - mastGroups[b].main) || mastGroups[a].u - mastGroups[b].u);
       order.forEach((gi, k) => { const broken = d > 0.55 + k * 0.12; mastGroups[gi].upper.visible = !broken; mastGroups[gi].stump.visible = broken; });
@@ -1124,7 +1190,7 @@ export function buildShip(stats, look = {}) {
     },
     dispose() {
       root.traverse((o) => { if (o.geometry && o.geometry !== HOLE) o.geometry.dispose(); });
-      hull.material.dispose(); smat.dispose(); smat.userData.depth.dispose(); flagMat.dispose(); pennantMat.dispose(); trimMat.dispose();
+      hull.material.dispose(); smat.dispose(); smat.userData.depth.dispose(); if (battenMat) { battenMat.dispose(); battenMat.userData.depth.dispose(); } flagMat.dispose(); pennantMat.dispose(); trimMat.dispose();
     },
   };
   return api;

@@ -85,7 +85,7 @@ function act(sim, pid, a) {
     case 'spinWheel': {
       const res = E.spinWheel(p, sim.clock(), sim.rand, { paid: !!a.paid });
       if (typeof res === 'string') return r(res);
-      if (res.prize.kind === 'ship' && ['titan', 'leviathan', 'sovereign'].includes(res.prize.tier)) W.log?.push({ t: Date.now(), text: `${p.name} won a ${res.text} on the Wheel of Fortune!` });
+      if (res.prize.kind === 'ship' && ['titan', 'leviathan', 'sovereign', 'ghost'].includes(res.prize.tier)) W.log?.push({ t: Date.now(), text: `${p.name} won a ${res.text} on the Wheel of Fortune!` });
       mark(); return r(null, res);
     }
     case 'buyMap': {

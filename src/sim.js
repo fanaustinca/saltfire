@@ -4,22 +4,26 @@
 // trade on the market and fortify their holds, world events, production. On clients it only
 // advances visual cannonballs and effects; ship state arrives in snapshots.
 import {
-  AI_TOP_TIER, TIERS, tierById, tierIndex, AMMO, GRAVITY, MUZZLE, SECTOR_HALF, CHASE_HALF, MIN_RANGE, BUILDINGS,
+  AI_TOP_TIER, TIERS, tierById, tierIndex, tierRank, AMMO, GRAVITY, MUZZLE, SECTOR_HALF, CHASE_HALF, MIN_RANGE, BUILDINGS,
   HAVEN_R, WORLD_R, MAX_LEVEL, UPGRADES, CLAN_PLAN, claimFee, TREASURE, BOUNTY_NAMES,
 } from './config.js';
 import {
   shipStats, shipSpec, crewEff, flagship, addXp, hostile, shielded, havenAccess, sinkLoot, gain, produce,
   npcRestock, newProfile, uid, clamp, aiFaction, fleetCap, build as buildOn, canAfford, bestAsk, bestBid,
-  instantBuy, placeOrder, NPC_PRICES, makeTreasureMap, addTreasureMap,
+  instantBuy, placeOrder, NPC_PRICES, makeTreasureMap, addTreasureMap, addCard,
 } from './economy.js';
 import { gunLayout } from './layout.js';
 import { buildingPos, harborPoint, baseRadius, baseShape, dockAngle, assignRoom } from './basegeo.js';
 import { expandWorld } from './worldgen.js';
-import { heightAt } from './waves.js';
+import { heightAt, setSea } from './waves.js';
 import { islandShape } from './islandshape.js';
 import { newClan } from './worldgen.js';
 
 const SIDES = new Set(['L', 'R', 'bow', 'stern']);
+/** Day/night: one full day takes DAY_LEN seconds of (host) game time; the first 70% is daylight. */
+export const DAY_LEN = 1440;
+export const dayPhase = (t) => (((t / DAY_LEN) + 0.06) % 1 + 1) % 1;
+export const isNight = (t) => dayPhase(t) >= 0.7;
 export const SAIL_STEPS = [0, 0.34, 0.67, 1];
 export const SAIL_NAMES = ['Anchored', 'Battle Sails', 'Half Sail', 'Full Sail'];
 const TAU = Math.PI * 2;
@@ -100,6 +104,10 @@ export class Sim {
     this.clanT = 0;
     this.econT = 5;
     this.time = 0;
+    this.weather = { storm: 0, target: 0, next: 600 + rand() * 900, until: 0 };
+    this.seaBase = 0.8; // calm-weather wave scale (dev.sea changes it); storms multiply it
+    this.wasNight = false;
+    this.dayOff = 0; // dev: shift the time of day
     this.capture = new Map(); // baseId -> { owner, t }
     this.damagers = new Map(); // targetId -> Map(owner -> dmg)
     this.aiDensity = 16;
@@ -291,7 +299,7 @@ export class Sim {
       const along = side === 'L' || side === 'R' ? g.z : g.x;
       const ox = side === 'L' || side === 'R' ? fx * along : Math.cos(s.yaw) * along;
       const oz = side === 'L' || side === 'R' ? fz * along : -Math.sin(s.yaw) * along;
-      const spread = (0.012 + 0.03 * (1 - eff)) * (s.stats.spread ?? 1) * d;
+      const spread = (0.012 + 0.03 * (1 - eff)) * (s.stats.spread ?? 1) * d * (1 + this.weather.storm * 0.6); // storms throw the aim about
       const px = tx + ox + (rand() - 0.5) * 2 * spread, pz = tz + oz + (rand() - 0.5) * 2 * spread;
       const hd = Math.max(MIN_RANGE * 0.5, Math.hypot(px - mx, pz - mz));
       const el = solveElev(hd, this.surfaceAt(px, pz) + 1.6 - my, v) ?? 0.26;
@@ -413,7 +421,6 @@ export class Sim {
   sinkShip(s) {
     s.hull = 0; s.sink = 0.001; s.fire = 0;
     this.fx.push({ t: 'sink', ship: s.id, x: s.x, z: s.z });
-    const ti = tierIndex(s.spec.tier);
     const loot = sinkLoot(s.spec.tier, this.rand);
     if (s.role === 'merchant') { loot.gold *= 2; loot.canvas *= 2; loot.oak *= 2; }
     if (s.tag === 'treasure') { loot.gold *= 8; loot.powder += 20; }
@@ -434,14 +441,14 @@ export class Sim {
     // a clan that sinks a ship pockets part of the gold
     const killer = s.lastBy && this.W.ai?.[s.lastBy];
     if (killer?.clan) { killer.inv.gold += Math.round(loot.gold * 0.6); loot.gold = Math.round(loot.gold * 0.4); }
-    this.crates.push({ id: uid('c'), x: s.x, z: s.z, loot, t: 0, big: s.tag === 'treasure' || ti >= 4 });
+    this.crates.push({ id: uid('c'), x: s.x, z: s.z, loot, t: 0, big: s.tag === 'treasure' || tierRank(s.spec.tier) >= 4 });
     const dm = this.damagers.get(s.id);
     if (dm) {
       let tot = 0; for (const v of dm.values()) tot += v;
       for (const [owner, v] of dm) {
         const p = this.W.players[owner];
         if (!p || owner === s.owner) continue;
-        const xp = (45 * (ti + 1) * (1 + s.level / 8)) * (s.tag === 'treasure' ? 5 : 1) * (0.3 + 0.7 * v / tot);
+        const xp = (45 * (tierRank(s.spec.tier) + 1) * (1 + s.level / 8)) * (s.tag === 'treasure' ? 5 : 1) * (0.3 + 0.7 * v / tot);
         const lv = addXp(p, xp);
         if (owner === s.lastBy) p.kills = (p.kills || 0) + 1;
         this.dirty.prof.add(owner);
@@ -453,9 +460,19 @@ export class Sim {
     if (s.tag === 'treasure') this.msgs.push({ to: null, text: 'The Treasure Flagship has been sunk! Its gold floats free…', kind: 'event' });
     // pirates sometimes carry a treasure map (flagships and wanted captains always do)
     const kp = this.W.players[s.lastBy];
-    if (kp && !s.pid && s.role !== 'fleet' && (s.tag === 'treasure' || s.tag === 'bounty' || (s.role === 'pirate' && this.rand() < TREASURE.drop))) {
+    if (kp && !s.pid && s.role !== 'fleet' && (s.tag === 'treasure' || s.tag === 'bounty' || s.tag === 'phantom' || (s.role === 'pirate' && this.rand() < TREASURE.drop))) {
       if (addTreasureMap(kp, makeTreasureMap(this.W, this.rand, s.x, s.z, kp.level))) this.msgs.push({ to: kp.id, text: `You found a treasure map in the ${s.name}'s cabin! Sail to the X on your map (M) and press E to dig.`, kind: 'event' });
       this.dirty.prof.add(kp.id);
+    }
+    if (s.tag === 'phantom') {
+      let card = false;
+      if (kp) {
+        kp.inv.gold += 15000; kp.inv.explosive = (kp.inv.explosive || 0) + 40;
+        kp.wheel ||= {}; kp.wheel.bonus = (kp.wheel.bonus || 0) + 1;
+        if (this.rand() < 0.15) { addCard(kp, { kind: 'ship', tier: 'ghost' }); card = true; }
+        this.dirty.prof.add(kp.id);
+      }
+      this.msgs.push({ to: null, text: kp ? `${kp.name} sent the Phantom back to the deep! 15,000 gold, explosive shells and a Wheel spin${card ? ' — and its cursed hull answers to them now: a GHOST SHIP reward card!' : '.'}` : 'The Phantom sinks beneath the waves… for tonight.', kind: 'event' });
     }
     if (s.tag === 'bounty') {
       if (kp) {
@@ -688,7 +705,7 @@ export class Sim {
     const vx = Math.sin(tgt.yaw) * tgt.spd, vz = Math.cos(tgt.yaw) * tgt.spd;
     for (let i = 0; i < 2; i++) { const d = Math.hypot(tx - from.x, tz - from.z); const ft = d / (v * 0.97); tx = tgt.x + vx * ft; tz = tgt.z + vz * ft; }
     const d = Math.hypot(tx - from.x, tz - from.z);
-    tx += (this.rand() - 0.5) * 2 * spreadK * d; tz += (this.rand() - 0.5) * 2 * spreadK * d;
+    spreadK *= 1 + this.weather.storm * 0.6; tx += (this.rand() - 0.5) * 2 * spreadK * d; tz += (this.rand() - 0.5) * 2 * spreadK * d;
     const hd = Math.hypot(tx - from.x, tz - from.z);
     const el = solveElev(hd, (tgt.heave || 0) + 1.6 - from.y, v);
     if (el == null) return null;
@@ -704,7 +721,7 @@ export class Sim {
     if (o.pid && shielded(this.W, o.owner)) return false;
     if (s.role === 'navy' && o.role === 'merchant') return false;
     if (s.role === 'fleet' && o.role === 'merchant' && !s.ai.plunder) return false;
-    const gap = tierIndex(o.spec.tier) - tierIndex(s.spec.tier);
+    const gap = tierRank(o.spec.tier) - tierRank(s.spec.tier);
     if (!s.ai.bold && gap > 1 && s.hull > o.hull * 0.6) return false;
     return true;
   }
@@ -766,7 +783,7 @@ export class Sim {
   }
   deliverCargo(s) {
     const g = this.W.ai['ai:merchant'];
-    if (g) gain(g.inv, { oak: 25 + tierIndex(s.spec.tier) * 10, canvas: 18, iron: 10, powder: 3, gold: 200 });
+    if (g) gain(g.inv, { oak: 25 + tierRank(s.spec.tier) * 10, canvas: 18, iron: 10, powder: 3, gold: 200 });
     this.removeShip(s.id);
   }
   thinkHunter(s) {
@@ -916,7 +933,7 @@ export class Sim {
       // 60% small fry (sloops/schooners), 40% matched to the captain (their tier and the two below)
       const strong = o.strong ?? this.rand() < 0.4;
       let ti;
-      if (o.tier != null) ti = Math.min(AI_TOP_TIER, tierIndex(o.tier));
+      if (o.tier != null) ti = o.anyTier ? tierIndex(o.tier) : Math.min(AI_TOP_TIER, tierIndex(o.tier));
       else if (strong) ti = clamp(myTier - Math.floor(this.rand() * 3) + (role === 'navy' && this.rand() < 0.4 ? 1 : 0), 0, Math.max(0, allowed));
       else ti = clamp(Math.floor(this.rand() * 2.3), 0, Math.max(0, Math.min(2, myTier)));
       const T = TIERS[ti];
@@ -1019,7 +1036,7 @@ export class Sim {
         if (!near.length) { for (const s of patrols) if (players.every((p) => Math.hypot(p.x - s.x, p.z - s.z) > 2400)) this.removeShip(s.id); }
         else if (active && patrols.length < Math.min(7, 2 + Math.ceil(clan.level / 2)) && !this.capture.has(base.id)) {
           const lvl = Math.max(...near.map((p) => W.players[p.pid]?.level || 1));
-          const ti = clamp(Math.floor(clan.level / 3) + Math.floor(this.rand() * 3) - 1, 0, 5);
+          const ti = clamp(Math.round((Math.floor(clan.level / 3) + Math.floor(this.rand() * 3) - 1) * AI_TOP_TIER / 5), 0, AI_TOP_TIER);
           const h = harborPoint(base);
           this.spawnAI(lvl, h, { owner: clan.id, tier: TIERS[ti].id, tag: 'patrol', dist: 40 + this.rand() * 60, home: { x: base.x, z: base.z }, level: clamp(Math.max(lvl - 3, clan.level * 3), 1, MAX_LEVEL), aggro: 600, bold: true });
         }
@@ -1046,7 +1063,7 @@ export class Sim {
     const cnt = n ?? Math.min(5, 2 + Math.floor(clan.level / 3));
     const h = harborPoint(from);
     for (let i = 0; i < cnt; i++) {
-      const ti = clamp(Math.floor(clan.level / 3) + Math.floor(this.rand() * 2), 0, 5);
+      const ti = clamp(Math.round((Math.floor(clan.level / 3) + Math.floor(this.rand() * 2)) * AI_TOP_TIER / 5), 0, AI_TOP_TIER);
       this.spawnAI(lvlP, h, { owner: clan.id, tier: TIERS[ti].id, tag: 'raider', raid: tgt.id, dist: 50 + i * 30, level: clamp(Math.max(lvlP - 2, clan.level * 3), 1, MAX_LEVEL), aggro: 420, bold: true });
     }
     if (W.players[tgt.owner]) this.msgs.push({ to: tgt.owner, text: `PIRATE RAID! ${clan.name} is sailing on ${tgt.name}!`, kind: 'event' });
@@ -1148,7 +1165,7 @@ export class Sim {
       if (s.harvestT >= 1) {
         s.harvestT -= 1;
         const p = this.W.players[s.pid];
-        const k = (1 + tierIndex(s.spec.tier) * 0.5) * (1 + (p.upg.harvest || 0) * UPGRADES.harvest.per);
+        const k = (1 + tierRank(s.spec.tier) * 0.5) * (1 + (p.upg.harvest || 0) * UPGRADES.harvest.per);
         const q = Math.max(1, Math.round((isl.res === 'powder' ? 1 : 2) * k));
         p.inv[isl.res] = (p.inv[isl.res] || 0) + q;
         isl.amt -= 1;
@@ -1174,6 +1191,26 @@ export class Sim {
       else this.startEvent('raid');
     }
     if (this.kraken) this.stepKraken(dt);
+    this.stepWeather(dt, players);
+    this.stepNight(players);
+  }
+  /** Storms brew every so often: they roll in over a minute, rage for a few, then clear. Waves build with them. */
+  stepWeather(dt, players) {
+    const w = this.weather;
+    if (this.time > w.next && players.length) {
+      w.next = this.time + 900 + this.rand() * 1200;
+      if (this.rand() < 0.55) { w.target = 0.75 + this.rand() * 0.25; w.until = this.time + 150 + this.rand() * 150; this.msgs.push({ to: null, text: 'STORM WARNING — black clouds on the horizon. Heavy seas, poor visibility and wild gunnery ahead.', kind: 'event' }); this.dirty.meta = true; }
+    }
+    if (w.target > 0 && this.time > w.until) { w.target = 0; this.msgs.push({ to: null, text: 'The storm is breaking up. Clear skies ahead.', kind: 'info' }); }
+    w.storm += Math.max(-dt / 60, Math.min(dt / 60, w.target - w.storm));
+    setSea(this.seaBase * (1 + 0.9 * w.storm));
+  }
+  /** At nightfall the Phantom may rise near a captain; at dawn, if it still sails, it fades away. */
+  stepNight(players) {
+    const night = isNight(this.time + this.dayOff);
+    if (night && !this.wasNight && players.length && this.rand() < 0.65) this.startEvent('phantom');
+    if (!night && this.wasNight) for (const s of [...this.ships.values()]) if (s.tag === 'phantom' && s.sink === 0) { this.fx.push({ t: 'fade', ship: s.id, x: s.x, z: s.z }); this.removeShip(s.id); this.msgs.push({ to: null, text: 'Dawn breaks — the Phantom fades into the morning mist.', kind: 'info' }); }
+    this.wasNight = night;
   }
   startEvent(kind) {
     const players = [...this.ships.values()].filter((s) => s.pid && s.sink === 0);
@@ -1208,6 +1245,16 @@ export class Sim {
       w.hull = w.stats.hull = Math.round(w.stats.hull * 2);
       w.bounty = Math.round(6000 + avg * 450);
       this.msgs.push({ to: null, text: `WANTED: ${name} — ${w.bounty.toLocaleString()} gold bounty and a Wheel spin to whoever sinks them. Check your map!`, kind: 'event' });
+    } else if (kind === 'phantom') {
+      if ([...this.ships.values()].some((x) => x.tag === 'phantom' && x.sink === 0)) return;
+      const w = this.spawnAI(Math.round(avg + 6), anchor, { role: 'pirate', tier: 'ghost', anyTier: true, tag: 'phantom', name: 'The Phantom', dist: 1100 + this.rand() * 900, strong: true, bold: true, aggro: 520 });
+      if (!w) return;
+      w.hull = w.stats.hull = Math.round(w.stats.hull * 1.6);
+      w.look = { ...tierById('ghost').look, emblem: 0, flagBg: '#0b1a16', flagFg: '#6affd0' };
+      this.msgs.push({ to: null, text: 'A ghostly green light drifts across the dark water… THE PHANTOM sails tonight. Sink it before dawn!', kind: 'event' });
+    } else if (kind === 'storm') {
+      const w = this.weather; w.target = 0.85; w.until = this.time + 240; w.next = this.time + 1500;
+      this.msgs.push({ to: null, text: 'STORM WARNING — black clouds on the horizon. Heavy seas, poor visibility and wild gunnery ahead.', kind: 'event' });
     } else if (kind === 'raid') {
       const owned = this.W.bases.filter((b) => b.owner && !b.owner.startsWith('ai:') && this.W.players[b.owner]?.online);
       const base = owned[Math.floor(this.rand() * owned.length)];

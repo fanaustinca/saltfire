@@ -67,6 +67,7 @@ uniform vec3 uShallow;
 uniform vec3 uSkyTint;
 uniform samplerCube uEnv;
 uniform float uHasEnv;
+uniform float uDim;
 uniform vec4 uIslands[32];
 uniform int uIslandCount;
 varying vec3 vWorld;
@@ -118,7 +119,7 @@ void main() {
     float dd = length(vWorld.xz - is.xy) - is.z;
     shore = max(shore, 1.0 - smoothstep(0.0, is.w, dd));
   }
-  water = mix(water, vec3(0.16, 0.72, 0.68), shore * 0.75);
+  water = mix(water, vec3(0.16, 0.72, 0.68) * uDim, shore * 0.75);
   vec3 col = mix(water, sky, fres * 0.9);
   // sun glint
   vec3 H = normalize(uSunDir + V);
@@ -130,7 +131,7 @@ void main() {
   float crestFoam = smoothstep(0.42, 0.75, vCrest * 0.8 + fn * 0.45) * smoothstep(0.35, 0.7, fn) * detail;
   float surf = smoothstep(0.55, 1.0, shore) * smoothstep(0.35, 0.65, fn + 0.25 * sin(uTime * 1.3 + shore * 9.0));
   float foam = clamp(crestFoam + surf, 0.0, 1.0);
-  col = mix(col, vec3(0.93, 0.97, 1.0) * (0.75 + 0.25 * facing), foam * 0.85);
+  col = mix(col, vec3(0.93, 0.97, 1.0) * (0.75 + 0.25 * facing) * uDim, foam * 0.85);
   gl_FragColor = vec4(col, 1.0);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
@@ -148,7 +149,7 @@ export class Ocean {
       uDeep: { value: new THREE.Color(0x0a4a6e) },
       uShallow: { value: new THREE.Color(0x1aa7a8) },
       uSkyTint: { value: new THREE.Color(0x6aa8d8) },
-      uEnv: { value: null }, uHasEnv: { value: 0 },
+      uEnv: { value: null }, uHasEnv: { value: 0 }, uDim: { value: 1 },
       uIslands: { value: Array.from({ length: 32 }, () => new THREE.Vector4()) },
       uIslandCount: { value: 0 },
       uCalm: { value: Array.from({ length: 32 }, () => new THREE.Vector3()) },

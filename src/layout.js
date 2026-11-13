@@ -12,8 +12,12 @@ export const DESIGN = {
   schooner:   { transom: 0.36, sternRise: 0.06, bowRise: 0.32, entry: 1.45, run: 1.1, deadrise: 0.85, tumble: 0.03, rake: 0.1, bow: 'clipper', stern: 'counter' },
   // workhorse brig: fuller body, small quarterdeck, figurehead
   brigantine: { transom: 0.55, sternRise: 0.24, bowRise: 0.24, entry: 0.95, run: 0.9, deadrise: 0.55, tumble: 0.06, rake: 0.03, bow: 'figure', stern: 'transom' },
+  // Barbary xebec: long, low and knife-thin, with an overhanging counter stern and a projecting beak
+  xebec:      { transom: 0.32, sternRise: 0.14, bowRise: 0.34, entry: 1.55, run: 1.2, deadrise: 0.82, tumble: 0.02, rake: -0.03, bow: 'clipper', stern: 'counter' },
   // lean warship: flush spar deck, long run, single gun deck
   frigate:    { transom: 0.6, sternRise: 0.18, bowRise: 0.16, entry: 1.05, run: 1.0, deadrise: 0.45, tumble: 0.09, rake: 0.02, bow: 'head', stern: 'gallery' },
+  // war junk: flat-bottomed and beamy, blunt bow, a towering transom stern
+  junk:       { transom: 0.86, sternRise: 0.62, bowRise: 0.42, entry: 0.62, run: 0.72, deadrise: 0.2, tumble: 0.0, rake: 0.0, bow: 'junk', stern: 'transom' },
   // treasure galleon: towering stern castle, forecastle, beakhead, heavy tumblehome
   galleon:    { transom: 0.78, sternRise: 0.42, bowRise: 0.32, entry: 0.75, run: 0.8, deadrise: 0.4, tumble: 0.22, rake: 0.0, bow: 'beak', stern: 'castle' },
   // ship of the line: three gun decks, wall-sided, broad stern with triple galleries
@@ -22,6 +26,8 @@ export const DESIGN = {
   sovereign:  { transom: 0.74, sternRise: 0.46, bowRise: 0.26, entry: 0.82, run: 0.85, deadrise: 0.3, tumble: 0.13, rake: 0.0, bow: 'head', stern: 'crown' },
   // Leviathan: broad five-decked ironclad monster — armoured belt, iron ram, an armoured citadel stern
   leviathan:  { transom: 0.8, sternRise: 0.3, bowRise: 0.26, entry: 0.8, run: 0.85, deadrise: 0.22, tumble: 0.08, rake: 0.0, bow: 'ram', stern: 'citadel' },
+  // Ghost Ship: a drowned frigate, high-sided and sagging, with a tall gallery stern
+  ghost:      { transom: 0.64, sternRise: 0.34, bowRise: 0.22, entry: 1.0, run: 0.95, deadrise: 0.42, tumble: 0.12, rake: 0.04, bow: 'head', stern: 'gallery' },
   // Titan (cheat ship): even broader black ironclad with a fortress stern and six gun decks
   titan:      { transom: 0.82, sternRise: 0.28, bowRise: 0.24, entry: 0.8, run: 0.85, deadrise: 0.2, tumble: 0.07, rake: 0.0, bow: 'ram', stern: 'citadel' },
 };

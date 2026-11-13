@@ -61,6 +61,7 @@ const RECIPES = {
   splash: { dur: 0.8, n: 3, fn: (c, d) => burst({ dur: 0.7, f: 2400, sweep: 500, type: 'bandpass', q: 0.6, gain: 0.25 }, c, d) },
   crack: { dur: 0.3, n: 3, fn: (c, d) => { burst({ dur: 0.25, f: 1800, type: 'highpass', gain: 0.35 }, c, d); tone({ f: 140, slide: 60, dur: 0.18, type: 'square', gain: 0.08 }, c, d); } },
   boom: { dur: 2.3, n: 2, fn: (c, d) => { burst({ dur: 2.2, f: 600, sweep: 40, gain: 0.8 }, c, d); tone({ f: 50, slide: 25, dur: 1.2, gain: 0.7 }, c, d); } },
+  thunder: { dur: 4.5, n: 2, fn: (c, d) => { burst({ dur: 0.35, f: 2600, sweep: 900, gain: 0.5 }, c, d); burst({ dur: 4.2, f: 380, sweep: 30, gain: 0.95, delay: 0.12 }, c, d); tone({ f: 42, slide: 26, dur: 3.2, gain: 0.55, delay: 0.1 }, c, d); } },
   chop: { dur: 0.15, n: 2, fn: (c, d) => burst({ dur: 0.12, f: 1200, type: 'bandpass', q: 3, gain: 0.25 }, c, d) },
 };
 async function buildBank() {
@@ -108,6 +109,7 @@ export const sfx = {
   splash(d = 0) { if (!init()) return; play('splash', att(d), d / 340); },
   crack(d = 0) { if (!init()) return; play('crack', att(d), d / 340); },
   boom(d = 0) { if (!init()) return; play('boom', att(d), d / 340); },
+  thunder(d = 0) { if (!init()) return; play('thunder', Math.max(0.25, att(d) * 1.3), Math.min(3, d / 340)); },
   coin() { if (!init()) return; tone({ f: 1320, dur: 0.12, type: 'triangle', gain: 0.18 }); tone({ f: 1760, dur: 0.25, type: 'triangle', gain: 0.16, delay: 0.08 }); },
   chop(d = 0) { if (!init()) return; play('chop', att(d)); },
   rope() { if (!init()) return; tone({ f: 180 + Math.random() * 40, slide: 120, dur: 0.35, type: 'sawtooth', gain: 0.04 }); burst({ dur: 0.3, f: 3000, type: 'bandpass', q: 2, gain: 0.08 }); },

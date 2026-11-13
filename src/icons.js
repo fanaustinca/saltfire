@@ -18,9 +18,10 @@ const ICONS = {
   spin: `<circle cx="32" cy="34" r="22" fill="#2a1a0c" stroke="url(#gC)" stroke-width="4"/>${['#b3201c', '#e6cc72', '#22407e', '#6b8a3a', '#d9b84a', '#5a5a6a', '#c9a227', '#7a4a24'].map((c, i) => { const a0 = (i / 8) * Math.PI * 2, a1 = ((i + 1) / 8) * Math.PI * 2; return `<path d="M32 34 L${32 + Math.cos(a0) * 19} ${34 + Math.sin(a0) * 19} A19 19 0 0 1 ${32 + Math.cos(a1) * 19} ${34 + Math.sin(a1) * 19}Z" fill="${c}"/>`; }).join('')}<circle cx="32" cy="34" r="5" fill="url(#gC)" stroke="#5a3a10"/><path d="M26 4 L38 4 L32 14Z" fill="#f7d35c" stroke="#6b4310" stroke-width="1.5"/>`,
   ship: card('gN', '#e8bd4a', `<g transform="translate(0,4)">${ship('#5a3a22', '#f3efe2')}</g>`),
   titan: card('gR', '#ffd25a', `<g transform="translate(0,8)">${ship('#1a1414', '#5a1a1a')}</g><path d="M20 12 L24 20 L32 10 L40 20 L44 12 L44 22 L20 22Z" fill="url(#gC)" stroke="#6b4310" stroke-width="1.2"/>`),
+  ghost: card('gG', '#6affd0', `<g transform="translate(0,6)" opacity=".92">${ship('#16302a', '#9ff5d8')}</g><circle cx="22" cy="16" r="2" fill="#6affd0"/><circle cx="44" cy="20" r="1.6" fill="#6affd0"/><path d="M14 54 Q20 48 26 54 T38 54 T50 54" fill="none" stroke="#6affd0" stroke-width="1.6" opacity=".8"/>`),
   size: card('gP', '#f1c45a', `<rect x="20" y="22" width="24" height="20" fill="none" stroke="#fff" stroke-width="2" stroke-dasharray="3 2"/><path d="M16 18 L24 18 M16 18 L16 26 M16 18 L25 27 M48 46 L40 46 M48 46 L48 38 M48 46 L39 37" stroke="#ffe27a" stroke-width="3" stroke-linecap="round"/><text x="32" y="56" font-size="8" font-weight="900" text-anchor="middle" fill="#ffe27a" font-family="sans-serif">120%</text>`),
 };
-const DEFS = `<defs>${G('gC', '#fff0a0', '#d49a1c')}${G('gB', '#5c636c', '#16191c')}${G('gW', '#a8703a', '#5a361a')}${G('gI', '#c9d0d8', '#6b737c')}${G('gS', '#fbf6e6', '#d8cca8')}${G('gN', '#2a4a8a', '#12203e')}${G('gR', '#8a1a14', '#2a0806')}${G('gP', '#8a1a5a', '#3a0828')}</defs>`;
+const DEFS = `<defs>${G('gC', '#fff0a0', '#d49a1c')}${G('gB', '#5c636c', '#16191c')}${G('gW', '#a8703a', '#5a361a')}${G('gI', '#c9d0d8', '#6b737c')}${G('gS', '#fbf6e6', '#d8cca8')}${G('gN', '#2a4a8a', '#12203e')}${G('gR', '#8a1a14', '#2a0806')}${G('gP', '#8a1a5a', '#3a0828')}${G('gG', '#155a4a', '#04140f')}</defs>`;
 
 /** Inline SVG markup for a reward icon. */
 export function iconSVG(name, size = 32) {
@@ -29,7 +30,7 @@ export function iconSVG(name, size = 32) {
 /** The icon that represents a prize / gift object. */
 export function prizeIcon(pr) {
   if (pr.icon) return pr.icon;
-  if (pr.kind === 'ship') return pr.tier === 'titan' ? 'titan' : 'ship';
+  if (pr.kind === 'ship') return pr.tier === 'titan' ? 'titan' : pr.tier === 'ghost' ? 'ghost' : 'ship';
   if (pr.kind === 'titanSize') return 'size';
   if (pr.kind === 'spin') return 'spin';
   if (pr.kind === 'gold') return pr.n >= 50000 ? 'chest' : 'gold';

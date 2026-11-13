@@ -17,7 +17,7 @@ const world = (seed = 42) => { const W = E.newWorld(seed); generateIslands(W); r
 const rng = (s = 1) => () => ((s = (s * 16807) % 2147483647) / 2147483647);
 
 T('ship tiers match the spec cannon counts', () => {
-  const want = { sloop: 1, schooner: 1, brigantine: 2, frigate: 3, galleon: 5, manowar: 10, sovereign: 16, leviathan: 30, titan: 120 };
+  const want = { sloop: 1, schooner: 1, brigantine: 2, xebec: 3, frigate: 3, junk: 4, galleon: 5, manowar: 10, sovereign: 16, leviathan: 30, ghost: 9, titan: 120 };
   for (const t of TIERS) ok(t.side === want[t.id], t.id);
   for (const t of TIERS) { const st = E.shipStats(E.shipSpec(t.id)); const g = gunLayout(st); ok(g.filter((x) => x.side === 'L').length === t.side && g.filter((x) => x.side === 'R').length === t.side, 'layout ' + t.id); }
 });
@@ -474,6 +474,55 @@ T('bounty hunts: a wanted captain pays gold, a spin and a map', () => {
   ok(w && w.name.startsWith('Wanted: ') && w.bounty > 6000 && w.hull === w.stats.hull, 'spawned');
   const g0 = p.inv.gold; sim.hurt(w, 1e7, 0, 0, 'u');
   ok(w.sink > 0 && p.inv.gold >= g0 + w.bounty && p.wheel.bonus === 1 && p.tmaps?.length === 1, `paid ${p.inv.gold - g0}`);
+});
+T('v2.6 ships: xebec + war junk on the ladder, the Ghost Ship is a reward card that heals itself', () => {
+  const p = E.newProfile('u', 'U'); p.inv.gold = 1e6; p.inv.oak = 1e5; p.inv.iron = 1e5; p.inv.canvas = 1e5;
+  p.level = 7; ok(typeof E.buyShip(p, 'xebec') === 'string', 'xebec needs level 8');
+  p.level = 8; ok(typeof E.buyShip(p, 'xebec') === 'object', 'xebec at 8');
+  p.level = 12; ok(typeof E.buyShip(p, 'junk') === 'object', 'junk at 12');
+  ok(typeof E.buyShip(p, 'ghost') === 'string', 'ghost cannot be bought');
+  E.addCard(p, { kind: 'ship', tier: 'ghost' }); const c = p.cards.find((x) => x.tier === 'ghost');
+  ok(typeof E.buyShip(p, 'ghost', { card: c.id }) === 'object', 'ghost redeemed from a card');
+  const xs = E.shipStats(E.shipSpec('xebec')), fs = E.shipStats(E.shipSpec('frigate')), js = E.shipStats(E.shipSpec('junk')), gs = E.shipStats(E.shipSpec('ghost'));
+  ok(xs.speed > fs.speed && xs.speed > E.shipStats(E.shipSpec('schooner')).speed, 'xebec is the fastest buyable hull');
+  ok(js.armor < 1 && js.hull > fs.hull, 'junk is tough');
+  ok(gs.regen > 0, 'ghost regenerates');
+  ok(CFG.AI_TOP_TIER === CFG.TIERS.findIndex((t) => t.id === 'manowar'), 'AI tops out at the Man of War');
+  ok(Math.abs(CFG.WHEEL.prizes.reduce((a, x) => a + x.p, 0) - 1) < 1e-9, 'wheel odds add up');
+  for (const t of ['xebec', 'junk', 'ghost']) { const g = gunLayout(E.shipStats(E.shipSpec(t))); ok(g.every((x) => Number.isFinite(x.x + x.y + x.z)), t + ' guns'); }
+});
+T('night brings the Phantom; sinking it pays out, dawn makes it vanish', () => {
+  const W = world(); const sim = new Sim(W, { rand: rng(31) }); const { p } = joinPlayer(sim, 'u', 'U');
+  const me = sim.spawnPlayer('u'); me.x = 3000; me.z = 0; me.docked = null;
+  sim.startEvent('phantom');
+  let w = [...sim.ships.values()].find((s) => s.tag === 'phantom');
+  ok(w && w.spec.tier === 'ghost' && w.name === 'The Phantom', 'spawned as a ghost ship even though AI normally stops at the Man of War');
+  const g0 = p.inv.gold; sim.hurt(w, 1e7, 0, 0, 'u');
+  ok(w.sink > 0 && p.inv.gold >= g0 + 15000 && p.wheel.bonus === 1 && p.tmaps?.length === 1, 'reward');
+  // a fresh one fades at dawn
+  for (const s of [...sim.ships.values()]) if (s.tag === 'phantom') sim.removeShip(s.id);
+  sim.startEvent('phantom'); ok([...sim.ships.values()].some((s) => s.tag === 'phantom' && s.sink === 0), 'second phantom');
+  sim.wasNight = true; sim.dayOff = 0; sim.time = 0; sim.stepNight([me]);
+  ok(![...sim.ships.values()].some((s) => s.tag === 'phantom' && s.sink === 0), 'faded at dawn');
+});
+T('storms roll in, raise the sea and spoil the aim, then clear', () => {
+  const W = world(); const sim = new Sim(W, { rand: rng(37) }); joinPlayer(sim, 'u', 'U');
+  const me = sim.spawnPlayer('u'); me.x = 3000; me.z = 0; me.docked = null;
+  sim.startEvent('storm');
+  for (let i = 0; i < 120 * 20; i++) sim.stepWeather(0.05, [me]);
+  ok(sim.weather.storm > 0.8, 'storm built up: ' + sim.weather.storm);
+  sim.time += 400; for (let i = 0; i < 90 * 20; i++) { sim.time += 0.05; sim.stepWeather(0.05, [me]); }
+  ok(sim.weather.storm < 0.05, 'storm cleared: ' + sim.weather.storm);
+});
+T('host rejects broken broadsides from peers', () => {
+  const W = world(); const sim = new Sim(W, { rand: rng(41) }); const { p } = joinPlayer(sim, 'u', 'U');
+  const me = sim.spawnPlayer('u'); me.x = 3000; me.z = 0; me.docked = null; p.inv.grape = 50;
+  ok(sim.fire(me, 'nope', me.x + 100, me.z).err, 'bad battery');
+  ok(sim.fire(me, 'L', NaN, 0).err, 'bad target');
+  ok(sim.fire(me, 'L', me.x + 1, me.z, 'ball', { length: 3 }).err, 'balls must be an array');
+  ok(sim.fire(me, 'L', me.x + 1, me.z, 'ball', [{ x: 1e9, y: 0, z: 0, vx: 1, vy: 1, vz: 1 }]).err, 'balls must start at the ship');
+  const g0 = p.inv.gold; sim.fire(me, 'L', me.x, me.z + 100, 'gold'); ok(p.inv.gold === g0 && Number.isFinite(p.inv.gold), 'gold is not ammo');
+  sim.fire(me, 'R', me.x, me.z + 100, 'constructor'); ok(!Object.hasOwn(p.inv, 'constructor'), 'no prototype keys');
 });
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

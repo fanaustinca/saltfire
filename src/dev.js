@@ -18,7 +18,9 @@ const CMDS = {
   god: ['on=true', 'Invulnerable flagship'],
   speed: ['k=1', 'Game speed multiplier'],
   spawn: ["role='pirate', tier, n=1", 'Spawn AI ships near you (pirate|merchant|navy)'],
-  event: ["kind='kraken'", 'Start a world event: kraken | treasure | bounty | raid'],
+  event: ["kind='kraken'", 'Start a world event: kraken | treasure | bounty | raid | phantom | storm'],
+  time: ['hour=12', 'Set the time of day (0-24; dusk ~19, night ~20-5)'],
+  calm: ['', 'End a storm right now'],
   tmap: ['near=true', 'Give yourself a treasure map (near = the X is on the closest islet)'],
   kraken: ['', 'Shortcut for event("kraken")'],
   tp: ["where='port'", 'Teleport: "port", "home", a base name, or x, z'],
@@ -100,7 +102,16 @@ export function installDev(app) {
       s.x = x; s.z = zz; s.spd = 0;
       return done(`Teleported to ${where}`);
     },
-    sea(k = 0.8) { setSea(k); return done(`Sea state ${k}`); },
+    sea(k = 0.8) { setSea(k); if (g()?.sim) g().sim.seaBase = k; return done(`Sea state ${k}`); },
+    time(hour = 12) {
+      host(); const sim = g().sim;
+      // phase 0 = sunrise (06:00), 0.35 = noon-ish, 0.7 = sunset (~18:50); night runs to sunrise
+      const h = ((+hour % 24) + 24) % 24, phase = h >= 6 && h < 18.8 ? ((h - 6) / 12.8) * 0.7 : 0.7 + (((h - 18.8 + 24) % 24) / 11.2) * 0.3;
+      const cur = ((sim.time / 1440 + 0.06) % 1 + 1) % 1;
+      sim.dayOff = ((phase - cur) * 1440 + 1440 * 4) % 1440;
+      return done(`Time set to ${h.toFixed(1)}h`);
+    },
+    calm() { host(); const w = g().sim.weather; w.target = 0; w.storm = 0; w.until = 0; return done('The storm clears'); },
     sun(e = 28, a = 140) { const st = g().stage; st.setSun(e, a); st.ocean.uniforms.uSunDir.value.copy(st.sunDir); st.bakeEnv(); return done(`Sun ${e}°/${a}°`); },
     clear() { host(); for (const s of [...g().sim.ships.values()]) if (!s.pid) g().sim.removeShip(s.id); g().sim.kraken = null; return done('AI cleared'); },
     sinkall(r = 600) { host(); let n = 0; for (const s of g().sim.ships.values()) if (!s.pid && s.sink === 0 && Math.hypot(s.x - me().x, s.z - me().z) < r) { g().sim.hurt(s, 1e6, 0, 0, g().pid); n++; } return done(`Sank ${n}`); },

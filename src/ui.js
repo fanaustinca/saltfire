@@ -120,7 +120,7 @@ export class UI {
     $('#room').innerHTML += `<span class="ver">v${VERSION}</span>`;
     const code = $('#room .code'); if (code) code.onclick = () => { navigator.clipboard?.writeText(game.room.code); this.toast('Room code copied — share it with friends!', 'info'); };
     $('#resbar').innerHTML = RES.map((r) => `<div class="res res-${r}" title="${RES_LABEL[r]}"><span class="ri">${RES_ICON[r]}</span>${fmt(p.inv[r] || 0)}</div>`).join('');
-    $('#ammo').innerHTML = AMMO_ORDER.map((a, i) => `<button class="am ${((game.ammo || 'ball') === a) ? 'on' : ''} ${a !== 'ball' && !(p.inv[a] > 0) ? 'empty' : ''}" data-ammo="${a}" title="${AMMO[a].name}"><kbd>${i + 1}</kbd><span class="ball b-${a}"></span><small>${a === 'ball' ? '∞' : p.inv[a] || 0}</small></button>`).join('');
+    $('#ammo').innerHTML = AMMO_ORDER.map((a, i) => `<button class="am ${((game.ammo || 'ball') === a) ? 'on' : ''} ${a !== 'ball' && !(p.inv[a] > 0) ? 'empty' : ''}" data-ammo="${a}" title="${AMMO[a].name}"><kbd>${i + 1}</kbd><span class="ball b-${a}"></span><small>${a === 'ball' ? '∞' : fmt(p.inv[a] || 0)}</small></button>`).join('');
     if (this.panel) { const sig = this.panelSig(game); if (sig !== this.lastSig) this.renderPanel(game); }
     if (this.mapOpen) this.drawMap(game);
   }
@@ -188,6 +188,8 @@ export class UI {
     if (k && k.hp > 0) ev.push(`<div class="ev kraken"><b>🐙 The Kraken</b> ${Math.round(game.distTo(k.x, k.z))}m<div class="evbar"><i style="width:${(k.hp / k.maxHp) * 100}%"></i></div></div>`);
     for (const s of game.sim.ships.values()) if (s.tag === 'treasure' && s.sink === 0) ev.push(`<div class="ev treasure"><b>💰 Treasure Flagship</b> ${Math.round(game.distTo(s.x, s.z))}m<div class="evbar"><i style="width:${(s.hull / s.stats.hull) * 100}%"></i></div></div>`);
     for (const s of game.sim.ships.values()) if (s.tag === 'bounty' && s.sink === 0) ev.push(`<div class="ev bounty"><b>☠ ${esc(s.name)}</b> ${Math.round(game.distTo(s.x, s.z))}m${s.bounty ? ` · ${s.bounty.toLocaleString()}g` : ''}<div class="evbar"><i style="width:${(s.hull / s.stats.hull) * 100}%"></i></div></div>`);
+    for (const s of game.sim.ships.values()) if (s.tag === 'phantom' && s.sink === 0) ev.push(`<div class="ev phantom"><b>👻 The Phantom</b> ${Math.round(game.distTo(s.x, s.z))}m · gone at dawn<div class="evbar"><i style="width:${(s.hull / s.stats.hull) * 100}%"></i></div></div>`);
+    if ((game.sim.weather?.storm || 0) > 0.15) ev.push(`<div class="ev storm"><b>⛈ Storm</b> heavy seas · wild gunnery</div>`);
     for (const m of game.profile()?.tmaps || []) ev.push(`<div class="ev tmap"><b>✕ Treasure</b> on ${esc(m.name)} · ${Math.round(game.distTo(m.x, m.z))}m</div>`);
     const myFleet = [...game.sim.ships.values()].filter((s) => s.role === 'fleet' && s.owner === game.pid && s.sink === 0);
     const fb = $('#fleetbox');
@@ -260,6 +262,7 @@ export class UI {
       g.fillStyle = s.pid ? '#4ad9ff' : s.role === 'fleet' ? (s.owner === game.pid ? '#7dffb0' : '#4ad9ff') : s.role === 'merchant' ? '#e8d27a' : s.role === 'navy' ? '#6f8cff' : aiFaction(s.owner) === 'clan' ? '#ff2a6a' : '#ff5a4a';
       if (s.tag === 'treasure') g.fillStyle = '#ffd34a';
       if (s.tag === 'bounty') g.fillStyle = '#ff2020';
+      if (s.tag === 'phantom') g.fillStyle = '#4dffc3';
       g.beginPath(); g.arc(x, y, s.tag ? 4.5 : 3, 0, 7); g.fill();
     }
     // treasure X marks (pinned to the rim when off the edge, so they point the way)
@@ -341,6 +344,7 @@ export class UI {
         <label><input type="checkbox" id="mus" ${sfx.music ? 'checked' : ''}> Shanty music</label>
         <label><input type="checkbox" id="autores" ${q.autoRes !== false ? 'checked' : ''}> Auto resolution <span class="muted small">(keeps the frame rate smooth on slower PCs)</span></label>
         <label><input type="checkbox" id="showfps" ${q.showFps ? 'checked' : ''}> Show frame rate</label>
+        <label><input type="checkbox" id="daynight" ${q.dayNight !== false ? 'checked' : ''}> Day / night cycle</label>
         <p class="muted small">${game.role === 'host' ? `World saved ${game.lastSave ? new Date(game.lastSave).toLocaleTimeString() : 'automatically'} in this browser.` : 'The host saves your empire.'}</p>
       </div>`, [
       { label: 'Resume', primary: true },
@@ -353,6 +357,7 @@ export class UI {
     $('#mus').onchange = (e) => sfx.setMusic(e.target.checked);
     $('#autores').onchange = (e) => { game.app.setSetting('autoRes', e.target.checked); game.stage.autoRes = e.target.checked; if (!e.target.checked) { game.stage.pr = game.stage.maxPR; game.stage.renderer.setPixelRatio(game.stage.pr); game.stage.resize(); } };
     $('#showfps').onchange = (e) => { game.app.setSetting('showFps', e.target.checked); };
+    $('#daynight').onchange = (e) => { game.app.setSetting('dayNight', e.target.checked); };
   }
 
   // ------------------------------------------------------------------ map
@@ -410,6 +415,7 @@ export class UI {
       if (s.pid) { g.fillStyle = s.pid === game.pid ? '#fff' : '#4ad9ff'; g.beginPath(); g.arc(x, y, s.pid === game.pid ? 6 : 4, 0, 7); g.fill(); g.fillText(game.W.players[s.pid]?.name || '', x, y + 16); }
       else if (s.role === 'fleet' && s.owner === game.pid) { g.fillStyle = '#7dffb0'; g.beginPath(); g.arc(x, y, 3.5, 0, 7); g.fill(); }
       else if (s.tag === 'treasure') { g.fillStyle = '#ffd34a'; g.beginPath(); g.arc(x, y, 6, 0, 7); g.fill(); g.fillText('Treasure Flagship', x, y + 16); }
+      else if (s.tag === 'phantom') { g.fillStyle = '#4dffc3'; g.beginPath(); g.arc(x, y, 6, 0, 7); g.fill(); g.strokeStyle = '#fff'; g.stroke(); g.fillStyle = '#b8ffe8'; g.fillText('The Phantom', x, y + 16); }
       else if (s.tag === 'bounty') { g.fillStyle = '#ff2020'; g.beginPath(); g.arc(x, y, 6, 0, 7); g.fill(); g.strokeStyle = '#fff'; g.stroke(); g.fillStyle = '#ffb0a0'; g.fillText(s.name, x, y + 16); }
     }
     for (const m of game.profile()?.tmaps || []) {
@@ -549,7 +555,7 @@ export class UI {
       <div class="shipgrid">${TIERS.map((T) => {
         const st = shipStats({ tier: T.id, side: T.side, size: 1 }); const locked = p.level < T.level; const mine = shipCards(T.id);
         const buy = T.cardOnly ? `<button class="btn" disabled>Reward card only</button>` : `<button class="btn" data-buy="${T.id}" ${locked || !T.cost.gold || !canAfford(p.inv, T.cost) ? 'disabled' : ''}>${locked ? `Level ${T.level}` : !T.cost.gold ? 'Starter' : 'Buy'}</button>`;
-        return `<div class="shipcard ${locked && !mine.length ? 'locked' : ''} ${T.cardOnly ? 'legend' : ''}"><h4>${T.name}</h4><div class="muted">${T.side} cannon${T.side > 1 ? 's' : ''} per side (up to ${maxSideFor(T, 1)}${T.sizeGuns ? `, ${T.sizeGuns[1]} at 120% size` : ''}) · ${T.masts} mast${T.masts > 1 ? 's' : ''}${T.flagshipOnly ? ' · <b class="y">flagship only</b>' : ''}</div><div class="mini">Hull ${st.hull} · Speed ${(st.speed * 1.94).toFixed(0)} kn · Crew ${st.crew}</div><div class="cost">${T.cardOnly ? 'Win it on the Wheel of Fortune (0.1%) or the Holiday Tides event' : T.cost.gold ? costText(T.cost) : 'free'}</div>${buy}${mine.length ? `<button class="btn primary" data-redeem="${mine[0].id}" data-tier="${T.id}">🎴 Redeem card${mine.length > 1 ? ` (${mine.length})` : ''}</button>` : ''}</div>`;
+        return `<div class="shipcard ${locked && !mine.length ? 'locked' : ''} ${T.cardOnly ? 'legend' : ''}"><h4>${T.name}</h4><div class="muted">${T.side} cannon${T.side > 1 ? 's' : ''} per side (up to ${maxSideFor(T, 1)}${T.sizeGuns ? `, ${T.sizeGuns[1]} at 120% size` : ''}) · ${T.masts} mast${T.masts > 1 ? 's' : ''}${T.flagshipOnly ? ' · <b class="y">flagship only</b>' : ''}</div><div class="mini">Hull ${st.hull} · Speed ${(st.speed * 1.94).toFixed(0)} kn · Crew ${st.crew}</div><div class="cost">${T.cardOnly ? esc(T.howToGet || 'Win it on the Wheel of Fortune (0.1%) or the Holiday Tides event') : T.cost.gold ? costText(T.cost) : 'free'}</div>${buy}${mine.length ? `<button class="btn primary" data-redeem="${mine[0].id}" data-tier="${T.id}">🎴 Redeem card${mine.length > 1 ? ` (${mine.length})` : ''}</button>` : ''}</div>`;
       }).join('')}</div>
       <div class="card sizecard"><b>Titan Size card</b> <span class="muted small">— lets a Titan be built above 100% size (up to 150 guns a side) in the custom shipyard. You hold ${sizeCards}.</span>
         <button class="btn" id="buy-size" ${(p.inv.gold || 0) < TITAN_SIZE_PRICE ? 'disabled' : ''}>Buy — ${TITAN_SIZE_PRICE.toLocaleString()} gold</button></div>

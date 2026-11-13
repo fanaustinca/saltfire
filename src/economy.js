@@ -2,7 +2,7 @@
 // Host-authoritative: every function here is called on the host (or in solo) and is unit-tested.
 import {
   TREASURE, VOYAGE, RES, AMMO_ORDER, RECIPES, TIERS, tierById, maxSideFor, UPGRADES, XP_PER_LEVEL, MAX_LEVEL, BUILDINGS,
-  MARKET_TAX, LAND_SLOTS, PROD_PERIOD, BASE_RELOAD, rangeFor, MUZZLE, FLEET_BASE, WHEEL, HOLIDAY, TITAN_SIZE_PRICE,
+  MARKET_TAX, LAND_SLOTS, PROD_PERIOD, BASE_RELOAD, rangeFor, MUZZLE, FLEET_BASE, WHEEL, HOLIDAY, TITAN_SIZE_PRICE, tierRank,
 } from './config.js';
 
 export const uid = (p = '') => p + Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-4);
@@ -65,7 +65,7 @@ export function shipStats(spec, upg = {}) {
     invincible: !!T.invincible,
     range: rangeFor(T.id) * rangeK,
     muzzle: MUZZLE * Math.sqrt(rangeK),
-    dmg: 1 + u('damage'), armor: (1 - u('armor')) * (T.armor ?? 1), spread: 1 - u('accuracy'), regen: u('repair'),
+    dmg: 1 + u('damage'), armor: (1 - u('armor')) * (T.armor ?? 1), spread: 1 - u('accuracy'), regen: u('repair') + (T.regen || 0),
   };
 }
 /** How many fleet ships a captain may have at sea at once. */
@@ -140,7 +140,7 @@ export function buyShip(p, tier, opts = {}) {
     p.fleet.push(s);
     return s;
   }
-  if (T.cardOnly) return `The ${T.name} can only be won (Wheel of Fortune or the Holiday Tides event)`;
+  if (T.cardOnly) return `The ${T.name} can only be won as a reward card — ${T.howToGet ? T.howToGet.charAt(0).toLowerCase() + T.howToGet.slice(1) : 'Wheel of Fortune or the Holiday Tides event'}`;
   if (p.level < T.level) return `Requires level ${T.level}`;
   if (!pay(p.inv, T.cost)) return 'Not enough resources';
   const s = shipSpec(T.id, opts);
@@ -562,8 +562,7 @@ export function newWorld(seed = Math.floor(Math.random() * 1e9)) {
   };
 }
 export const sinkLoot = (tier, rand = Math.random) => {
-  const i = TIERS.findIndex((t) => t.id === tier);
-  const k = 1 + i * 0.9;
+  const k = 1 + tierRank(tier) * 0.9;
   return {
     gold: Math.round((60 + rand() * 60) * k), oak: Math.round((6 + rand() * 8) * k), iron: Math.round((2 + rand() * 4) * k),
     canvas: Math.round((2 + rand() * 5) * k), powder: Math.round(rand() * 3 * k),

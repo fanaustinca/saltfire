@@ -14,6 +14,8 @@ import { shielded } from '../economy.js';
 
 const C = (h) => new THREE.Color(h);
 let MAT = null;
+/** Night lights: windows, lamps and the lighthouse glow brighter after dark (k 0..1). */
+export function setIslandGlow(k) { const m = mats(); m.glow.emissiveIntensity = 2 * (1 + k * 2.2); m.vcGlow.emissiveIntensity = 0.5 * (1 + k * 3); }
 function mats() {
   if (MAT) return MAT;
   const st = stone();

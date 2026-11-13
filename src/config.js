@@ -30,19 +30,26 @@ export const TIERS = [
   { id: 'sloop',      name: 'Sloop',       side: 1,  minSide: 1, maxSide: 2,  len: 16, beam: 4.4, depth: 2.3, masts: 1, rig: 'sloop',      speed: 23,   turn: 0.72, hull: 260,  sails: 120, crew: 18,  decks: 1, level: 1,  look: { hullColor: '#6b4a2e', trimColor: '#e6dcc4', sailColor: '#efe6cf' }, cost: { gold: 0 } },
   { id: 'schooner',   name: 'Schooner',    side: 1,  minSide: 1, maxSide: 3,  len: 24, beam: 5.2, depth: 2.7, masts: 2, rig: 'schooner',   speed: 25,   turn: 0.6,  hull: 380,  sails: 170, crew: 26,  decks: 1, level: 3,  cost: { gold: 600, oak: 40, iron: 10, canvas: 20 } },
   { id: 'brigantine', name: 'Brigantine',  side: 2,  minSide: 2, maxSide: 4,  len: 30, beam: 7.4, depth: 3.5, masts: 2, rig: 'brigantine', speed: 21.5, turn: 0.5,  hull: 560,  sails: 240, crew: 45,  decks: 1, level: 6,  cost: { gold: 1500, oak: 90, iron: 30, canvas: 45 } },
+  // The Xebec: a lean Barbary raider with three lateen sails and overhanging bow + stern. The fastest hull you can buy.
+  { id: 'xebec',      name: 'Xebec',       side: 3,  minSide: 2, maxSide: 6,  len: 34, beam: 7.2, depth: 3.3, masts: 3, rig: 'xebec',     speed: 26.5, turn: 0.64, hull: 640,  sails: 270, crew: 70,  decks: 1, level: 8,  look: { hullColor: '#7a3f1c', trimColor: '#e9c46a', sailColor: '#f3e6c6' }, cost: { gold: 2600, oak: 120, iron: 45, canvas: 75 } },
   { id: 'frigate',    name: 'Frigate',     side: 3,  minSide: 3, maxSide: 7,  len: 42, beam: 10.2, depth: 4.6, masts: 3, rig: 'ship',      speed: 20,   turn: 0.42, hull: 900,  sails: 340, crew: 80,  decks: 1, level: 10, look: { hullColor: '#1b1a18', trimColor: '#d9a63a', sailColor: '#f2ede0' }, cost: { gold: 3600, oak: 180, iron: 70, canvas: 90 } },
+  // The War Junk: teak-hulled and heavily built, red battened sails, a towering stern. Slow but shrugs off shot.
+  { id: 'junk',       name: 'War Junk',    side: 4,  minSide: 3, maxSide: 8,  len: 44, beam: 12, depth: 5.4, masts: 3, rig: 'junk',       speed: 18.5, turn: 0.42, hull: 1350, sails: 430, crew: 130, decks: 1, level: 12, armor: 0.88, look: { hullColor: '#4a2416', trimColor: '#d6a531', sailColor: '#a2402a' }, cost: { gold: 5200, oak: 260, iron: 95, canvas: 130 } },
   { id: 'galleon',    name: 'Galleon',     side: 5,  minSide: 4, maxSide: 10, len: 50, beam: 13.2, depth: 6.0, masts: 4, rig: 'galleon',   speed: 17,   turn: 0.32, hull: 1500, sails: 440, crew: 150, decks: 2, level: 15, look: { hullColor: '#4a2a16', trimColor: '#d4a73a', sailColor: '#ead9ae' }, cost: { gold: 7500, oak: 320, iron: 140, canvas: 150 } },
   { id: 'manowar',    name: 'Man of War',  side: 10, minSide: 8, maxSide: 20, len: 74, beam: 18.5, depth: 9.6, masts: 3, rig: 'line',     speed: 15,   turn: 0.24, hull: 3400, sails: 700, crew: 340, decks: 3, level: 22, look: { hullColor: '#191715', trimColor: '#e2b84a', sailColor: '#f4f0e4' }, cost: { gold: 16000, oak: 600, iron: 300, canvas: 260 } },
   // The Sovereign: a four-decked royal first-rate, gilded from stem to stern. Very expensive; can sail in a fleet.
   { id: 'sovereign',  name: 'Sovereign',   side: 16, minSide: 12, maxSide: 34, sizeGuns: [18, 34], len: 90, beam: 27, depth: 11.5, masts: 3, rig: 'sovereign', speed: 14.5, turn: 0.21, hull: 6400, sails: 1100, crew: 640, decks: 4, level: 30, armor: 0.8, look: { hullColor: '#22407e', trimColor: '#e8bd4a', sailColor: '#f6f1e2' }, cost: { gold: 450000, oak: 14000, iron: 7000, canvas: 5000, powder: 1500 } },
   // The Leviathan: a monstrous, broad five-decked ironclad ship of the line. Flagship only, and ruinously expensive.
   { id: 'leviathan',  name: 'Leviathan',   side: 30, minSide: 24, maxSide: 60, sizeGuns: [30, 60], len: 116, beam: 35, depth: 12.5, masts: 4, rig: 'leviathan', speed: 13.5, turn: 0.17, hull: 11000, sails: 1700, crew: 1100, decks: 5, level: 40, armor: 0.6, flagshipOnly: true, look: { hullColor: '#141210', trimColor: '#c4932e', sailColor: '#ece6d6' }, cost: { gold: 2500000, oak: 45000, iron: 28000, canvas: 16000, powder: 6000 } },
+  // The Ghost Ship: a drowned frigate that would not stay down. Only won as a reward card (Wheel of Fortune, or the
+  // Phantom that haunts the night seas). Glowing tattered sails, and its hull knits itself back together.
+  { id: 'ghost',      name: 'Ghost Ship',  side: 9,  minSide: 7, maxSide: 16, len: 58, beam: 14, depth: 6.4, masts: 3, rig: 'ghost',     speed: 23, turn: 0.4, hull: 3200, sails: 660, crew: 260, decks: 2, level: 1, regen: 0.004, armor: 0.85, cardOnly: true, howToGet: 'Win it on the Wheel of Fortune, or sink the Phantom that haunts the seas at night', look: { hullColor: '#16211d', trimColor: '#4dffc3', sailColor: '#a6f0d6' }, cost: { gold: 0 } },
   // The Titan: cannot be bought with gold — only won (Wheel of Fortune, Holiday Tides event) as a reward card.
   // 150 m, six gun decks, black sails; bigger than 100% only with a Titan Size card.
   { id: 'titan',      name: 'Titan',       side: 120, minSide: 100, maxSide: 150, sizeGuns: [100, 150], len: 150, beam: 46, depth: 14, masts: 5, rig: 'titan', speed: 16, turn: 0.26, hull: 26000, sails: 3200, crew: 2200, decks: 6, level: 1, armor: 0.5, reload: 4, cardOnly: true, flagshipOnly: true, look: { hullColor: '#0b0a0c', trimColor: '#b3201c', sailColor: '#2a1515' }, cost: { gold: 0 } },
 ];
 /** Highest tier index an AI captain (or a fleet ship) may sail: everything up to the Man of War. */
-export const AI_TOP_TIER = 5;
+export const AI_TOP_TIER = TIERS.findIndex((t) => t.id === 'manowar');
 /** Tiers that can be bought or built with gold (the Titan only comes as a reward card). */
 export const shopTiers = () => TIERS.filter((t) => !t.cardOnly);
 
@@ -57,6 +64,7 @@ export const WHEEL = {
     { id: 'leviathan', kind: 'ship', tier: 'leviathan', p: 0.005, label: 'Leviathan', color: '#2b2622' },
     { id: 'sovereign', kind: 'ship', tier: 'sovereign', p: 0.007, label: 'Sovereign', color: '#22407e' },
     { id: 'manowar', kind: 'ship', tier: 'manowar', p: 0.01, label: 'Man of War', color: '#4a4036' },
+    { id: 'ghost', kind: 'ship', tier: 'ghost', p: 0.004, label: 'Ghost Ship', color: '#14584a' },
     { id: 'galleon', kind: 'ship', tier: 'galleon', p: 0.02, label: 'Galleon', color: '#7a4a24' },
     { id: 'tsize', kind: 'titanSize', p: 0.002, label: 'Titan Size', color: '#8a1a5a' },
     { id: 'g100k', kind: 'gold', n: 100000, p: 0.01, label: '100k gold', color: '#c9a227' },
@@ -64,7 +72,7 @@ export const WHEEL = {
     { id: 'g8k', kind: 'gold', n: 8000, p: 0.2, label: '8k gold', color: '#e6cc72' },
     { id: 'mats', kind: 'res', items: { oak: 300, iron: 150, canvas: 150 }, p: 0.2, label: 'Materials', color: '#6b8a3a' },
     { id: 'shot', kind: 'res', items: { powder: 80, chain: 40, grape: 40, explosive: 20 }, p: 0.15, label: 'Powder + shot', color: '#5a5a6a' },
-    { id: 'g3k', kind: 'gold', n: 3000, p: 0.335, label: '3k gold', color: '#efe0a8' },
+    { id: 'g3k', kind: 'gold', n: 3000, p: 0.331, label: '3k gold', color: '#efe0a8' },
   ],
 };
 /** Holiday Tides: claim a gift every day; claim EVERY day through New Year's Day for a Titan card. */
@@ -84,6 +92,9 @@ export function maxSideFor(T, size = 1) {
   return Math.max(T.minSide, Math.round(T.maxSide * size));
 }
 export const tierIndex = (id) => Math.max(0, TIERS.findIndex((t) => t.id === id));
+/** Power rank of a tier (classic ladder 0..8; the side-branch ships slot in between). Drives range, loot, AI nerve. */
+const RANK = { sloop: 0, schooner: 1, brigantine: 2, xebec: 2.5, frigate: 3, junk: 3.5, galleon: 4, manowar: 5, ghost: 5, sovereign: 6, leviathan: 7, titan: 8 };
+export const tierRank = (id) => RANK[id] ?? tierIndex(id);
 
 // Upgrades bought with level points. Lots of ranks so points stay useful all the way to level 200
 // (≈230 ranks in total). `per` is the effect per rank (see economy.shipStats).
@@ -122,7 +133,7 @@ export const MIN_RANGE = 18;
 
 export const rangeFor = (tier) => {
   const v = MUZZLE;
-  return Math.min((v * v * Math.sin(2 * MAX_ELEV)) / GRAVITY, 240 + tierIndex(tier) * 14);
+  return Math.min((v * v * Math.sin(2 * MAX_ELEV)) / GRAVITY, 240 + tierRank(tier) * 14);
 };
 
 // Buildings. `slot`: 'land' building ring, 'shore' for cannons, 'sea' for forts.

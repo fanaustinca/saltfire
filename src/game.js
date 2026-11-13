@@ -5,11 +5,13 @@ import { Stage } from './render/scene.js';
 import { buildShip } from './render/shipmodel.js';
 import { buildIsland, BaseView } from './render/islands.js';
 import { disposeGroup } from './render/merge.js';
-import { Effects } from './render/effects.js';
+import { Effects, Rain, Lightning } from './render/effects.js';
+import { setShipGlow } from './render/shipmodel.js';
+import { setIslandGlow } from './render/islands.js';
 import { KrakenView } from './render/kraken.js';
-import { Sim, joinPlayer, arcOf, solveElev, localToWorld, SAIL_STEPS, wrapA } from './sim.js';
+import { Sim, joinPlayer, arcOf, solveElev, localToWorld, SAIL_STEPS, wrapA, dayPhase } from './sim.js';
 import { handleAct, dockSite } from './actions.js';
-import { heightAt, setCalm } from './waves.js';
+import { heightAt, setCalm, setSea } from './waves.js';
 import { baseRadius } from './basegeo.js';
 import { AMMO, AMMO_ORDER, MUZZLE, GRAVITY, SECTOR_HALF, CHASE_HALF, MIN_RANGE, VERSION } from './config.js';
 import { shipStats, crewEff, flagship } from './economy.js';
@@ -26,6 +28,11 @@ export class Game {
     this.stage = new Stage(document.getElementById('view'), { quality: q.get('q') || app.settings.quality || 'high', preserve: q.has('test'), autoRes: (!q.has('test') || q.has('autores')) && app.settings.autoRes !== false });
     this.scene = this.stage.scene; this.camera = this.stage.camera;
     this.fx = new Effects(this.scene, this.stage.ocean);
+    this.rain = new Rain(this.scene);
+    this.bolt = new Lightning(this.scene);
+    // the flagship's stern lantern: lit at night (always in the scene so toggling it never recompiles shaders)
+    this.lantern = new THREE.PointLight(0xffb066, 0, 70, 1.6);
+    this.scene.add(this.lantern);
     this.krakenView = new KrakenView(this.scene);
     this.sim = new Sim(W, { authority: role === 'host' });
     this.views = new Map();   // ship id -> view
@@ -231,6 +238,7 @@ export class Game {
     for (const s of this.sim.ships.values()) ships.push([s.id, r2(s.x), r2(s.z), r3(s.yaw), r2(s.spd), r2(s.sailNow), r1(s.hull), r1(s.sails), Math.round(s.crew), s.fire > 0 ? 1 : 0, r2(s.sink), s.docked ? 1 : 0, s.rev || 0, r2(s.rud), s.life || 0, r2(s.recoil)]);
     const kr = this.sim.kraken ? { x: r2(this.sim.kraken.x), z: r2(this.sim.kraken.z), hp: r1(this.sim.kraken.hp), maxHp: this.sim.kraken.maxHp, t: r2(this.sim.kraken.t), dead: this.sim.kraken.dead || 0, tn: this.sim.kraken.tentacles.map((x) => [r2(x.a), r2(x.up), r2(x.slam)]) } : null;
     const crates = this.sim.crates.map((c) => ({ id: c.id, x: r2(c.x), z: r2(c.z), big: c.big, t: c.t }));
+    const wx = [r2(this.sim.weather.storm), Math.round(this.sim.dayOff || 0)];
     const out = this.fxOut.splice(0);
     for (const [peer, info] of this.peers) {
       const defs = [];
@@ -242,7 +250,7 @@ export class Game {
       const myId = 'p:' + info.pid;
       const me = this.sim.ships.get(myId);
       const fxp = out.filter((f) => !(f.t === 'fire' && f.ship === myId));
-      this.room.send(peer, { k: 'snap', t: r2(this.sim.time), ships, defs, kr, crates, fx: fxp, rel: me ? { reload: me.reload, docked: me.docked, trespass: me.trespass } : null });
+      this.room.send(peer, { k: 'snap', t: r2(this.sim.time), ships, defs, kr, crates, wx, fx: fxp, rel: me ? { reload: me.reload, docked: me.docked, trespass: me.trespass } : null });
     }
     if (this.defT <= 0) this.defT = 3;
   }
@@ -305,6 +313,7 @@ export class Game {
       k.tentacles = m.kr.tn.map(([a, up, slam]) => ({ a, up, slam }));
     } else this.sim.kraken = null;
     this.sim.crates = m.crates.map((c) => ({ ...c, loot: {} }));
+    if (Array.isArray(m.wx)) { this.sim.weather.storm = +m.wx[0] || 0; this.sim.dayOff = +m.wx[1] || 0; setSea(this.sim.seaBase * (1 + 0.9 * this.sim.weather.storm)); }
     for (const f of m.fx) this.playFx(f, false);
   }
   act(a) {
@@ -355,6 +364,7 @@ export class Game {
       case 'dirt': case 'stone': this.fx.dustPuff(f.x, f.y, f.z); sfx.crack(d * 1.3); break;
       case 'shield': this.fx.glow.add({ x: f.x, y: f.y, z: f.z, vx: 0, vy: 0, vz: 0, age: 0, life: 0.6, s0: 6, s1: 14, a: 0.8, c: new THREE.Color(0.4, 0.75, 1) }); break;
       case 'collapse': this.fx.explosion(f.x, f.y + 4, f.z, 1.2); this.fx.dustPuff(f.x, f.y, f.z, 0x9a9080); sfx.boom(d); break;
+      case 'fade': for (let i = 0; i < 60; i++) this.fx.glow.add({ x: f.x + (Math.random() - 0.5) * 50, y: 2 + Math.random() * 25, z: f.z + (Math.random() - 0.5) * 50, vx: 0, vy: 1 + Math.random() * 3, vz: 0, age: 0, life: 2 + Math.random() * 2, s0: 4, s1: 0.5, a: 0.6, c: GHOST_GLOW, drag: 0.3 }); break;
       case 'sink': this.fx.explosion(f.x, 3, f.z, 1); for (let i = 0; i < 25; i++) this.fx.addChunk(f.x + (Math.random() - 0.5) * 10, 3, f.z + (Math.random() - 0.5) * 10); sfx.boom(d); break;
       case 'pickup': sfx.coin(); break;
       case 'repair': {
@@ -705,6 +715,11 @@ export class Game {
       const p = this.pose(s);
       this.poseShip(v, s, p, t, dt);
       if (s.sink === 0) { const w = (this._wk ||= {}); w.x = p.x; w.z = p.z; w.yaw = p.yaw; w.spd = s.spd; w.sink = s.sink; w.stats = s.stats; w.look = s.look; this.fx.wake(w, t); }
+      // the Ghost Ship sheds drifting green will-o'-the-wisps
+      if (s.spec.tier === "ghost" && s.sink === 0 && dist < 900 && Math.random() < 0.6) {
+        const w = this._wk, L = s.stats.len, [gx, , gz] = localToWorld(w, (Math.random() - 0.5) * s.stats.beam * 1.2, 0, (Math.random() - 0.5) * L * 0.9);
+        this.fx.glow.add({ x: gx, y: v.model.root.position.y + s.stats.depth * (0.6 + Math.random() * 1.6), z: gz, vx: (Math.random() - 0.5) * 0.6, vy: 0.6 + Math.random() * 0.8, vz: (Math.random() - 0.5) * 0.6, age: 0, life: 2 + Math.random() * 1.5, s0: 2.2, s1: 0.4, a: 0.55, c: GHOST_GLOW, drag: 0.4 });
+      }
       if (s.fire > 0 && Math.random() < 0.6) { const [fx, , fz] = localToWorld({ ...s, ...p }, (Math.random() - 0.5) * s.stats.beam, 0, (Math.random() - 0.5) * s.stats.len * 0.7); this.fx.fire(fx, v.model.root.position.y + s.stats.depth * 0.7, fz); }
       // battle damage: holes clear when repaired, smoke thickens and fires break out as the hull fails
       const hf = Math.max(0, s.hull / s.stats.hull);
@@ -740,8 +755,39 @@ export class Game {
     }
     if (this.freeCam) { this.camera.position.set(...this.freeCam.pos); this.camera.lookAt(...this.freeCam.look); }
     this.updateAim();
+    this.updateSky(dt, t, me);
     this.stage.frame(t, me ? new THREE.Vector3(me.x, 0, me.z) : new THREE.Vector3());
     this.ui.frame(this, dt);
+  }
+  /** Time of day, storms, rain, lightning, night lights. */
+  updateSky(dt, t, me) {
+    const st = this.stage, storm = this.sim.weather?.storm || 0;
+    const phase = this.app.settings.dayNight === false ? 0.14 : dayPhase(t + (this.sim.dayOff || 0));
+    st.flash = Math.max(0, (st.flash || 0) - dt * 3.2);
+    st.setEnvironment(phase, storm, t);
+    const night = st.env.night;
+    if (Math.abs(night - (this.glowK ?? -1)) > 0.02) { this.glowK = night; setShipGlow(night); setIslandGlow(night); }
+    this.rain.update(Math.max(0, (storm - 0.25) / 0.75), t, this.camera.position);
+    this.fx.setLight(Math.max(0.22, 1 - night * 0.72 - storm * 0.3 + (st.flash || 0) * 0.6));
+    this.bolt.update(dt);
+    if (storm > 0.55) {
+      this.boltT = (this.boltT ?? 4) - dt;
+      if (this.boltT <= 0) {
+        this.boltT = 3 + Math.random() * 9;
+        const a = Math.random() * Math.PI * 2, d = 500 + Math.random() * 1600, c = this.camera.position;
+        this.bolt.strike(c.x + Math.cos(a) * d, c.z + Math.sin(a) * d);
+        st.flash = 1;
+        sfx.thunder(d);
+      }
+    }
+    // the flagship's stern lantern
+    if (me && night > 0.05 && me.sink === 0) {
+      const v = this.views.get(me.id), L = me.stats.len;
+      const [lx, , lz] = localToWorld(me, 0, 0, -L * 0.42);
+      this.lantern.position.set(lx, (v ? v.heaveNow : 0) + me.stats.depth + 3 + L * 0.03, lz);
+      this.lantern.intensity = night * (260 + L * 6);
+      this.lantern.distance = 40 + L * 0.8;
+    } else this.lantern.intensity = 0;
   }
   poseShip(v, s, p, t, dt) {
     const m = v.model;
@@ -778,6 +824,7 @@ export class Game {
   }
 }
 
+const GHOST_GLOW = new THREE.Color(0.3, 1, 0.72);
 function pushBuf(s, t, m) {
   s.buf ||= [];
   s.buf.push({ t, x: m.x, z: m.z, yaw: m.yaw, spd: m.spd });

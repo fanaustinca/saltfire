@@ -37,8 +37,8 @@ attribute float aSize; attribute float aAlpha; attribute vec3 aColor;
 varying float vA; varying vec3 vC;
 void main(){ vA = aAlpha; vC = aColor; vec4 mv = modelViewMatrix * vec4(position,1.0); gl_PointSize = aSize * (900.0 / -mv.z); gl_Position = projectionMatrix * mv; }`;
 const pfrag = `
-uniform sampler2D uTex; varying float vA; varying vec3 vC;
-void main(){ vec4 t = texture2D(uTex, gl_PointCoord); gl_FragColor = vec4(vC, t.a * vA); if (gl_FragColor.a < 0.01) discard; }`;
+uniform sampler2D uTex; uniform float uLight; varying float vA; varying vec3 vC;
+void main(){ vec4 t = texture2D(uTex, gl_PointCoord); gl_FragColor = vec4(vC * uLight, t.a * vA); if (gl_FragColor.a < 0.01) discard; }`;
 
 class PointPool {
   constructor(scene, blending) {
@@ -51,7 +51,7 @@ class PointPool {
     g.setAttribute('aAlpha', new THREE.BufferAttribute(this.alpha, 1).setUsage(THREE.DynamicDrawUsage));
     g.setAttribute('aColor', new THREE.BufferAttribute(this.col, 3).setUsage(THREE.DynamicDrawUsage));
     this.geo = g;
-    const m = new THREE.ShaderMaterial({ vertexShader: pvert, fragmentShader: pfrag, uniforms: { uTex: { value: puff() } }, transparent: true, depthWrite: false, blending });
+    const m = new THREE.ShaderMaterial({ vertexShader: pvert, fragmentShader: pfrag, uniforms: { uTex: { value: puff() }, uLight: { value: 1 } }, transparent: true, depthWrite: false, blending });
     this.points = new THREE.Points(g, m);
     this.points.frustumCulled = false;
     scene.add(this.points);
@@ -195,6 +195,8 @@ export class Effects {
     // a few pooled point lights for muzzle flashes / explosions
     for (let i = 0; i < 4; i++) { const l = new THREE.PointLight(0xffaa55, 0, 60, 2); scene.add(l); this.lights.push({ l, t: 0 }); }
   }
+  /** Ambient light level for smoke + foam (1 = noon; night and storms darken them; glows stay bright). */
+  setLight(k) { this.smoke.points.material.uniforms.uLight.value = k; this.foam.mesh.material.color.setScalar(k); }
   flash(x, y, z, k = 1) {
     const L = this.lights.reduce((a, b) => (a.t < b.t ? a : b));
     L.l.position.set(x, y, z); L.l.intensity = 2500 * k; L.t = 0.12;
@@ -321,5 +323,77 @@ export class Effects {
       v.rotation.set(Math.sin(t * 1.3 + c.x) * 0.15, t * 0.2, Math.cos(t * 1.1) * 0.12);
     }
     for (const [id, v] of this.crates) if (!seen.has(id)) { this.scene.remove(v); this.crates.delete(id); }
+  }
+}
+
+/** Storm rain: streaks in a box that follows the camera. Each drop's position comes from a fixed seed, the
+ *  time and the camera in the vertex shader, so the CPU does nothing per frame and drops stay put in the world
+ *  as the camera moves through them. */
+export class Rain {
+  constructor(scene) {
+    const N = 5000, R = 75, HH = 64;
+    const seed = new Float32Array(N * 2 * 4), pos = new Float32Array(N * 2 * 3);
+    for (let i = 0; i < N; i++) {
+      const x = Math.random() * 2 * R, y = Math.random() * HH, z = Math.random() * 2 * R, ln = 0.9 + Math.random() * 1.1;
+      for (let e = 0; e < 2; e++) { const o = (i * 2 + e) * 4; seed[o] = x; seed[o + 1] = y; seed[o + 2] = z; seed[o + 3] = e * ln; }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    g.setAttribute('aSeed', new THREE.BufferAttribute(seed, 4));
+    this.uniforms = { uTime: { value: 0 }, uCam: { value: new THREE.Vector3() }, uK: { value: 0 }, uWind: { value: new THREE.Vector2(0.35, 0.15) } };
+    const m = new THREE.ShaderMaterial({
+      uniforms: this.uniforms, transparent: true, depthWrite: false, fog: false,
+      vertexShader: `attribute vec4 aSeed; uniform float uTime; uniform vec3 uCam; uniform vec2 uWind; varying float vE;
+        void main() {
+          float x = uCam.x + mod(aSeed.x - uCam.x, ${(2 * R).toFixed(1)}) - ${R.toFixed(1)};
+          float z = uCam.z + mod(aSeed.z - uCam.z, ${(2 * R).toFixed(1)}) - ${R.toFixed(1)};
+          float y = uCam.y - ${(HH * 0.45).toFixed(1)} + mod(aSeed.y - uTime * 26.0, ${HH.toFixed(1)});
+          vec3 p = vec3(x, y, z) + vec3(uWind.x, 1.0, uWind.y) * aSeed.w * 1.6;
+          vE = aSeed.w;
+          gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
+        }`,
+      fragmentShader: `uniform float uK; varying float vE; void main() { gl_FragColor = vec4(0.78, 0.83, 0.9, uK * (0.18 + 0.22 * clamp(vE, 0.0, 1.0))); }`,
+    });
+    this.mesh = new THREE.LineSegments(g, m);
+    this.mesh.frustumCulled = false; this.mesh.visible = false; this.mesh.renderOrder = 2;
+    scene.add(this.mesh);
+  }
+  update(k, t, cam) {
+    this.uniforms.uK.value = k; this.uniforms.uTime.value = t; this.uniforms.uCam.value.copy(cam);
+    this.mesh.visible = k > 0.02;
+  }
+}
+
+/** A forked lightning bolt that flickers for a moment somewhere out on the horizon. */
+export class Lightning {
+  constructor(scene) {
+    this.mat = new THREE.LineBasicMaterial({ color: 0xeef4ff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
+    this.mesh = new THREE.LineSegments(new THREE.BufferGeometry(), this.mat);
+    this.mesh.frustumCulled = false; this.mesh.visible = false;
+    scene.add(this.mesh);
+    this.t = 0;
+  }
+  strike(x, z, top = 520) {
+    const pts = [];
+    const fork = (x0, y0, z0, len, depth) => {
+      let px = x0, py = y0, pz = z0;
+      const steps = 10 + Math.floor(Math.random() * 6), dy = len / steps;
+      for (let i = 0; i < steps && py > 0; i++) {
+        const nx = px + (Math.random() - 0.5) * 34, ny = py - dy * (0.7 + Math.random() * 0.6), nz = pz + (Math.random() - 0.5) * 34;
+        pts.push(px, py, pz, nx, Math.max(0, ny), nz);
+        if (depth < 2 && Math.random() < 0.18) fork(nx, ny, nz, len * 0.45, depth + 1);
+        px = nx; py = ny; pz = nz;
+      }
+    };
+    fork(x, top, z, top, 0);
+    this.mesh.geometry.dispose();
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+    this.mesh.geometry = g;
+    this.t = 0.32; this.mesh.visible = true;
+  }
+  update(dt) {
+    if (this.t <= 0) { this.mesh.visible = false; return; }
+    this.t -= dt;
+    this.mat.opacity = this.t > 0.22 ? 1 : this.t > 0.14 ? 0.15 : this.t > 0.08 ? 0.9 : Math.max(0, this.t / 0.08);
   }
 }

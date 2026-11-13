@@ -176,6 +176,20 @@ await T('port: dock at home, build (island grows), craft, trade, upgrade, custom
   const rw = await page.evaluate(() => ({ spins: SALT.game.profile().wheel?.spins || 0, ang: SALT.game.ui.wheelAngle }));
   assert(rw.spins === g0 + 1 && rw.ang < -20, 'wheel spun ' + JSON.stringify(rw));
   await shot(page, 'e2e-rewards.png');
+  // Games Month Advent: pretend it's mid-November, open today's door from the calendar
+  await page.evaluate(() => { dev.date('11-15'); SALT.game.ui.renderPanel(SALT.game); });
+  assert(await page.evaluate(() => document.querySelectorAll('.advgrid .door').length === 14 && !!document.querySelector('#adv-open:not([disabled])')), 'advent calendar with an open-able door');
+  await page.click('#adv-open');
+  await sleep(600);
+  assert(await page.evaluate(() => SALT.game.profile().advent?.opened === 1 && document.querySelectorAll('.door.open').length === 1), 'door 1 opened');
+  await page.evaluate(() => document.querySelector('.advent')?.scrollIntoView());
+  await shot(page, 'e2e-advent.png');
+  // festival ships: the Yuletide is on sale at Christmas, not in summer
+  await page.evaluate(() => { dev.date('12-20'); SALT.game.ui.tab = 'ships'; SALT.game.ui.renderPanel(SALT.game); });
+  assert(await page.evaluate(() => !!document.querySelector('[data-buy="yule"]') && !document.querySelector('[data-buy="harvest"]')), 'Yuletide on sale in December, Harvest Moon not');
+  await page.evaluate(() => { dev.date('07-01'); SALT.game.ui.renderPanel(SALT.game); });
+  assert(await page.evaluate(() => !document.querySelector('[data-buy="yule"]') && !document.querySelector('[data-buy="midnight"]')), 'no festival ships in July');
+  await page.evaluate(() => dev.date());
   await page.click('#pclose');
   await sleep(1200);
   await page.evaluate(() => { const g = SALT.game, b = g.sim.homeOf(g.pid), me = g.me(); dev.cam(b.x - me.x + 140, 90, b.z - me.z + 140, b.x - me.x, 0, b.z - me.z); });
@@ -183,6 +197,24 @@ await T('port: dock at home, build (island grows), craft, trade, upgrade, custom
   await shot(page, 'e2e-base.png');
   assert(!errors.length, errors.join('\n'));
   await page.close();
+});
+
+await T('festival ships + the Collector\'s Ark build and animate with no errors', async () => {
+  for (const id of ['harvest', 'yule', 'midnight', 'collector']) {
+    const { page, errors } = await openPage(browser, base.replace('&net=local&seed=7', '') + `&gallery=${id}&cam=quarter`);
+    await page.waitForFunction(() => window.SALT?.frames > 30, { polling: 100, timeout: 120000 });
+    await sleep(1000);
+    const st = await canvasStats(page);
+    assert(st.std > 10 && st.colors > 40, id + ' renders ' + JSON.stringify(st));
+    if (id === 'collector') {
+      // the carousel turns and the miniatures are all aboard
+      const r = await page.evaluate(async () => { const spin = SALT.ships[0].s.body.getObjectByName('carousel'); const a = spin?.rotation.y; await new Promise((r) => setTimeout(r, 500)); return { a, b: spin?.rotation.y, kids: spin?.children.length }; });
+      assert(r.a != null && r.b !== r.a, 'carousel turns ' + JSON.stringify(r));
+    }
+    await shot(page, `e2e-ship-${id}.png`);
+    assert(!errors.length, id + ': ' + errors.join('\n'));
+    await page.close();
+  }
 });
 
 await T('world events: kraken + treasure flagship + map; dev.help()', async () => {

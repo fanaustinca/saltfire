@@ -4,9 +4,9 @@
 import * as THREE from 'three';
 import {
   RES, RES_LABEL, RES_ICON, AMMO, AMMO_ORDER, RECIPES, TIERS, shopTiers, tierById, UPGRADES, UPGRADE_TOTAL, XP_PER_LEVEL, BUILDINGS,
-  MARKET_ITEMS, MARKET_TAX, TREATY_TYPES, HAVEN_R, WORLD_R, VERSION, LAND_SLOTS, claimFee, FIELD_REPAIR, TRAILS, maxSideFor, WHEEL, HOLIDAY, TITAN_SIZE_PRICE, TREASURE,
+  MARKET_ITEMS, MARKET_TAX, TREATY_TYPES, HAVEN_R, WORLD_R, VERSION, LAND_SLOTS, claimFee, FIELD_REPAIR, TRAILS, maxSideFor, WHEEL, HOLIDAY, TITAN_SIZE_PRICE, TREASURE, ADVENT, limitedOpen,
 } from './config.js';
-import { shipStats, customCost, costText, canAfford, holidayState, holidayGift, giftShort, prizeText, voyageCost, freeSpinReady, dayKey, bestAsk, bestBid, crewEff, treatyBetween, shielded, landSlotsUsed, flagship, hostile, fleetCap, traderName, aiFaction } from './economy.js';
+import { shipStats, customCost, costText, canAfford, holidayState, holidayGift, giftShort, prizeText, adventState, adventGift, mdText, voyageCost, freeSpinReady, dayKey, bestAsk, bestBid, crewEff, treatyBetween, shielded, landSlotsUsed, flagship, hostile, fleetCap, traderName, aiFaction } from './economy.js';
 import { SAIL_NAMES, SAIL_STEPS, DOCK_SPEED } from './sim.js';
 import { dockSite, repairCost } from './actions.js';
 import { baseRadius } from './basegeo.js';
@@ -331,6 +331,7 @@ export class UI {
         <div><h4>Empire</h4><p><kbd>E</kbd> dock · <kbd>F</kbd> (hold, stopped) harvest resource islets · <kbd>M</kbd> map. Wild islands are held by squatters: smash their stockade and hold position nearby to claim them (each new colony's charter costs more). Pirate clans hold fortresses and keep fortifying them — smash the keep, sink the defenders and hold position to conquer. Build docks, shipyards, mills and defences — the island and its village grow as you build.</p></div>
         <div><h4>Fleet</h4><p><kbd>G</kbd> fleet command: send the ships you own (beyond your flagship) to escort you, guard an island, or attack an enemy, clan or wild island — they bombard it and capture it for you. Sunk fleet ships come home as wrecks to repair.</p></div>
         <div><h4>World</h4><p>Hunt the <b>Kraken</b> and <b>Treasure Flagships</b>, sink level-matched AI, trade on the player market (5% tax), sign treaties, set safe havens & entry fees. Offline captains' bases are shielded.</p></div>
+        <div><h4>Festival ships &amp; the Games Month Advent</h4><p>Some ships are only sold during their festival: the <b>Harvest Moon</b> (Thanksgiving, 19 Nov – 2 Dec), the <b>Yuletide</b> (Christmas, 12 – 28 Dec) and the <b>Stroke of Midnight</b> (New Year, 29 Dec – 8 Jan). Buy one while it's on sale and it's yours for good, with its own exclusive wake trail. Every November the <b>Games Month Advent</b> calendar (Rewards, J) opens a door a day for 14 days: door 7 is a Titan, door 14 the ultra-rare <b>Collector's Ark</b>.</p></div>
         <div><h4>Day, night &amp; storms</h4><p>Days pass and night falls: at nightfall <b>the Phantom</b> may rise — a glowing ghost ship worth a fortune (and maybe a Ghost Ship card) if you sink it before dawn. Storms bring heavy seas, rain and wild gunnery. Turn the cycle off in the menu.</p></div>
         <div><h4>Multiplayer</h4><p>Share your 6-digit room code (top-left). Friends join from the title screen. Your browser saves the world.</p></div>
       </div>`, [{ label: 'Aye!', primary: true }], 'wide');
@@ -553,18 +554,21 @@ export class UI {
     const cards = p.cards || [];
     const shipCards = (id) => cards.filter((c) => c.kind === 'ship' && c.tier === id);
     const sizeCards = cards.filter((c) => c.kind === 'titanSize').length;
+    const now = game.sim.clock();
     body.innerHTML = `
       ${cards.length ? `<div class="cardbar">🎴 Reward cards: ${this.cardsText(cards)} <span class="muted small">— redeem a ship card on its hull below, or pick it under "Pay with" in the custom shipyard.</span></div>` : ''}
       <h3>Shipwright — standard hulls</h3>
       <div class="shipgrid">${TIERS.map((T) => {
         const st = shipStats({ tier: T.id, side: T.side, size: 1 }); const locked = p.level < T.level; const mine = shipCards(T.id);
-        const buy = T.cardOnly ? `<button class="btn" disabled>Reward card only</button>` : `<button class="btn" data-buy="${T.id}" ${locked || !T.cost.gold || !canAfford(p.inv, T.cost) ? 'disabled' : ''}>${locked ? `Level ${T.level}` : !T.cost.gold ? 'Starter' : 'Buy'}</button>`;
-        return `<div class="shipcard ${locked && !mine.length ? 'locked' : ''} ${T.cardOnly ? 'legend' : ''}"><h4>${T.name}</h4><div class="muted">${T.side} cannon${T.side > 1 ? 's' : ''} per side (up to ${maxSideFor(T, 1)}${T.sizeGuns ? `, ${T.sizeGuns[1]} at 120% size` : ''}) · ${T.masts} mast${T.masts > 1 ? 's' : ''}${T.flagshipOnly ? ' · <b class="y">flagship only</b>' : ''}</div><div class="mini">Hull ${st.hull} · Speed ${(st.speed * 1.94).toFixed(0)} kn · Crew ${st.crew}</div><div class="cost">${T.cardOnly ? esc(T.howToGet || 'Win it on the Wheel of Fortune (0.1%) or the Holiday Tides event') : T.cost.gold ? costText(T.cost) : 'free'}</div>${buy}${mine.length ? `<button class="btn primary" data-redeem="${mine[0].id}" data-tier="${T.id}">🎴 Redeem card${mine.length > 1 ? ` (${mine.length})` : ''}</button>` : ''}</div>`;
+        const Lm = T.limited, onSale = !Lm || limitedOpen(T, now);
+        const buy = T.cardOnly ? `<button class="btn" disabled>Reward card only</button>` : !onSale ? `<button class="btn" disabled>Back ${esc(mdText(Lm.from))}</button>` : `<button class="btn ${Lm ? 'primary' : ''}" data-buy="${T.id}" ${locked || !T.cost.gold || !canAfford(p.inv, T.cost) ? 'disabled' : ''}>${locked ? `Level ${T.level}` : !T.cost.gold ? 'Starter' : 'Buy'}</button>`;
+        const badge = Lm ? `<div class="ltd ${onSale ? 'on' : ''}">${onSale ? `🎉 ${esc(Lm.fest)} special — on sale until ${esc(mdText(Lm.to))}` : `${esc(Lm.fest)} ship · on sale ${esc(mdText(Lm.from))} – ${esc(mdText(Lm.to))}`} · comes with the <b>${esc(TRAILS[Lm.trail].name)}</b> trail</div>` : T.id === 'collector' ? '<div class="ltd ark">✨ Ultra rare · collectors only · a floating museum of games</div>' : '';
+        return `<div class="shipcard ${locked && !mine.length ? 'locked' : ''} ${T.cardOnly ? 'legend' : ''} ${Lm ? 'festive' : ''} ${T.id === 'collector' ? 'arkcard' : ''}"><h4>${T.name}</h4>${badge}<div class="muted">${T.side} cannon${T.side > 1 ? 's' : ''} per side (up to ${maxSideFor(T, 1)}${T.sizeGuns ? `, ${T.sizeGuns[1]} at 120% size` : ''}) · ${T.masts} mast${T.masts > 1 ? 's' : ''}${T.flagshipOnly ? ' · <b class="y">flagship only</b>' : ''}</div><div class="mini">Hull ${st.hull} · Speed ${(st.speed * 1.94).toFixed(0)} kn · Crew ${st.crew}</div><div class="cost">${T.cardOnly ? esc(T.howToGet || 'Win it on the Wheel of Fortune (0.1%) or the Holiday Tides event') : T.cost.gold ? costText(T.cost) : 'free'}</div>${buy}${mine.length ? `<button class="btn primary" data-redeem="${mine[0].id}" data-tier="${T.id}">🎴 Redeem card${mine.length > 1 ? ` (${mine.length})` : ''}</button>` : ''}</div>`;
       }).join('')}</div>
       <div class="card sizecard"><b>Titan Size card</b> <span class="muted small">— lets a Titan be built above 100% size (up to 150 guns a side) in the custom shipyard. You hold ${sizeCards}.</span>
         <button class="btn" id="buy-size" ${(p.inv.gold || 0) < TITAN_SIZE_PRICE ? 'disabled' : ''}>Buy — ${TITAN_SIZE_PRICE.toLocaleString()} gold</button></div>
       <h3>Custom Shipyard ${canDesign ? `<span class="muted small">— ${hasYard ? 'your Shipyard takes 20% off' : site.kind === 'port' ? 'Free Port yards' : 'build a Shipyard here for 20% off'}</span>` : '<span class="muted small">— dock at the Free Port or one of your own islands to design ships</span>'}</h3>
-      ${canDesign ? this.builderHTML(p) : ''}`;
+      ${canDesign ? this.builderHTML(p, now) : ''}`;
     this.builderYard = hasYard;
     body.querySelectorAll('[data-buy]').forEach((bt) => (bt.onclick = () => this.doAct(game, { type: 'buyShip', tier: bt.dataset.buy }, 'New ship added to your fleet — make it your flagship in Fleet.')));
     body.querySelectorAll('[data-redeem]').forEach((bt) => (bt.onclick = () => this.doAct(game, { type: 'buyShip', tier: bt.dataset.tier, card: bt.dataset.redeem }, `Card redeemed: your ${tierById(bt.dataset.tier).name} waits in Fleet!`)));
@@ -579,11 +583,11 @@ export class UI {
   rewardsReady(game) {
     const p = game.profile(), now = game.sim.clock();
     const h = holidayState(p, now);
-    return freeSpinReady(p, now) || (h.active && !h.claimed);
+    return freeSpinReady(p, now) || (h.active && !h.claimed) || adventState(p, now).canOpen;
   }
-  builderHTML(p) {
+  builderHTML(p, now = Date.now()) {
     const cards = (p.cards || []).filter((c) => c.kind === 'ship');
-    const avail = shopTiers().filter((t) => p.level >= t.level);
+    const avail = shopTiers().filter((t) => p.level >= t.level && limitedOpen(t, now));
     return `<div class="builder"><div class="bform">
       <label>Pay with <select id="cb-pay"><option value="">Gold + materials</option>${cards.map((c) => `<option value="${c.id}" data-tier="${c.tier}">🎴 ${tierById(c.tier).name} card (hull is free)</option>`).join('')}</select></label>
       <label>Hull class <select id="cb-tier">${avail.map((t) => `<option value="${t.id}">${t.name}</option>`).join('')}</select></label>
@@ -676,19 +680,21 @@ export class UI {
   tab_trails(game, body) {
     const p = game.profile();
     const owned = p.trails || ['foam'], cur = p.trail || 'foam';
-    const sw = (c) => c === 'rainbow' ? 'linear-gradient(90deg,#f33,#fc3,#3f6,#3cf,#a4f)' : c ? `linear-gradient(90deg, transparent, ${c} 30%, ${c})` : 'linear-gradient(90deg, transparent, #fff 40%, #dfe)';
+    const STYLE_SW = { rainbow: 'rainbow', autumn: 'linear-gradient(90deg, transparent, #9e1f0a 25%, #e8742a 55%, #ffd23b)', frost: 'linear-gradient(90deg, transparent, #bfe9ff 35%, #fff 60%, #9fd8ff)', fireworks: 'linear-gradient(90deg, transparent, #ffd34d 30%, #ff4fd8 55%, #5ff6ff 75%, #ffd34d)', arcade: 'repeating-linear-gradient(90deg, #ff4fd8 0 12px, #5ff6ff 12px 24px, #ffd23b 24px 36px)' };
+    const sw = (c) => /^(linear|repeating)/.test(c || '') ? c : c === 'rainbow' ? 'linear-gradient(90deg,#f33,#fc3,#3f6,#3cf,#a4f)' : c ? `linear-gradient(90deg, transparent, ${c} 30%, ${c})` : 'linear-gradient(90deg, transparent, #fff 40%, #dfe)';
     body.innerHTML = `<p class="muted">Paint the sea behind you. A wake trail is a cosmetic glow that follows your flagship wherever you sail — everyone in the world sees it. Bought once with gold, yours forever.</p>
       <div class="cards trails">${Object.entries(TRAILS).map(([id, T]) => {
         const has = owned.includes(id), on = cur === id;
-        return `<div class="card trail ${on ? 'on' : ''}"><div class="tsw" style="background:${sw(T.color)}"></div><h4>${esc(T.name)}</h4><div class="muted small">${T.cost ? `${fmt(T.cost)} gold` : 'Free'}</div>
-          ${on ? '<button class="btn" disabled>Equipped ✓</button>' : has ? `<button class="btn" data-eq="${id}">Equip</button>` : `<button class="btn primary" data-tb="${id}" ${(p.inv.gold || 0) < T.cost ? 'disabled' : ''}>Buy</button>`}</div>`;
+        if (T.exclusive && !has && T.style === 'arcade' && !adventState(p, game.sim.clock()).active) return '';
+        return `<div class="card trail ${on ? 'on' : ''} ${T.exclusive ? 'excl' : ''}"><div class="tsw" style="background:${sw(T.style ? STYLE_SW[T.style] : T.color)}"></div><h4>${esc(T.name)}</h4><div class="muted small">${T.exclusive ? `★ Exclusive — ${esc(T.exclusive.charAt(0).toLowerCase() + T.exclusive.slice(1))}` : T.cost ? `${fmt(T.cost)} gold` : 'Free'}</div>
+          ${on ? '<button class="btn" disabled>Equipped ✓</button>' : has ? `<button class="btn" data-eq="${id}">Equip</button>` : T.exclusive ? '<button class="btn" disabled>Not for sale</button>' : `<button class="btn primary" data-tb="${id}" ${(p.inv.gold || 0) < T.cost ? 'disabled' : ''}>Buy</button>`}</div>`;
       }).join('')}</div>`;
     body.querySelectorAll('[data-tb]').forEach((b) => (b.onclick = () => this.doAct(game, { type: 'buyTrail', id: b.dataset.tb }, `${TRAILS[b.dataset.tb].name} bought and equipped!`)));
     body.querySelectorAll('[data-eq]').forEach((b) => (b.onclick = () => this.doAct(game, { type: 'setTrail', id: b.dataset.eq }, `${TRAILS[b.dataset.eq].name} equipped.`)));
   }
   // ------------------------------------------------------------------ rewards: Wheel of Fortune + Holiday Tides
   tab_rewards(game, body) {
-    const p = game.profile(), now = Date.now();
+    const p = game.profile(), now = game.sim.clock();
     const free = p.wheel?.free !== dayKey(now), bonus = p.wheel?.bonus || 0;
     const h = holidayState(p, now);
     const pct = (x) => (x * 100 < 1 ? (x * 100).toFixed(1) : (x * 100).toFixed(x * 100 < 10 ? 1 : 0)) + '%';
@@ -722,7 +728,8 @@ export class UI {
         <div class="hcal">${wk}${cal.join('')}</div>
         <p class="small">${h.count}/${h.total} claimed · ${h.i < 0 ? 'starts soon' : !h.active ? 'event over' : h.perfect ? '<span class="good">perfect attendance — the Titan is still yours to win</span>' : `<span class="bad">missed ${h.missed} day${h.missed > 1 ? 's' : ''} — no Titan this year, New Year's Day pays 60,000 gold instead</span>`}</p>
         <button class="btn primary" id="hol-claim" ${h.active && !h.claimed ? '' : 'disabled'}>${h.claimed ? 'Claimed today ✓ — come back tomorrow' : h.active ? `Claim day ${h.i + 1}` : 'Not running'}</button></div>
-      <div class="card"><h3>Your reward cards</h3>${(p.cards || []).length ? `<div class="cardrow">${(p.cards || []).map((c) => `<div class="rcard">${iconSVG(c.kind === 'ship' ? (c.tier === 'titan' ? 'titan' : 'ship') : 'size', 54)}<b>${esc(c.kind === 'ship' ? tierById(c.tier).name : 'Titan Size')}</b></div>`).join('')}</div><p class="muted small">Use them at the Shipwright (Redeem) or in the custom shipyard (Pay with).</p>` : '<p class="muted">No cards yet — spin the wheel!</p>'}</div>
+      ${this.adventHTML(p, now)}
+      <div class="card"><h3>Your reward cards</h3>${(p.cards || []).length ? `<div class="cardrow">${(p.cards || []).map((c) => `<div class="rcard">${iconSVG(c.kind === 'ship' ? prizeIcon(c) : 'size', 54)}<b>${esc(c.kind === 'ship' ? tierById(c.tier).name : 'Titan Size')}</b></div>`).join('')}</div><p class="muted small">Use them at the Shipwright (Redeem) or in the custom shipyard (Pay with).</p>` : '<p class="muted">No cards yet — spin the wheel!</p>'}</div>
     </div>`;
     this.drawWheel();
     const spin = async (paid) => {
@@ -759,6 +766,14 @@ export class UI {
     };
     $('#spin-free', body).onclick = () => spin(false);
     $('#spin-paid', body).onclick = () => spin(true);
+    const adv = $('#adv-open', body);
+    if (adv) adv.onclick = async () => {
+      const r = await game.act({ type: 'openAdvent' });
+      if (r.err) { this.toast(r.err, 'bad'); return; }
+      const big = r.data.gift.big;
+      this.toast(`${ADVENT.name} — door ${r.data.door}: ${r.data.text}!`, big ? 'event' : 'good', big ? 9 : 3); big ? sfx.fanfare() : sfx.ui();
+      this.refresh(game); if (this.panel) this.renderPanel(game);
+    };
     $('#hol-claim', body).onclick = async () => {
       const r = await game.act({ type: 'claimHoliday' });
       if (r.err) { this.toast(r.err, 'bad'); return; }
@@ -766,6 +781,25 @@ export class UI {
       this.toast(`${HOLIDAY.name} day ${r.data.day}/${r.data.total}: ${r.data.text}!`, big ? 'event' : 'good', big ? 8 : 3); sfx.ui();
       this.refresh(game); if (this.panel) this.renderPanel(game);
     };
+  }
+  /** International Games Month: a 14-door advent calendar (door 7 = Titan, door 14 = the Collector's Ark). */
+  adventHTML(p, now) {
+    const a = adventState(p, now);
+    if (!a.active && !(a.opened > 0 && new Date(now).getMonth() + 1 === ADVENT.month)) return '';
+    const doors = [];
+    for (let i = 0; i < ADVENT.doors; i++) {
+      const g = adventGift(i), open = i < a.opened, next = i === a.opened && a.canOpen, unlocked = i < a.unlocked;
+      const cls = open ? 'open' : next ? 'next' : unlocked ? 'ready' : 'shut';
+      const label = g.kind === 'ship' && g.tier === 'collector' ? "Collector's Ark" : giftShort(g);
+      const inner = open || g.big ? `${iconSVG(prizeIcon(g), open ? 34 : 38)}<b>${esc(label)}</b>` : `<span class="dq">?</span>`;
+      doors.push(`<div class="door ${cls} ${g.big ? 'big' : ''} ${g.tier === 'collector' ? 'ark' : ''}" title="Door ${i + 1}${open || g.big ? ': ' + esc(prizeText(g)) : ''}"><span class="dn">${i + 1}</span>${inner}</div>`);
+    }
+    const status = a.done ? '<span class="good">Every door open — the Collector\'s Ark is yours!</span>' : !a.active ? 'The calendar has closed for this year.' : a.openedToday ? `Door ${a.opened} opened today — come back tomorrow. ${a.canFinish ? '<span class="good">You can still open all 14.</span>' : '<span class="bad">Not enough days left to reach door 14 this year.</span>'}` : a.canOpen ? `Door ${a.opened + 1} is ready! ${a.daysLeft} day${a.daysLeft > 1 ? 's' : ''} left in the event.` : 'The next door unlocks tomorrow.';
+    return `<div class="card advent"><h3>🎮 ${esc(ADVENT.name)} <span class="muted small">— International Games Month</span></h3>
+      <p class="small">A new door every day from <b>${ADVENT.startDay} November</b> (open one a day — missed days can be caught up until the <b>${ADVENT.endDay}th</b>). Door <b>7</b> holds a <b class="y">Titan</b>; door <b>14</b> holds the ultra-rare <b class="y">Collector's Ark</b> — a floating museum with a miniature of every major game.</p>
+      <div class="advgrid">${doors.join('')}</div>
+      <p class="small">${a.opened}/${ADVENT.doors} opened · ${status}</p>
+      <button class="btn primary" id="adv-open" ${a.canOpen ? '' : 'disabled'}>${a.canOpen ? `Open door ${a.opened + 1}` : a.done ? 'All doors open ✓' : 'Come back tomorrow'}</button></div>`;
   }
   drawWheel() {
     const c = this.panel?.querySelector('#wheel'); if (!c) return;

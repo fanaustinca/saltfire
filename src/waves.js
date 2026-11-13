@@ -1,14 +1,19 @@
 // Gerstner wave field shared by the GPU ocean shader and CPU buoyancy, so ships ride the exact
 // surface that is drawn. Pure math, no three.js.
 
-// [dirX, dirZ, wavelength, steepness]
-export const WAVES = [
-  [1.0, 0.25, 96, 0.11],
-  [0.72, -0.62, 57, 0.09],
-  [-0.35, 0.92, 33, 0.075],
-  [0.95, 0.55, 17, 0.06],
-  [-0.8, -0.35, 9.5, 0.045],
+// A natural, irregular sea: a dominant swell from the wind direction made of near-equal wavelengths (they beat
+// against each other, so the swell comes in sets), wind sea spread ±70° around it, and a little cross-sea.
+// Wavelengths are deliberately non-harmonic and every wave has its own phase, so no pattern ever lines up or
+// repeats symmetrically. [dirX, dirZ, wavelength, steepness] — built from (angle offset, wavelength, steepness).
+const WIND = 0.32;
+const SPEC = [
+  [0.0, 118, 0.072], [0.21, 101, 0.066], [-0.34, 79, 0.058], [0.63, 61.5, 0.05],
+  [-0.88, 47.3, 0.044], [1.22, 37.1, 0.038], [-0.13, 28.9, 0.034], [0.47, 22.4, 0.03],
+  [-1.36, 17.2, 0.027], [2.24, 13.1, 0.022], [-0.61, 9.8, 0.019], [0.97, 7.4, 0.015],
 ];
+export const WAVES = SPEC.map(([da, L, st]) => [Math.cos(WIND + da), Math.sin(WIND + da), L, st]);
+/** Per-wave phase offset (golden-angle sequence) — the ocean + foam shaders use the same formula. */
+export const PHASE = (i) => i * 2.39996;
 export const G = 9.81;
 export let SEA = 0.8; // global wave scale (calm..storm), dev-tweakable
 
@@ -49,26 +54,30 @@ export function calmAt(x, z) {
   return CALM_MIN + (1 - CALM_MIN) * f;
 }
 
-/** Displacement of the undisturbed grid point (x,z) at time t: returns [dx, dy, dz]. */
-export function displace(x, z, t, out = [0, 0, 0]) {
+// per-wave constants, precomputed (the CPU samples the sea thousands of times a frame)
+const NW = WAVES_N.length;
+const KX = new Float64Array(NW), KZ = new Float64Array(NW), KC = new Float64Array(NW), AK = new Float64Array(NW), UX = new Float64Array(NW), UZ = new Float64Array(NW), PH = new Float64Array(NW);
+WAVES_N.forEach(([ux, uz, L, st], i) => { const k = (2 * Math.PI) / L; KX[i] = ux * k; KZ[i] = uz * k; KC[i] = k * Math.sqrt(G / k); AK[i] = st / k; UX[i] = ux; UZ[i] = uz; PH[i] = i * 2.39996; });
+function disp(x, z, t, amp, out) {
   let dx = 0, dy = 0, dz = 0;
-  const calm = calmAt(x, z);
-  for (const [ux, uz, L, st] of WAVES_N) {
-    const k = (2 * Math.PI) / L, c = Math.sqrt(G / k), a = (st * SEA * calm) / k;
-    const f = k * (ux * x + uz * z - c * t);
-    const cf = Math.cos(f), sf = Math.sin(f);
-    dx += ux * a * cf; dz += uz * a * cf; dy += a * sf;
+  for (let i = 0; i < NW; i++) {
+    const f = KX[i] * x + KZ[i] * z - KC[i] * t + PH[i], a = AK[i] * amp, cf = Math.cos(f);
+    dx += UX[i] * a * cf; dz += UZ[i] * a * cf; dy += a * Math.sin(f);
   }
   out[0] = dx; out[1] = dy; out[2] = dz;
   return out;
 }
+/** Displacement of the undisturbed grid point (x,z) at time t: returns [dx, dy, dz]. */
+export function displace(x, z, t, out = [0, 0, 0]) { return disp(x, z, t, SEA * calmAt(x, z), out); }
 
 const tmp = [0, 0, 0];
-/** Water height at world (x,z): invert the horizontal displacement with a few fixed-point steps. */
+/** Water height at world (x,z): invert the horizontal displacement with a few fixed-point steps. The calm factor
+ *  barely changes over a few metres, so it is looked up once. */
 export function heightAt(x, z, t) {
+  const amp = SEA * calmAt(x, z);
   let px = x, pz = z;
-  for (let i = 0; i < 3; i++) { displace(px, pz, t, tmp); px = x - tmp[0]; pz = z - tmp[2]; }
-  displace(px, pz, t, tmp);
+  for (let i = 0; i < 3; i++) { disp(px, pz, t, amp, tmp); px = x - tmp[0]; pz = z - tmp[2]; }
+  disp(px, pz, t, amp, tmp);
   return tmp[1];
 }
 

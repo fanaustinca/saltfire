@@ -29,7 +29,7 @@ for (const pid of pids) { const p = W.players[pid]; p.level = 40; p.points = 60;
 
 const JUNK = [undefined, null, NaN, Infinity, -Infinity, -1, 0, 1e12, -1e12, '', 'x', '__proto__', 'constructor', [], {}, { x: 1 }, true, 3.7, '5', 'port'];
 const junk = () => { const v = pick(JUNK); return v && typeof v === 'object' ? JSON.parse(JSON.stringify(v)) : v; };
-const ACTIONS = ['dock', 'undock', 'seaRepair', 'spinWheel', 'buyMap', 'dig', 'voyage', 'claimHoliday', 'buySizeCard', 'buyTrail', 'setTrail', 'repair', 'craft', 'upgrade', 'buyShip', 'customShip', 'flagship', 'deploy', 'deployAll', 'recall', 'recallAll', 'repairFleet', 'renameShip', 'claim', 'setHome', 'build', 'demolish', 'repairBase', 'haven', 'payFee', 'order', 'instantBuy', 'instantSell', 'cancel', 'buyListing', 'propose', 'answer', 'alliance', 'harvest', 'ammo', 'rename', 'board', 'nonsense', undefined];
+const ACTIONS = ['dock', 'undock', 'seaRepair', 'spinWheel', 'buyMap', 'dig', 'voyage', 'claimHoliday', 'openAdvent', 'buySizeCard', 'buyTrail', 'setTrail', 'repair', 'craft', 'upgrade', 'buyShip', 'customShip', 'flagship', 'deploy', 'deployAll', 'recall', 'recallAll', 'repairFleet', 'renameShip', 'claim', 'setHome', 'build', 'demolish', 'repairBase', 'haven', 'payFee', 'order', 'instantBuy', 'instantSell', 'cancel', 'buyListing', 'propose', 'answer', 'alliance', 'harvest', 'ammo', 'rename', 'board', 'nonsense', undefined];
 
 /** A plausible (mostly valid) action for this player, so the fuzz reaches deep code paths, not just early returns. */
 function goodAction(pid) {

@@ -15,6 +15,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { hullShape, planW, sheer, keelY, sectionW, hullX, deckY, gunLayout, deckGap, sternTaper } from '../layout.js';
 import { tierById } from '../config.js';
 import { planks, deck as deckTex, sailcloth, noiseTex, flagTex } from './textures.js';
+import { buildFestive, festiveDecal, setFestiveGlow, isFestive } from './festive.js';
 
 const V3 = THREE.Vector3;
 const sm = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
@@ -22,7 +23,7 @@ const sm = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a)));
 // ------------------------------------------------------------------ shared materials
 let M = null;
 /** Night makes lanterns, stern lights and glowing ports burn brighter (k 0..1). */
-export function setShipGlow(k) { const m = mats(); m.lantern.emissiveIntensity = 1.6 * (1 + k * 1.6); m.ghostLamp.emissiveIntensity = 2.2 * (1 + k); m.glass.emissive.setRGB(0.2 + k * 0.8, 0.13 + k * 0.45, k * 0.12); m.glass.emissiveIntensity = 0.4 + k * 1.4; } // cabin windows light up after dark
+export function setShipGlow(k) { setFestiveGlow(k); const m = mats(); m.lantern.emissiveIntensity = 1.6 * (1 + k * 1.6); m.ghostLamp.emissiveIntensity = 2.2 * (1 + k); m.glass.emissive.setRGB(0.2 + k * 0.8, 0.13 + k * 0.45, k * 0.12); m.glass.emissiveIntensity = 0.4 + k * 1.4; } // cabin windows light up after dark
 function mats() {
   if (M) return M;
   const pl = planks();
@@ -93,7 +94,7 @@ function sailVertex(sh, U) {
     .replace('#include <beginnormal_vertex>', '#include <beginnormal_vertex>\n{ vec3 sc = sailScale(); objectNormal = normalize(objectNormal / max(sc, vec3(0.04))); }')
     .replace('#include <begin_vertex>', '#include <begin_vertex>\ntransformed = aPivot + (position - aPivot) * sailScale();');
 }
-function sailMat(color, share = null) {
+function sailMat(color, share = null, decal = null) {
   const m = new THREE.MeshStandardMaterial({ color, map: sailcloth(), roughness: 0.95, side: THREE.DoubleSide, emissive: color.clone().multiplyScalar(0.32), emissiveMap: sailcloth() });
   // `share`: furl together with another sail material (e.g. a junk's dark battens with its canvas)
   m.userData.damage = share ? share.userData.damage : { value: 0 };
@@ -103,6 +104,14 @@ function sailMat(color, share = null) {
     sh.uniforms.uDamage = m.userData.damage;
     sh.uniforms.uNoise = { value: nz };
     sailVertex(sh, U);
+    if (decal) {
+      sh.uniforms.uDecal = { value: decal };
+      sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec2 vSailUv;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvSailUv = uv;');
+      sh.fragmentShader = sh.fragmentShader
+        .replace('#include <common>', '#include <common>\nuniform sampler2D uDecal;\nvarying vec2 vSailUv;')
+        .replace('#include <map_fragment>', '#include <map_fragment>\nvec4 sDecal = texture2D(uDecal, vSailUv);\ndiffuseColor.rgb = mix(diffuseColor.rgb, sDecal.rgb, sDecal.a);')
+        .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance = mix(totalEmissiveRadiance, sDecal.rgb * 0.45, sDecal.a);');
+    }
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', '#include <common>\nuniform float uDamage;\nuniform sampler2D uNoise;')
       .replace('#include <map_fragment>', `#include <map_fragment>
@@ -111,7 +120,7 @@ function sailMat(color, share = null) {
           float burn = smoothstep(uDamage * 0.75 - 0.05, uDamage * 0.75 + 0.03, n);
           diffuseColor.rgb *= mix(0.25, 1.0, burn); }`);
   };
-  m.customProgramCacheKey = () => 'sail-dmg-batch';
+  m.customProgramCacheKey = () => (decal ? 'sail-dmg-batch-decal' : 'sail-dmg-batch');
   // shadow pass: same furling, so a furled ship doesn't cast full-sail shadows
   const d = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, side: THREE.DoubleSide });
   d.onBeforeCompile = (sh) => sailVertex(sh, U);
@@ -346,6 +355,10 @@ function rigPlan(id) {
     case 'sovereign': return { mastH: 0.88, bs: [0.42, 0.3], jibs: 4, sprit: true, masts: [{ u: 0.24, h: 0.8, sq: 4, spanker: true }, { u: 0.5, h: 1, sq: 5, stud: true, main: true }, { u: 0.75, h: 0.93, sq: 5, stud: true }] };
     case 'leviathan': return { mastH: 0.7, bs: [0.3, 0.3], jibs: 4, sprit: true, masts: [{ u: 0.2, h: 0.84, sq: 5, spanker: true }, { u: 0.42, h: 1, sq: 5, stud: true, main: true }, { u: 0.61, h: 0.98, sq: 5, stud: true }, { u: 0.8, h: 0.9, sq: 5, stud: true }] };
     case 'titan': return { mastH: 0.6, bs: [0.28, 0.3], jibs: 4, sprit: true, masts: [{ u: 0.16, h: 0.8, sq: 5, spanker: true }, { u: 0.33, h: 0.95, sq: 5, stud: true }, { u: 0.5, h: 1, sq: 5, stud: true, main: true }, { u: 0.66, h: 0.96, sq: 5, stud: true }, { u: 0.82, h: 0.86, sq: 5, stud: true }] };
+    case 'harvest': return { mastH: 0.9, bs: [0.4, 0.3], jibs: 3, sprit: true, masts: [{ u: 0.23, h: 0.8, sq: 3, spanker: true }, { u: 0.5, h: 1, sq: 4, stud: true, main: true }, { u: 0.75, h: 0.9, sq: 4 }] };
+    case 'yule': return { mastH: 0.95, bs: [0.4, 0.3], jibs: 3, masts: [{ u: 0.24, h: 0.8, sq: 3, spanker: true }, { u: 0.5, h: 1, sq: 4, main: true }, { u: 0.74, h: 0.9, sq: 4 }] };
+    case 'midnight': return { mastH: 0.93, bs: [0.42, 0.3], jibs: 4, sprit: true, masts: [{ u: 0.25, h: 0.82, sq: 4, spanker: true }, { u: 0.5, h: 1, sq: 4, stud: true, main: true }, { u: 0.74, h: 0.92, sq: 4, stud: true }] };
+    case 'collector': return { mastH: 0.78, bs: [0.34, 0.26], jibs: 2, masts: [{ u: 0.17, h: 0.86, sq: 3, spanker: true }, { u: 0.86, h: 1, sq: 3, main: true }] };
     default: return rigPlan('sloop');
   }
 }
@@ -366,7 +379,8 @@ export function buildShip(stats, look = {}) {
   const body = new THREE.Group(); root.add(body);
   const titan = id === 'titan', lev = id === 'leviathan' || titan, sov = id === 'sovereign';
   const ghost = id === 'ghost', junk = id === 'junk', xebec = id === 'xebec';
-  const big = id === 'manowar' || sov || lev, war = id === 'frigate' || ghost || big;
+  const festive = isFestive(id), yule = id === 'yule';
+  const big = id === 'manowar' || sov || lev, war = id === 'frigate' || ghost || big || (festive && id !== 'collector');
 
   const TL = tierById(id).look || {};
   const generic = !look.hullColor || (look.hullColor === '#5a3a22' && (!look.trimColor || look.trimColor === '#c9a227'));
@@ -602,7 +616,7 @@ export function buildShip(stats, look = {}) {
   // warships show a full tier of gunports on every deck, whatever their current battery
   {
     const decks = Math.max(1, H.decks);
-    const per = titan ? 32 : lev ? 26 : sov ? 20 : big ? 15 : id === 'galleon' ? 9 : id === 'frigate' || ghost ? 12 : junk ? 8 : xebec ? 5 : id === 'brigantine' ? 7 : id === 'schooner' ? 4 : 0;
+    const per = titan ? 32 : lev ? 26 : sov ? 20 : big ? 15 : id === 'galleon' ? 9 : id === 'frigate' || ghost ? 12 : id === 'midnight' ? 15 : id === 'yule' ? 14 : id === 'harvest' ? 13 : id === 'collector' ? 9 : junk ? 8 : xebec ? 5 : id === 'brigantine' ? 7 : id === 'schooner' ? 4 : 0;
     for (let d = 0; d < decks; d++) {
       const y = Math.max(0.6, deckY(H, 0.5) - d * deckGap(H) + 0.55);
       const u0 = (lev ? 0.1 : 0.17) + d * 0.025, u1 = (lev ? 0.88 : 0.8) - d * 0.03;
@@ -649,14 +663,14 @@ export function buildShip(stats, look = {}) {
   // ---------------------------------------------------------------- masts, tops, yards, sails
   const sails = [];
   let battenMat = null;
-  const smat = sailMat(new THREE.Color(look.sailColor || (big ? '#f3efe2' : '#efe6cf')));
+  const smat = sailMat(new THREE.Color(look.sailColor || (big ? '#f3efe2' : '#efe6cf')), null, festiveDecal(id));
   // ghost canvas: see-through, glowing, and permanently in tatters
   if (ghost) { smat.transparent = true; smat.opacity = 0.72; smat.depthWrite = false; smat.emissive.set(0x2affb4).multiplyScalar(0.5); smat.userData.tatter = 0.34; }
   const mastTops = [];
   const mastH = L * plan.mastH;
   const rigLines = [];
   const pushLine = (a, b) => { rigLines.push(a.x, a.y, a.z, b.x, b.y, b.z); };
-  const mastGroups = [];
+  const mastGroups = [], mastInfo = [];
   const flagMat = new THREE.MeshStandardMaterial({ map: flagTex(look.emblem ?? 0, look.flagBg || '#111', look.flagFg || '#eee'), side: THREE.DoubleSide, roughness: 0.9 });
   const fh = Math.max(1.3, L * 0.07);
   const flagGeo = new THREE.PlaneGeometry(fh * 1.6, fh, 10, 4); flagGeo.translate(-fh * 0.8, 0, 0); flagGeo.rotateY(Math.PI / 2);
@@ -672,7 +686,7 @@ export function buildShip(stats, look = {}) {
     const at = (y) => new V3(0, base + y, z - y * rake); // raked mast line
     const top = at(h);
     const upper = new THREE.Group(); body.add(upper);
-    const upperSpar = [], upLines = [];
+    const upperSpar = [], upLines = [], upperSnow = [];
     const pushUp = (a, b) => { upLines.push(a.x, a.y, a.z, b.x, b.y, b.z); };
     spar.push(span(at(-0.4), at(lowerH), r0, r0 * 0.78, 10));
     upperSpar.push(span(at(lowerH - 1.2), at(h * 0.82), r0 * 0.6, r0 * 0.42, 8));
@@ -719,6 +733,7 @@ export function buildShip(stats, look = {}) {
         const pT = at(yTop), pB = at(yBot);
         tgt.push(span(new V3(-wT / 2 - 0.4, pT.y, pT.z + 0.4), new V3(wT / 2 + 0.4, pT.y, pT.z + 0.4), 0.16 * gs, 0.16 * gs, 6));
         if (li === start) tgt.push(span(new V3(-wB / 2 - 0.4, pB.y, pB.z + 0.4), new V3(wB / 2 + 0.4, pB.y, pB.z + 0.4), 0.18 * gs, 0.18 * gs, 6));
+        if (yule) (li === 0 ? white : upperSnow).push(place(new THREE.CylinderGeometry(0.3 * gs, 0.3 * gs, wT + 0.6, 8, 1, false, 0, Math.PI), [0, pT.y + 0.12, pT.z + 0.4], [0, 0, Math.PI / 2]));
         const sail = new THREE.Mesh(squareSail(wT, wB, yTop - yBot, (yTop - yBot) * 0.22), smat); sail.castShadow = true;
         sail.position.set(0, pT.y - 0.15, pT.z + 0.55);
         (li === 0 ? body : upper).add(sail);
@@ -781,6 +796,8 @@ export function buildShip(stats, look = {}) {
       upper.add(f); flags.push({ mesh: f, base: f.geometry.attributes.position.array.slice(), len: mm.main ? fh * 1.6 : fh * 4 });
     }
     upper.add(merged(upperSpar, m.spar));
+    if (upperSnow.length) upper.add(merged(upperSnow, m.white));
+    mastInfo.push({ z, base, h, top: top.clone(), upper, main: !!mm.main });
     mastGroups.push({ upper, stump, u: mm.u, main: !!mm.main, lowY: at(lowerH).y, upLines });
   });
   // forestays + jibs from the foremast to the bowsprit
@@ -806,6 +823,8 @@ export function buildShip(stats, look = {}) {
   { const a = fore.clone(), b = bsTip.clone(); mastGroups[foreIdx].upLines.push(a.x, a.y, a.z, b.x, b.y, b.z); }
   for (const g of mastGroups) { if (!g.upLines.length) continue; const lg = new THREE.BufferGeometry(); lg.setAttribute('position', new THREE.Float32BufferAttribute(g.upLines, 3)); g.upper.add(new THREE.LineSegments(lg, m.rope)); }
   pushLine(bsTip, new V3(0, 0.4, L / 2 - 0.4));
+  // festival + collector ships: their decorations, displays and moving parts
+  const fest = festive ? buildFestive(id, { H, L, B, body, zU, gs, goldMat: m.gold, lists: { gold, white, red, lamps, dark, iron, glass, ember, spar }, mastInfo, bsTip, stemY, stemZ }) : null;
 
   // stern ensign
   const flag2 = new THREE.Mesh(flagGeo.clone(), flagMat);
@@ -1113,6 +1132,7 @@ export function buildShip(stats, look = {}) {
     body.add(mesh);
     if (lod === 1) lodNear.push(mesh); else if (lod === 2) lodFar.push(mesh);
   }
+  if (fest) { lodNear.push(...fest.near); lodFar.push(...fest.far); }
   const rg = new THREE.BufferGeometry(); rg.setAttribute('position', new THREE.Float32BufferAttribute(rigLines, 3));
   const rig = new THREE.LineSegments(rg, m.rope); body.add(rig);
   lodNear.push(rig);
@@ -1127,7 +1147,7 @@ export function buildShip(stats, look = {}) {
 
   // ---------------------------------------------------------------- animation API
   const api = {
-    root, body, sails: sailMeshes, flag: flags[0]?.mesh, flag2, guns, H, sailMat: smat, rig, holes,
+    root, body, sails: sailMeshes, fest, flag: flags[0]?.mesh, flag2, guns, H, sailMat: smat, rig, holes,
     sailLevel: 1, damage: 0, hullDamage: 0,
     setSailLevel(l) { this.sailLevel = l; },
     /** sail damage 0..1: holes in the canvas, and topmasts shot away as it gets worse. */
@@ -1175,6 +1195,7 @@ export function buildShip(stats, look = {}) {
     update(t, wind = 1) {
       const U = smat.userData.sail;
       U.lvl.value = this.sailLevel; U.wind.value = wind; U.t.value = t;
+      if (fest) fest.update(t);
       if (this.lod > 0) return; // flags only ripple up close
       for (const f of flags) {
         if (!f.mesh.visible || (f.mesh.parent && !f.mesh.parent.visible)) continue;

@@ -196,7 +196,7 @@ export class Game {
       pushBuf(s, this.sim.time, s);
     } else if (m.k === 'fire' && s) {
       const r = this.sim.fire(s, m.side, m.ax, m.az, m.ammo, m.balls);
-      if (!r.err) sfx.cannon(this.distTo(s.x, s.z), r.balls.length);
+      if (!r.err) { sfx.cannon(this.distTo(s.x, s.z), r.balls.length); this.battleAt = performance.now(); }
     } else if (m.k === 'act') {
       const res = handleAct(this.sim, info.pid, m.a && typeof m.a === 'object' ? m.a : {});
       this.room.send(peer, { k: 'res', id: m.id, res });
@@ -358,6 +358,7 @@ export class Game {
           });
         }
         sfx.cannon(this.distTo(f.balls[0][0], f.balls[0][2]), f.balls.length);
+        if (this.distTo(f.balls[0][0], f.balls[0][2]) < 650) this.battleAt = performance.now(); // the band plays the fight
         break;
       }
       case 'hit': { this.fx.hit(f.x, f.y, f.z, f.rig, f.ammo); sfx.crack(d); const v = this.views.get(f.ship); if (v && !f.rig && f.lx != null) v.model.addHole(f.lx, f.ly, f.lz); break; }
@@ -692,6 +693,25 @@ export class Game {
       const k = 1 + Math.sin(t * 3) * 0.15; g.userData.beam.scale.set(k, 1, k);
     }
   }
+  /** Live effects for the festival ships: Yuletide snow, Harvest Moon leaves, Midnight fireworks, Ark sparkles. */
+  festFx(s, v, dist, dt) {
+    const w = this._wk, L = s.stats.len, B = s.stats.beam, y0 = v.model.root.position.y, R = Math.random;
+    const at = (lx, lz) => localToWorld(w, lx, 0, lz);
+    switch (s.spec.tier) {
+      case 'yule': if (dist < 600) for (let i = 0; i < 2; i++) { const [x, , z] = at((R() - 0.5) * B * 2.2, (R() - 0.5) * L * 1.2); this.fx.smoke.add({ x, y: y0 + 12 + R() * 28, z, vx: 0.4 + (R() - 0.5) * 0.6, vy: -2.2 - R(), vz: (R() - 0.5) * 0.6, age: 0, life: 9, s0: 0.45, s1: 0.4, a: 0.95, c: SNOW, drag: 0.05 }); } break;
+      case 'harvest': if (dist < 600 && R() < 0.35) { const [x, , z] = at((R() - 0.5) * B * 0.8, (R() - 0.5) * L * 0.6); this.fx.smoke.add({ x, y: y0 + 8 + R() * 18, z, vx: (R() - 0.5) * 2.5, vy: -1.2, vz: (R() - 0.5) * 2.5, age: 0, life: 7, s0: 0.8, s1: 0.7, a: 0.95, c: LEAF_C[Math.floor(R() * LEAF_C.length)], drag: 0.5 }); } break;
+      case 'collector': if (dist < 700 && R() < 0.5) { const a = R() * 6.28, r = B * (0.2 + R() * 0.2), [x, , z] = at(Math.cos(a) * r, Math.sin(a) * r); this.fx.glow.add({ x, y: y0 + s.stats.depth + 2 + R() * 6, z, vx: 0, vy: 1 + R(), vz: 0, age: 0, life: 1.6, s0: 0.9, s1: 0.1, a: 0.8, c: ARK_C[Math.floor(R() * ARK_C.length)], drag: 0.6 }); } break;
+      case 'midnight': {
+        v.fwT = (v.fwT ?? 1 + R() * 2) - dt;
+        if (v.fwT > 0) break;
+        v.fwT = ((this.glowK || 0) > 0.5 ? 1.4 : 3.2) + R() * 2.2;
+        const sx = R() < 0.5 ? -1 : 1, lz = (R() < 0.5 ? -0.18 : 0.16) * L, [x, , z] = at(sx * B * 0.3, lz), fuse = 1.1 + R() * 0.4;
+        this.fx.firework(x, y0 + s.stats.depth + 2, z, fuse);
+        sfx.firework(dist, fuse);
+        break;
+      }
+    }
+  }
   dropView(id) { const v = this.views.get(id); if (v) { this.scene.remove(v.model.root); v.model.dispose(); this.views.delete(id); } }
   render(dt) {
     const t = this.sim.time;
@@ -704,6 +724,7 @@ export class Game {
     if (this.lodT <= 0) { this.lodT = 0.5; this.updateWorldLOD(focus); }
     this.drainBuilds();
     this.updateTreasureMarks(t);
+    sfx.mood(performance.now() - (this.battleAt ?? -1e9) < 14000 ? 1 : 0);
     // ships
     for (const [id, v] of this.views) if (!this.sim.ships.has(id)) this.dropView(id);
     let built = 0; const tb = performance.now();
@@ -728,8 +749,9 @@ export class Game {
       { const cd = s === me ? 0 : Math.hypot(s.x - this.camera.position.x, s.z - this.camera.position.z), L = s.stats.len; v.model.setLOD(cd > 900 + L * 6 ? 2 : cd > 300 + L * 3 ? 1 : 0); }
       const p = this.pose(s);
       this.poseShip(v, s, p, t, dt);
-      if (s.sink === 0) { const w = (this._wk ||= {}); w.x = p.x; w.z = p.z; w.yaw = p.yaw; w.spd = s.spd; w.sink = s.sink; w.stats = s.stats; w.look = s.look; this.fx.wake(w, t); }
+      if (s.sink === 0) { const w = (this._wk ||= {}); w.x = p.x; w.z = p.z; w.yaw = p.yaw; w.spd = s.spd; w.sink = s.sink; w.stats = s.stats; w.look = s.look; w.id = s.id; this.fx.wake(w, t); }
       // the Ghost Ship sheds drifting green will-o'-the-wisps
+      if (FEST_FX[s.spec.tier] && s.sink === 0 && dist < 1100) this.festFx(s, v, dist, dt);
       if (s.spec.tier === "ghost" && s.sink === 0 && dist < 900 && Math.random() < 0.6) {
         const w = this._wk, L = s.stats.len, [gx, , gz] = localToWorld(w, (Math.random() - 0.5) * s.stats.beam * 1.2, 0, (Math.random() - 0.5) * L * 0.9);
         this.fx.glow.add({ x: gx, y: v.model.root.position.y + s.stats.depth * (0.6 + Math.random() * 1.6), z: gz, vx: (Math.random() - 0.5) * 0.6, vy: 0.6 + Math.random() * 0.8, vz: (Math.random() - 0.5) * 0.6, age: 0, life: 2 + Math.random() * 1.5, s0: 2.2, s1: 0.4, a: 0.55, c: GHOST_GLOW, drag: 0.4 });
@@ -842,6 +864,8 @@ export class Game {
 }
 
 const GHOST_GLOW = new THREE.Color(0.3, 1, 0.72), BOARD_SMOKE = new THREE.Color(0.75, 0.72, 0.66);
+const FEST_FX = { yule: 1, harvest: 1, collector: 1, midnight: 1 };
+const SNOW = new THREE.Color(0xf4f8ff), LEAF_C = ['#c0392b', '#e67e22', '#f1c40f', '#a84300'].map((c) => new THREE.Color(c)), ARK_C = ['#ff4fd8', '#5ff6ff', '#ffd34d'].map((c) => new THREE.Color(c));
 function pushBuf(s, t, m) {
   s.buf ||= [];
   s.buf.push({ t, x: m.x, z: m.z, yaw: m.yaw, spd: m.spd });

@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { WAVES_N, G, SEA, CALM_MIN, CALM_W } from '../waves.js';
 
-const MAXW = 5;
+const MAXW = WAVES_N.length;
 
 const vert = /* glsl */`
 uniform float uTime;
@@ -38,9 +38,9 @@ void main() {
     vec4 w = uWaves[i];
     float k = 6.2831853 / w.z;
     float c = sqrt(${G.toFixed(2)} / k);
-    float st = w.w * uSea * calm * (i > 2 ? fade * 0.6 + 0.4 : fade);
+    float st = w.w * uSea * calm * (w.z < 50.0 ? fade * 0.6 + 0.4 : fade);
     float a = st / k;
-    float f = k * (dot(w.xy, p.xz) - c * uTime);
+    float f = k * (dot(w.xy, p.xz) - c * uTime) + float(i) * 2.39996;
     float cf = cos(f), sf = sin(f);
     d.x += w.x * a * cf; d.z += w.y * a * cf; d.y += a * sf;
     tx += vec3(-w.x * w.x * st * sf, w.x * st * cf, -w.x * w.y * st * sf);
@@ -82,21 +82,26 @@ float noise(vec2 p) {
   vec2 u = f * f * (3.0 - 2.0 * f);
   return mix(mix(hash(i), hash(i + vec2(1, 0)), u.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), u.x), u.y);
 }
-// ripple normal: analytic sum of short directional sines (smooth, no grid artifacts)
+// ripple normal: analytic sum of short directional sines on a domain-warped plane (so they never tile into a
+// visible lattice), with jittered directions and a slowly drifting wind-gust mask ("cat's paws") on top
 vec2 ripple(vec2 p, float t) {
+  vec2 q = mod(p, 4096.0);
+  vec2 warp = vec2(noise(q * 0.013 + 3.1), noise(q * 0.013 + 17.7)) - 0.5;
+  p += warp * 34.0;
   vec2 g = vec2(0.0);
   float a = 1.0;
-  for (int i = 0; i < 7; i++) {
+  for (int i = 0; i < 9; i++) {
     float fi = float(i);
-    float ang = fi * 2.399 + 0.4;
+    float ang = 0.32 + sin(fi * 2.13 + 0.7) * 1.25 + fi * 0.21;  // spread around the wind, irregularly
     vec2 d = vec2(cos(ang), sin(ang));
-    float k = 0.55 * pow(1.38, fi);
+    float k = 0.5 * pow(1.33, fi) * (1.0 + 0.11 * sin(fi * 5.7));
     float w = sqrt(9.81 * k);
     float ph = dot(d, p) * k - w * t + fi * 1.7;
     g += d * cos(ph) * a * k;
-    a *= 0.62;
+    a *= 0.66;
   }
-  return g * 0.18;
+  float gust = noise(q * 0.0045 + vec2(t * 0.021, -t * 0.013)) * 0.7 + noise(q * 0.017 - t * 0.04) * 0.3;
+  return g * 0.18 * (0.45 + 1.1 * gust);
 }
 void main() {
   vec3 V = normalize(cameraPosition - vWorld);
@@ -119,6 +124,8 @@ void main() {
     float dd = length(vWorld.xz - is.xy) - is.z;
     shore = max(shore, 1.0 - smoothstep(0.0, is.w, dd));
   }
+  // broad, slow variation in tint (wind streaks, deeper troughs) so the open sea isn't one flat colour
+  { vec2 q2 = mod(vWorld.xz, 4096.0); float v = noise(q2 * 0.0021 + uTime * 0.004) - 0.5; water *= 1.0 + v * 0.22; }
   water = mix(water, vec3(0.16, 0.72, 0.68) * uDim, shore * 0.75);
   vec3 col = mix(water, sky, fres * 0.9);
   // sun glint

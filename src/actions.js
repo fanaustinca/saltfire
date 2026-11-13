@@ -1,6 +1,6 @@
 // Host-side action handler: every player intent (from the local UI or a remote peer) goes through
 // here, so the host stays authoritative for the economy, empire and diplomacy.
-import { HAVEN_R, BUILDINGS, tierById, claimFee, FIELD_REPAIR, TRAILS, TREASURE } from './config.js';
+import { HAVEN_R, BUILDINGS, tierById, claimFee, FIELD_REPAIR, TRAILS, TREASURE, ADVENT } from './config.js';
 import { DOCK_SPEED } from './sim.js';
 import * as E from './economy.js';
 import { baseRadius, harborPoint } from './basegeo.js';
@@ -130,6 +130,12 @@ function act(sim, pid, a) {
       s.docked = a.to === 'port' ? { kind: 'port', id: 'port', name: port.name } : { kind: 'base', id: to.id, name: to.name, own: true };
       mark(); return r(null, { cost, name: to.name, docked: s.docked });
     }
+    case 'openAdvent': {
+      const res = E.openAdvent(p, sim.clock());
+      if (typeof res === 'string') return r(res);
+      if (res.gift.kind === 'ship') sim.msgs.push({ to: null, text: `${p.name} opened door ${res.door} of the ${ADVENT.name} and found ${res.text}!`, kind: 'event' });
+      mark(); return r(null, res);
+    }
     case 'claimHoliday': {
       const res = E.claimHoliday(p, sim.clock());
       if (typeof res === 'string') return r(res);
@@ -146,6 +152,7 @@ function act(sim, pid, a) {
       if (!T) return r('Unknown trail');
       p.trails ||= ['foam'];
       if (p.trails.includes(a.id)) return r('You already own that trail');
+      if (T.exclusive) return r(`${T.name} can't be bought — ${T.exclusive.charAt(0).toLowerCase() + T.exclusive.slice(1)}`);
       if ((p.inv.gold || 0) < T.cost) return r(`Needs ${T.cost} gold`);
       p.inv.gold -= T.cost; p.trails.push(a.id);
       p.trail = a.id; if (s) s.look = { ...(s.look || {}), trail: a.id };
@@ -173,13 +180,13 @@ function act(sim, pid, a) {
     }
     case 'buyShip': {
       if (!docked) return r('Visit a harbour to buy ships');
-      const res = E.buyShip(p, a.tier, { name: a.name, card: a.card });
+      const res = E.buyShip(p, a.tier, { name: a.name, card: a.card, now: sim.clock() });
       if (typeof res === 'string') return r(res);
       E.addXp(p, 20); mark(); return r(null, res.uid);
     }
     case 'customShip': {
       if (!docked) return r('Dock at your shipyard');
-      const res = E.buildCustomShip(W, p, docked.kind === 'port' ? 'port' : docked.id, a.spec || {});
+      const res = E.buildCustomShip(W, p, docked.kind === 'port' ? 'port' : docked.id, a.spec || {}, sim.clock());
       if (typeof res === 'string') return r(res);
       E.addXp(p, 60); mark(); return r(null, res.uid);
     }

@@ -2,7 +2,7 @@
 // Host-authoritative: every function here is called on the host (or in solo) and is unit-tested.
 import {
   TREASURE, VOYAGE, RES, AMMO_ORDER, RECIPES, TIERS, tierById, maxSideFor, UPGRADES, XP_PER_LEVEL, MAX_LEVEL, BUILDINGS,
-  MARKET_TAX, LAND_SLOTS, PROD_PERIOD, BASE_RELOAD, rangeFor, MUZZLE, FLEET_BASE, WHEEL, HOLIDAY, TITAN_SIZE_PRICE, tierRank,
+  MARKET_TAX, LAND_SLOTS, PROD_PERIOD, BASE_RELOAD, rangeFor, MUZZLE, FLEET_BASE, WHEEL, HOLIDAY, TITAN_SIZE_PRICE, tierRank, ADVENT, TRAILS, limitedOpen,
 } from './config.js';
 
 export const uid = (p = '') => p + Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-4);
@@ -137,19 +137,29 @@ export function buyShip(p, tier, opts = {}) {
     if (!c) return 'You do not hold that reward card';
     takeCard(p, c);
     const s = shipSpec(T.id, { name: opts.name || T.name });
-    p.fleet.push(s);
+    p.fleet.push(s); giveShipTrail(p, T);
     return s;
   }
+  if (T.limited && !limitedOpen(T, opts.now ?? Date.now())) return limitedMsg(T);
   if (T.cardOnly) return `The ${T.name} can only be won as a reward card — ${T.howToGet ? T.howToGet.charAt(0).toLowerCase() + T.howToGet.slice(1) : 'Wheel of Fortune or the Holiday Tides event'}`;
   if (p.level < T.level) return `Requires level ${T.level}`;
   if (!pay(p.inv, T.cost)) return 'Not enough resources';
   const s = shipSpec(T.id, opts);
-  p.fleet.push(s);
+  p.fleet.push(s); giveShipTrail(p, T);
   return s;
 }
+/** A festival ship brings its own exclusive wake trail (equipped on purchase if you're still on plain foam). */
+function giveShipTrail(p, T) {
+  const id = T.limited?.trail; if (!id || !TRAILS[id]) return;
+  p.trails ||= ['foam'];
+  if (!p.trails.includes(id)) p.trails.push(id);
+}
+export const limitedMsg = (T) => `The ${T.name} is a ${T.limited.fest} ship — on sale only ${mdText(T.limited.from)} – ${mdText(T.limited.to)}`;
+const MONS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+export const mdText = (md) => `${+md.slice(3)} ${MONS[+md.slice(0, 2) - 1]}`;
 /** Custom hulls: at the Free Port or your own island (a Shipyard there takes 20% off). A ship reward card pays for
  *  the hull; a Titan bigger than 100% also needs a Titan Size card. */
-export function buildCustomShip(W, p, siteId, o) {
+export function buildCustomShip(W, p, siteId, o, now = Date.now()) {
   const b = W.bases.find((x) => x.id === siteId);
   if (siteId !== 'port' && (!b || b.owner !== p.id)) return 'Design ships at the Free Port or on your own island';
   const yard = !!b?.buildings.some((x) => x.type === 'shipyard' && x.hp > 0);
@@ -158,6 +168,7 @@ export function buildCustomShip(W, p, siteId, o) {
   const T = tierById(card ? card.tier : o.tier);
   if (T.cardOnly && !card) return `The ${T.name} can only be built with a ${T.name} reward card`;
   if (!card && p.level < T.level) return `Requires level ${T.level}`;
+  if (!card && T.limited && !limitedOpen(T, now)) return limitedMsg(T);
   const size = clamp(o.size || 1, 0.85, 1.2);
   const sizeCard = T.id === 'titan' && size > 1.001 ? findCard(p, o.sizeCard, 'titanSize') || (p.cards || []).find((x) => x.kind === 'titanSize') : null;
   if (T.id === 'titan' && size > 1.001 && !sizeCard) return 'A Titan above 100% needs a Titan Size card (Wheel, Holiday Tides, or the Shipwright)';
@@ -167,7 +178,7 @@ export function buildCustomShip(W, p, siteId, o) {
   if (card) takeCard(p, card);
   if (sizeCard) takeCard(p, sizeCard);
   const s = shipSpec(T.id, { ...o, tier: T.id, side, size, custom: true, name: String(o.name || 'Unnamed').slice(0, 24) });
-  p.fleet.push(s);
+  p.fleet.push(s); giveShipTrail(p, T);
   return s;
 }
 export function buyTitanSizeCard(p) {
@@ -184,7 +195,8 @@ export function prizeText(pr) {
   if (pr.kind === 'ship') return `${tierById(pr.tier).name} reward card`;
   if (pr.kind === 'titanSize') return 'Titan Size card';
   if (pr.kind === 'gold') return `${pr.n.toLocaleString()} gold`;
-  if (pr.kind === 'spin') return 'a free Wheel spin';
+  if (pr.kind === 'spin') return (pr.n || 1) > 1 ? `${pr.n} free Wheel spins` : 'a free Wheel spin';
+  if (pr.kind === 'trail') return `the ${TRAILS[pr.id]?.name || 'secret'} wake trail`;
   const NM = { explosive: 'explosive shells', chain: 'chainshot', grape: 'grapeshot' };
   return Object.entries(pr.items).map(([k, v]) => `${v.toLocaleString()} ${NM[k] || k}`).join(', ');
 }
@@ -192,6 +204,7 @@ export function grantPrize(p, pr) {
   if (pr.kind === 'ship') addCard(p, { kind: 'ship', tier: pr.tier });
   else if (pr.kind === 'titanSize') addCard(p, { kind: 'titanSize' });
   else if (pr.kind === 'gold') p.inv.gold = (p.inv.gold || 0) + pr.n;
+  else if (pr.kind === 'trail') { p.trails ||= ['foam']; if (TRAILS[pr.id] && !p.trails.includes(pr.id)) p.trails.push(pr.id); else p.inv.gold = (p.inv.gold || 0) + 10000; }
   else if (pr.kind === 'spin') { p.wheel ||= {}; p.wheel.bonus = (p.wheel.bonus || 0) + (pr.n || 1); }
   else gain(p.inv, pr.items);
 }
@@ -232,6 +245,7 @@ export function giftShort(g) {
   const k = (n) => (n >= 1000 ? `${+(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : `${n}`);
   if (g.kind === 'ship') return tierById(g.tier).name;
   if (g.kind === 'titanSize') return 'Size card';
+  if (g.kind === 'trail') return 'Trail';
   if (g.kind === 'spin') return `${g.n || 1} spin${(g.n || 1) > 1 ? 's' : ''}`;
   if (g.kind === 'gold') return k(g.n);
   if (g.icon === 'chest') return 'Chest';
@@ -255,6 +269,51 @@ export function claimHoliday(p, now) {
   const g = holidayGift(st.i, perfect);
   grantPrize(p, g);
   return { day: st.i + 1, total: st.total, gift: g, text: prizeText(g) };
+}
+
+// ------------------------------------------------------------------ Games Month Advent (International Games Month)
+/** What's behind each door (0-based). Door 7 holds a Titan, door 14 the ultra-rare Collector's Ark. */
+export function adventGift(i) {
+  return [
+    { kind: 'gold', n: 5000, icon: 'gold' },
+    { kind: 'res', items: { explosive: 40 }, icon: 'explosive' },
+    { kind: 'spin', n: 2, icon: 'spin' },
+    { kind: 'res', items: { oak: 500, iron: 250, canvas: 250 }, icon: 'mats' },
+    { kind: 'trail', id: 'arcade', icon: 'trail' },
+    { kind: 'gold', n: 15000, icon: 'gold' },
+    { kind: 'ship', tier: 'titan', big: true, icon: 'titan' },
+    { kind: 'spin', n: 3, icon: 'spin' },
+    { kind: 'res', items: { powder: 150, chain: 80, grape: 80, explosive: 60 }, icon: 'shot' },
+    { kind: 'gold', n: 30000, icon: 'chest' },
+    { kind: 'titanSize', big: true, icon: 'size' },
+    { kind: 'res', items: { oak: 1200, iron: 800, canvas: 600 }, icon: 'mats' },
+    { kind: 'spin', n: 5, icon: 'spin' },
+    { kind: 'ship', tier: 'collector', big: true, icon: 'ark' },
+  ][Math.max(0, Math.min(ADVENT.doors - 1, i | 0))];
+}
+/** Calendar state for this year's November: doors unlock one a day from the 12th; you open at most one a day. */
+export function adventState(p, now) {
+  const d = new Date(now), year = d.getFullYear(), day = d.getDate(), inMonth = d.getMonth() + 1 === ADVENT.month;
+  const today = dayKey(now);
+  const active = inMonth && day >= ADVENT.startDay && day <= ADVENT.endDay;
+  const unlocked = active ? Math.min(ADVENT.doors, day - ADVENT.startDay + 1) : inMonth && day > ADVENT.endDay ? ADVENT.doors : 0;
+  const mine = p.advent?.y === year ? p.advent : null;
+  const opened = Math.max(0, Math.min(ADVENT.doors, mine?.opened | 0)), openedToday = mine?.last === today;
+  const daysLeft = active ? ADVENT.endDay - day + 1 : 0;              // including today
+  const canOpen = active && !openedToday && opened < unlocked;
+  const reachable = Math.min(ADVENT.doors, opened + Math.min(daysLeft - (openedToday ? 1 : 0), ADVENT.doors));
+  return { year, today, active, unlocked, opened, openedToday, canOpen, daysLeft, done: opened >= ADVENT.doors, canFinish: reachable >= ADVENT.doors, before: inMonth ? day < ADVENT.startDay : d.getMonth() + 1 < ADVENT.month };
+}
+export function openAdvent(p, now) {
+  const st = adventState(p, now);
+  if (!st.active) return st.before ? `${ADVENT.name} opens on ${ADVENT.startDay} November` : `${ADVENT.name} is over — see you next November!`;
+  if (st.done) return 'You have opened every door — enjoy the Ark!';
+  if (st.openedToday) return 'One door a day — come back tomorrow';
+  if (st.opened >= st.unlocked) return 'The next door has not unlocked yet';
+  const i = st.opened, g = adventGift(i);
+  grantPrize(p, g);
+  p.advent = { y: st.year, opened: i + 1, last: st.today };
+  return { door: i + 1, total: ADVENT.doors, gift: g, text: prizeText(g) };
 }
 
 // ------------------------------------------------------------------ treasure maps + voyages

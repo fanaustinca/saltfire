@@ -14,6 +14,7 @@ const CMDS = {
   titan: ['', 'Cheat: a Titan flagship with god mode on'],
   card: ["tier='titan'", 'Give yourself a reward card (a ship tier, or "size" for a Titan Size card)'],
   day: ['n=1', 'Holiday Tides testing: pretend n days have passed'],
+  date: ["md='11-26'", 'Pretend today is this month-day (festival ships, Games Month Advent); no args = real date'],
   heal: ['', 'Fully repair hull, sails and crew'],
   god: ['on=true', 'Invulnerable flagship'],
   speed: ['k=1', 'Game speed multiplier'],
@@ -74,6 +75,13 @@ export function installDev(app) {
     },
     titan() { dev.ship('titan'); return dev.god(true); },
     card(tier = 'titan') { host(); addCard(P(), tier === 'size' ? { kind: 'titanSize' } : { kind: 'ship', tier }); return done(`+1 ${tier} card`); },
+    date(md) {
+      host(); const sim = g().sim;
+      if (!md) { sim._dayOff = 0; sim.clock = () => Date.now(); return done('Clock back to the real date'); }
+      const now = new Date(), [m, d] = String(md).split('-').map(Number), t = new Date(now.getFullYear(), m - 1, d, now.getHours(), now.getMinutes());
+      const off = t.getTime() - now.getTime(); sim._dayOff = off; sim.clock = () => Date.now() + off;
+      return done(`Pretending it is ${t.toDateString()}`);
+    },
     day(n = 1) { host(); const sim = g().sim; const off = (sim._dayOff || 0) + n * 864e5; sim._dayOff = off; sim.clock = () => Date.now() + off; return done(`Clock +${off / 864e5} days`); },
     heal() { host(); const s = me(); s.hull = s.stats.hull; s.sails = s.stats.sails; s.crew = s.stats.crew; s.fire = 0; return done('Healed'); },
     god(on = true) { host(); const s = me(); if (on) { s._hurt = g().sim.hurt; g().sim.hurt = function (t, ...a) { if (t === g().me()) return; return s._hurt.call(this, t, ...a); }; } else if (s._hurt) g().sim.hurt = s._hurt; return done(`God mode ${on ? 'on' : 'off'}`); },

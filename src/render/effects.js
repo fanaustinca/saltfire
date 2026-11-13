@@ -2,7 +2,7 @@
 // cannonball meshes and floating loot crates.
 import * as THREE from 'three';
 import { puff } from './textures.js';
-import { heightAt, CALM_MIN, CALM_W } from '../waves.js';
+import { heightAt, CALM_MIN, CALM_W, WAVES_N } from '../waves.js';
 import { TRAILS } from '../config.js';
 
 const trailCache = new Map();
@@ -17,6 +17,7 @@ function trailCol(id) {
 const MAXP = 6000;
 const MC1 = new THREE.Color(0xeeeeee), MC2 = new THREE.Color(0x9a9a9a), MFL = new THREE.Color(1, 0.65, 0.25);
 const TMPC = new THREE.Color();
+const LEAVES = ['#c0392b', '#e67e22', '#f1c40f', '#a84300', '#d35400'].map((c) => new THREE.Color(c));
 const K_1__0_6__0_15 = new THREE.Color(1, 0.6, 0.15);
 const K_1__0_65__0_25 = new THREE.Color(1, 0.65, 0.25);
 const K_0_8__0_15__0_02 = new THREE.Color(0.8, 0.15, 0.02);
@@ -92,7 +93,7 @@ const FOAM_VERT = /* glsl */`
 attribute vec4 iA; // x, z, birth, life
 attribute vec4 iB; // s0, s1, alpha, yaw
 attribute vec4 iC; // stretch, r, g, b
-uniform float uTime; uniform float uSea; uniform vec4 uWaves[5]; uniform vec3 uCalm[32]; uniform int uCalmCount;
+uniform float uTime; uniform float uSea; uniform vec4 uWaves[NWAVES]; uniform vec3 uCalm[32]; uniform int uCalmCount;
 varying vec3 vFoamCol;
 float foamCalm(vec2 p) {
   float cf = 1.0;
@@ -101,10 +102,10 @@ float foamCalm(vec2 p) {
 }
 vec3 foamDisp(vec2 p, float fade) {
   vec3 d = vec3(0.0); float calm = foamCalm(p);
-  for (int i = 0; i < 5; i++) {
+  for (int i = 0; i < NWAVES; i++) {
     vec4 w = uWaves[i]; float k = 6.2831853 / w.z; float c = sqrt(9.81 / k);
-    float a = w.w * uSea * calm * (i > 2 ? fade * 0.6 + 0.4 : fade) / k;
-    float f = k * (dot(w.xy, p) - c * uTime);
+    float a = w.w * uSea * calm * (w.z < 50.0 ? fade * 0.6 + 0.4 : fade) / k;
+    float f = k * (dot(w.xy, p) - c * uTime) + float(i) * 2.39996;
     d.x += w.x * a * cos(f); d.z += w.y * a * cos(f); d.y += a * sin(f);
   }
   return d;
@@ -126,7 +127,7 @@ class Foam {
     const U = ocean.uniforms;
     mat.onBeforeCompile = (sh) => {
       Object.assign(sh.uniforms, { uTime: U.uTime, uSea: U.uSea, uWaves: U.uWaves, uCalm: U.uCalm, uCalmCount: U.uCalmCount });
-      sh.vertexShader = `#define CALM_MIN ${CALM_MIN.toFixed(3)}\n#define CALM_W ${CALM_W.toFixed(1)}\n` + FOAM_VERT + sh.vertexShader.replace('#include <begin_vertex>', `
+      sh.vertexShader = `#define NWAVES ${WAVES_N.length}\n#define CALM_MIN ${CALM_MIN.toFixed(3)}\n#define CALM_W ${CALM_W.toFixed(1)}\n` + FOAM_VERT + sh.vertexShader.replace('#include <begin_vertex>', `
         float fAge = uTime - iA.z, fK = fAge / max(iA.w, 1e-3);
         vec3 transformed = vec3(0.0, -1e5, 0.0);
         vFoamCol = vec3(0.0);
@@ -171,6 +172,120 @@ class Foam {
   }
 }
 
+// ------------------------------------------------------------------ wake-trail ribbons
+// A purchased trail is a real ribbon on the water, exactly as wide as the ship's beam at the stern and spreading as
+// it ages (like a real wake), draped on the same wave field as the ocean. Styles: plain colour, rainbow, autumn,
+// frost, fireworks and arcade (pixel) — the pattern is painted in the fragment shader.
+const STYLE = { rainbow: 1, autumn: 2, frost: 3, fireworks: 4, arcade: 5 };
+const RIB_N = 110, RIB_LIFE = 7.5;
+const RIB_VERT = /* glsl */`
+attribute float aT; attribute float aS; attribute float aD;
+varying float vT; varying float vS; varying float vD;
+#include <fog_pars_vertex>
+void main() {
+  vT = aT; vS = aS; vD = aD;
+  vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+  gl_Position = projectionMatrix * mvPosition;
+  #include <fog_vertex>
+}`;
+const RIB_FRAG = /* glsl */`
+uniform vec3 uCol; uniform float uStyle; uniform float uTime; uniform float uLight; uniform float uFade;
+varying float vT; varying float vS; varying float vD;
+#include <fog_pars_fragment>
+float h21(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+float vnoise(vec2 p) { vec2 i = floor(p), f = fract(p); vec2 u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(h21(i), h21(i + vec2(1, 0)), u.x), mix(h21(i + vec2(0, 1)), h21(i + vec2(1, 1)), u.x), u.y); }
+vec3 hue(float h) { return clamp(abs(mod(h * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0); }
+void main() {
+  float as = abs(vS);
+  float edge = 1.0 - smoothstep(0.62, 1.0, as);
+  float life = 1.0 - vT; life *= life;
+  float head = smoothstep(0.0, 0.025, vT);
+  float streak = vnoise(vec2(vS * 4.0, vD * 0.09 - uTime * 0.4)) * 0.6 + vnoise(vec2(vS * 11.0, vD * 0.31)) * 0.4;
+  vec3 col = uCol;
+  float a = edge * (0.25 + 0.75 * life) * (1.0 - vT * 0.35) * head * (0.62 + 0.38 * streak); a *= 1.0 - smoothstep(0.75, 1.0, vT);
+  float glow = 0.0;
+  if (uStyle > 0.5 && uStyle < 1.5) { col = hue(fract(vD * 0.012 + vS * 0.12 - uTime * 0.12)); }
+  else if (uStyle < 2.5 && uStyle > 1.5) { // autumn: russet/orange/gold patches + scattered leaves
+    float n = vnoise(vec2(vS * 2.0, vD * 0.12));
+    col = mix(mix(vec3(0.62, 0.12, 0.04), vec3(0.95, 0.45, 0.08), smoothstep(0.2, 0.6, n)), vec3(1.0, 0.8, 0.2), smoothstep(0.6, 0.9, n));
+    vec2 c = vec2(vS * 3.0, vD * 0.5); float lf = step(0.86, h21(floor(c))) * (1.0 - smoothstep(0.2, 0.45, length(fract(c) - 0.5)));
+    a = max(a, lf * life * head * edge * 0.95); col = mix(col, vec3(0.9, 0.25, 0.05), lf);
+  } else if (uStyle < 3.5 && uStyle > 2.5) { // frost: icy white-blue with twinkling crystals
+    col = mix(vec3(0.45, 0.78, 1.0), vec3(0.85, 0.96, 1.0), streak);
+    vec2 c = vec2(vS * 6.0, vD * 0.9); float tw = step(0.93, h21(floor(c))) * (0.5 + 0.5 * sin(uTime * 6.0 + h21(floor(c) + 3.0) * 30.0));
+    glow = tw * (1.0 - smoothstep(0.1, 0.35, length(fract(c) - 0.5)));
+  } else if (uStyle < 4.5 && uStyle > 3.5) { // fireworks: gold river with confetti sparks in every colour
+    col = mix(vec3(1.0, 0.62, 0.08), vec3(1.0, 0.82, 0.3), streak);
+    vec2 c = vec2(vS * 5.0, vD * 0.7); float sp = step(0.88, h21(floor(c))) * (1.0 - smoothstep(0.1, 0.4, length(fract(c) - 0.5)));
+    col = mix(col, hue(h21(floor(c) + 7.0)), sp); glow = sp * (0.6 + 0.4 * sin(uTime * 9.0 + vD));
+  } else if (uStyle > 4.5) { // arcade: a chunky pixel wake cycling neon colours
+    vec2 c = floor(vec2(vS * 5.0, vD * 0.35));
+    float on = step(0.35 + vT * 0.5, h21(c + floor(uTime * 4.0) * 0.0));
+    col = hue(fract(h21(c) * 0.3 + 0.8 + uTime * 0.15)); a = edge * life * head * on * 0.8; glow = on * 0.4;
+  }
+  vec3 lit = col * mix(uLight, 1.0, 0.55) * 1.15 + col * glow;
+  gl_FragColor = vec4(lit, clamp(a + glow * life * head * 0.6, 0.0, 1.0) * uFade);
+  #include <fog_fragment>
+}`;
+class Ribbon {
+  constructor(scene, style) {
+    this.pts = []; this.last = -1e9; this.seen = 0;
+    const n = RIB_N * 2, g = new THREE.BufferGeometry();
+    this.pos = new Float32Array(n * 3); this.aT = new Float32Array(n); this.aS = new Float32Array(n); this.aD = new Float32Array(n);
+    for (let i = 0; i < RIB_N; i++) { this.aS[i * 2] = -1; this.aS[i * 2 + 1] = 1; }
+    g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage));
+    g.setAttribute('aT', new THREE.BufferAttribute(this.aT, 1).setUsage(THREE.DynamicDrawUsage));
+    g.setAttribute('aS', new THREE.BufferAttribute(this.aS, 1));
+    g.setAttribute('aD', new THREE.BufferAttribute(this.aD, 1).setUsage(THREE.DynamicDrawUsage));
+    const idx = []; for (let i = 0; i < RIB_N - 1; i++) { const a = i * 2; idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
+    g.setIndex(idx);
+    this.geo = g;
+    this.mat = new THREE.ShaderMaterial({
+      vertexShader: RIB_VERT, fragmentShader: RIB_FRAG, transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: true, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -12,
+      uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uCol: { value: new THREE.Color(1, 1, 1) }, uStyle: { value: 0 }, uTime: { value: 0 }, uLight: { value: 1 }, uFade: { value: 1 } }]),
+    });
+    this.mat.uniforms.uStyle.value = STYLE[style] || 0;
+    this.mesh = new THREE.Mesh(g, this.mat); this.mesh.frustumCulled = false; this.mesh.renderOrder = 2; // over the foam decals (renderOrder 1)
+    scene.add(this.mesh);
+    this.scene = scene;
+  }
+  /** stern position (x,z), beam B, ship heading — a new point every few metres; the head point tracks the stern. */
+  feed(x, z, B, yaw, t) {
+    const rx = Math.cos(yaw), rz = -Math.sin(yaw);
+    const P = this.pts, seg = Math.max(1.6, B * 0.16);
+    if (!P.length) P.push({ x, z, t, rx, rz, B, d: 0 });
+    const head = P[0], prev = P[1];
+    head.d += Math.hypot(x - head.x, z - head.z);
+    head.x = x; head.z = z; head.rx = rx; head.rz = rz; head.B = B; head.t = t;
+    if (!prev || Math.hypot(head.x - prev.x, head.z - prev.z) > seg || t - prev.t > 0.6) { P.unshift({ ...head }); if (P.length > RIB_N) P.length = RIB_N; }
+    this.seen = t;
+  }
+  update(t, light, col) {
+    const P = this.pts;
+    while (P.length && t - P[P.length - 1].t > RIB_LIFE) P.pop();
+    const n = P.length;
+    this.mesh.visible = n > 1;
+    if (n < 2) return;
+    const D0 = P[0].d;
+    for (let i = 0; i < n; i++) {
+      const q = P[i], k = Math.min(1, (t - q.t) / RIB_LIFE), hw = q.B * (0.5 + 0.38 * Math.sqrt(k));
+      for (let sd = 0; sd < 2; sd++) {
+        const sgn = sd ? 1 : -1, x = q.x + q.rx * hw * sgn, z = q.z + q.rz * hw * sgn, j = i * 2 + sd;
+        this.pos[j * 3] = x; this.pos[j * 3 + 1] = heightAt(x, z, t) + 0.45; this.pos[j * 3 + 2] = z;
+        this.aT[j] = k; this.aD[j] = D0 - q.d;
+      }
+    }
+    // collapse the unused tail onto the last point so nothing stray is drawn
+    for (let i = n; i < RIB_N; i++) for (let sd = 0; sd < 2; sd++) { const j = i * 2 + sd, s = (n - 1) * 2 + sd; this.pos[j * 3] = this.pos[s * 3]; this.pos[j * 3 + 1] = this.pos[s * 3 + 1]; this.pos[j * 3 + 2] = this.pos[s * 3 + 2]; this.aT[j] = 1; }
+    this.geo.setDrawRange(0, (n - 1) * 6);
+    for (const k of ['position', 'aT', 'aD']) this.geo.attributes[k].needsUpdate = true;
+    const U = this.mat.uniforms; U.uTime.value = t; U.uLight.value = light; if (col) U.uCol.value.copy(col);
+    U.uFade.value = Math.min(1, Math.max(0, 1 - (t - this.seen - 1) / 3)); // ship gone: fade out
+  }
+  dispose() { this.scene.remove(this.mesh); this.geo.dispose(); this.mat.dispose(); }
+}
+
 export class Effects {
   constructor(scene, ocean) {
     this.scene = scene;
@@ -189,6 +304,7 @@ export class Effects {
     this.ballMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(800 * 3), 3);
     scene.add(this.ballMesh);
     this.crates = new Map();
+    this.ribbons = new Map(); this.light = 1;
     this.m4 = new THREE.Matrix4();
     this.tmpC = new THREE.Color();
     this.lights = [];
@@ -196,7 +312,27 @@ export class Effects {
     for (let i = 0; i < 4; i++) { const l = new THREE.PointLight(0xffaa55, 0, 60, 2); scene.add(l); this.lights.push({ l, t: 0 }); }
   }
   /** Ambient light level for smoke + foam (1 = noon; night and storms darken them; glows stay bright). */
-  setLight(k) { this.smoke.points.material.uniforms.uLight.value = k; this.foam.mesh.material.color.setScalar(k); }
+  setLight(k) { this.light = k; this.smoke.points.material.uniforms.uLight.value = k; this.foam.mesh.material.color.setScalar(k); }
+  /** A firework: a rocket that climbs from (x,y,z) and bursts into a sphere of coloured stars `fuse` s later. */
+  firework(x, y, z, fuse = 1.2, onBurst = null) {
+    const vy = 42;
+    this.glow.add({ x, y, z, vx: (Math.random() - 0.5) * 3, vy, vz: (Math.random() - 0.5) * 3, age: 0, life: fuse, s0: 2.2, s1: 1.2, a: 1, c: K_1__0_75__0_3, drag: 0.35, g: 9.8 });
+    for (let i = 0; i < 10; i++) this.glow.add({ x, y: y + i * 0.4, z, vx: 0, vy: vy * (0.9 - i * 0.06), vz: 0, age: -i * 0.02, life: fuse * 0.9, s0: 1, s1: 0.2, a: 0.5, c: K_1__0_7__0_3, drag: 0.35 + i * 0.05, g: 9.8 });
+    // where the rocket will be when the fuse burns down (same integration as the pool, close enough)
+    let py = y, v = vy; for (let k = 0; k < fuse * 60; k++) { v -= 9.8 / 60; v *= Math.exp(-0.35 / 60); py += v / 60; }
+    setTimeout(() => {
+      const h = Math.random(), A = new THREE.Color().setHSL(h, 1, 0.6), B2 = new THREE.Color().setHSL((h + 0.12 + Math.random() * 0.4) % 1, 1, 0.65);
+      const n = 90, sp = 15 + Math.random() * 6, ring = Math.random() < 0.3;
+      for (let i = 0; i < n; i++) {
+        const u = Math.random() * 2 - 1, a = Math.random() * Math.PI * 2, r = Math.sqrt(1 - u * u), q = ring ? 1 : 0.85 + Math.random() * 0.15;
+        const dx = ring ? Math.cos(a) : r * Math.cos(a), dy = ring ? Math.sin(a) * 0.35 : u, dz = ring ? Math.sin(a) : r * Math.sin(a);
+        this.glow.add({ x, y: py, z, vx: dx * sp * q, vy: dy * sp * q, vz: dz * sp * q, age: 0, life: 1.6 + Math.random() * 0.9, s0: 2.6, s1: 0.3, a: 1, c: i % 3 ? A : B2, c1: K_1__0_65__0_25, drag: 1.3, g: 3 });
+      }
+      for (let i = 0; i < 24; i++) this.glow.add({ x: x + (Math.random() - 0.5) * 20, y: py + (Math.random() - 0.5) * 16, z: z + (Math.random() - 0.5) * 20, vx: 0, vy: -2, vz: 0, age: -0.5 - Math.random(), life: 2.2, s0: 0.9, s1: 0.2, a: 0.9, c: K_0xffffff, drag: 1, g: 1 });
+      this.flash(x, py, z, 1.2);
+      onBurst?.(py);
+    }, fuse * 1000);
+  }
   flash(x, y, z, k = 1) {
     const L = this.lights.reduce((a, b) => (a.t < b.t ? a : b));
     L.l.position.set(x, y, z); L.l.intensity = 2500 * k; L.t = 0.12;
@@ -260,18 +396,34 @@ export class Effects {
     }
     const sx = s.x - fx * L * 0.48, sz = s.z - fz * L * 0.48;
     if (Math.random() < 0.35) this.foam.add(sx + (Math.random() - 0.5) * B * 0.5, sz + (Math.random() - 0.5) * B * 0.5, B * 0.5, B * (1.8 + k * 1.4), 5 + k * 4, 0.03 * k, s.yaw, 1.6);
-    // purchased coloured trail: a glowing ribbon of tinted foam + sparks behind the stern
-    let tc = trailCol(s.look?.trail);
-    if (tc) {
+    // purchased trail: a ship-wide ribbon on the water (see Ribbon) plus sparks spread across the whole beam
+    const tid = s.look?.trail;
+    let tc = trailCol(tid);
+    if (tc && s.id) {
+      const style = TRAILS[tid].style || (tc === 'rainbow' ? 'rainbow' : null);
+      let rb = this.ribbons.get(s.id);
+      if (rb && rb.tid !== tid) { rb.dispose(); this.ribbons.delete(s.id); rb = null; }
+      if (!rb) { rb = new Ribbon(this.scene, style); rb.tid = tid; this.ribbons.set(s.id, rb); }
+      rb.col = tc === 'rainbow' ? null : tc;
+      rb.feed(s.x - fx * L * 0.46, s.z - fz * L * 0.46, B, s.yaw, t);
       if (tc === 'rainbow') { tc = (this._rb ||= new THREE.Color()).setHSL((t * 0.35 + s.x * 0.002) % 1, 1, 0.55).clone(); }
-      const w = Math.min(9, Math.max(2.5, B * 0.45));
-      for (let i = 0; i < 2; i++) { const bx = sx - fx * i * sp * 0.03 + (Math.random() - 0.5) * w * 0.3, bz = sz - fz * i * sp * 0.03 + (Math.random() - 0.5) * w * 0.3; this.smoke.add({ x: bx, y: heightAt(bx, bz, t) + 0.4, z: bz, vx: (Math.random() - 0.5) * 0.6, vy: 0.15, vz: (Math.random() - 0.5) * 0.6, age: 0, life: 4 + k * 3, s0: w * 0.7, s1: w * 1.5, a: 0.5, c: tc, drag: 0.5 }); }
-      if (Math.random() < 0.3) this.glow.add({ x: sx + (Math.random() - 0.5) * w, y: heightAt(sx, sz, t) + 0.6, z: sz + (Math.random() - 0.5) * w, vx: -fx * sp * 0.2 + (Math.random() - 0.5) * 2, vy: 1 + Math.random() * 2.5, vz: -fz * sp * 0.2 + (Math.random() - 0.5) * 2, age: 0, life: 1.2 + Math.random(), s0: 1.2 + Math.min(1.5, B * 0.05), s1: 0.2, a: 0.45, c: tc, drag: 1.2, g: 1.5 });
+      const sparks = Math.min(4, 0.25 + B / 14) * (0.4 + k * 0.6);
+      for (let n = sparks; n > 0; n--) {
+        if (Math.random() > n) break;
+        const off = (Math.random() - 0.5) * B, bx = sx + rx * off, bz = sz + rz * off, by = heightAt(bx, bz, t) + 0.6;
+        let c = tc, sz0 = 1.1 + Math.min(2.2, B * 0.05), g = 1.5, life = 1.2 + Math.random();
+        if (style === 'fireworks') { c = (this._fw ||= new THREE.Color()).setHSL(Math.random(), 1, 0.6).clone(); g = -1; }
+        else if (style === 'frost') { c = K_0xf4fbff; g = -0.4; life += 1; }
+        else if (style === 'arcade') { c = (this._ac ||= new THREE.Color()).setHSL([0.83, 0.5, 0.15][Math.floor(Math.random() * 3)], 1, 0.6).clone(); }
+        else if (style === 'autumn') { this.smoke.add({ x: bx, y: by + 1 + Math.random() * 3, z: bz, vx: (Math.random() - 0.5) * 2, vy: -0.6, vz: (Math.random() - 0.5) * 2, age: 0, life: 3, s0: 0.9 + B * 0.03, s1: 0.7, a: 0.95, c: LEAVES[Math.floor(Math.random() * LEAVES.length)], drag: 1.2 }); continue; }
+        this.glow.add({ x: bx, y: by, z: bz, vx: -fx * sp * 0.2 + (Math.random() - 0.5) * 2, vy: 1 + Math.random() * 2.5, vz: -fz * sp * 0.2 + (Math.random() - 0.5) * 2, age: 0, life, s0: sz0, s1: 0.2, a: 0.5, c, drag: 1.2, g });
+      }
     }
     if (Math.random() < k * 0.4) this.smoke.add({ x: s.x + fx * L * 0.45, y: heightAt(s.x, s.z, t) + 0.5, z: s.z + fz * L * 0.45, vx: rx * (Math.random() - 0.5) * 5, vy: 2 + Math.random() * 2, vz: rz * (Math.random() - 0.5) * 5, age: 0, life: 0.7, s0: 1, s1: 2.5, a: 0.5, c: K_0xffffff, g: 9 });
   }
   update(dt, t, balls) {
     this.smoke.update(dt); this.glow.update(dt); this.foam.update(dt, t);
+    for (const [id, rb] of this.ribbons) { if (t - rb.seen > 4.5 || t < rb.seen - 1) { rb.dispose(); this.ribbons.delete(id); continue; } rb.update(t, this.light, rb.col); }
     for (const L of this.lights) { L.t -= dt; L.l.intensity = L.t > 0 ? L.l.intensity * 0.7 : 0; }
     // chunks
     const keep = [];

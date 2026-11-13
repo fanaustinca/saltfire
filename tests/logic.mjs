@@ -17,7 +17,7 @@ const world = (seed = 42) => { const W = E.newWorld(seed); generateIslands(W); r
 const rng = (s = 1) => () => ((s = (s * 16807) % 2147483647) / 2147483647);
 
 T('ship tiers match the spec cannon counts', () => {
-  const want = { sloop: 1, schooner: 1, brigantine: 2, xebec: 3, frigate: 3, junk: 4, galleon: 5, manowar: 10, sovereign: 16, leviathan: 30, ghost: 9, titan: 120 };
+  const want = { sloop: 1, schooner: 1, brigantine: 2, xebec: 3, frigate: 3, junk: 4, galleon: 5, manowar: 10, sovereign: 16, leviathan: 30, ghost: 9, harvest: 12, yule: 14, midnight: 16, collector: 10, titan: 120 };
   for (const t of TIERS) ok(t.side === want[t.id], t.id);
   for (const t of TIERS) { const st = E.shipStats(E.shipSpec(t.id)); const g = gunLayout(st); ok(g.filter((x) => x.side === 'L').length === t.side && g.filter((x) => x.side === 'R').length === t.side, 'layout ' + t.id); }
 });
@@ -347,6 +347,72 @@ T('wheel of fortune: one free spin a day, paid spins, odds, ships arrive as card
   for (let i = 0; i < 20000; i++) { const x = E.spinWheel(q, day, R, { paid: true }); if (x.prize.kind === 'ship') ships++; }
   ok(Math.abs(ships / 20000 - 0.043) < 0.006, 'ship rate ' + ships / 20000);
   const a = handleAct(sim, 'u', { type: 'spinWheel' }); ok(a.ok || a.err, 'action works');
+});
+T('festival ships: only on sale in their window (every year), bring their trail, never sailed by AI', () => {
+  const W = world(); const sim = new Sim(W, { rand: rng(51) }); const { p } = joinPlayer(sim, 'u', 'U');
+  p.level = 60; Object.assign(p.inv, { gold: 1e7, oak: 1e5, iron: 1e5, canvas: 1e5, powder: 1e5 });
+  const at = (y, m, d) => new Date(y, m - 1, d, 12).getTime();
+  for (const [id, inside, outside] of [['harvest', [2026, 11, 26], [2026, 11, 10]], ['yule', [2026, 12, 25], [2026, 12, 30]], ['midnight', [2027, 1, 1], [2026, 12, 20]], ['midnight', [2026, 12, 31], [2027, 1, 20]]]) {
+    ok(typeof E.buyShip(p, id, { now: at(...outside) }) === 'string', id + ' not sold outside its festival');
+    ok(typeof E.buildCustomShip(W, p, 'port', { tier: id, side: 10, size: 1 }, at(...outside)) === 'string', id + ' no custom build outside');
+    ok(CFG.limitedOpen(id, at(...inside)) && !CFG.limitedOpen(id, at(...outside)), id + ' window');
+  }
+  const r = E.buyShip(p, 'harvest', { now: at(2026, 11, 28) });
+  ok(typeof r === 'object' && r.tier === 'harvest', 'bought in window');
+  ok(p.trails.includes('autumn'), 'Harvest Moon brings the Falling Leaves trail');
+  ok(CFG.limitedOpen('harvest', at(2031, 11, 25)), 'recurs every year');
+  const c = E.buildCustomShip(W, p, 'port', { tier: 'yule', side: 20, size: 1.1 }, at(2026, 12, 20));
+  ok(typeof c === 'object' && p.trails.includes('frost'), 'custom Yuletide in season + Frostwake');
+  // a reward card works any time of year
+  E.addCard(p, { kind: 'ship', tier: 'midnight' });
+  ok(typeof E.buyShip(p, 'midnight', { card: p.cards.at(-1).id, now: at(2026, 6, 1) }) === 'object', 'card redeems out of season');
+  const idx = (id) => TIERS.findIndex((t) => t.id === id);
+  for (const id of ['harvest', 'yule', 'midnight', 'collector']) ok(idx(id) > CFG.AI_TOP_TIER, id + ' is never an AI hull');
+  ok(!CFG.shopTiers().some((t) => t.id === 'collector'), 'the Ark is not for sale');
+  ok(typeof E.buyShip(p, 'collector', { now: at(2026, 11, 20) }) === 'string', 'the Ark cannot be bought');
+});
+T('exclusive trails cannot be bought; equipping needs ownership', () => {
+  const W = world(); const sim = new Sim(W, { rand: rng(52) }); const { p } = joinPlayer(sim, 'u', 'U');
+  p.inv.gold = 1e6; const g0 = p.inv.gold;
+  for (const id of ['autumn', 'frost', 'fireworks', 'arcade']) {
+    ok(handleAct(sim, 'u', { type: 'buyTrail', id }).err, id + ' not for sale');
+    ok(handleAct(sim, 'u', { type: 'setTrail', id }).err, id + ' not owned');
+  }
+  ok(p.inv.gold === g0, 'no gold taken');
+  ok(!handleAct(sim, 'u', { type: 'buyTrail', id: 'gold' }).err, 'normal trails still sell');
+});
+T('games month advent: a door a day from 12 Nov, catch-up to the 30th, Titan at 7, Collector\'s Ark at 14', () => {
+  const W = world(); const sim = new Sim(W, { rand: rng(53) }); const { p } = joinPlayer(sim, 'u', 'U');
+  const day = (d, h = 12, y = 2026) => new Date(y, 10, d, h).getTime();
+  ok(typeof E.openAdvent(p, day(11)) === 'string', 'not before the 12th');
+  ok(typeof E.openAdvent(p, new Date(2026, 9, 30).getTime()) === 'string', 'not in October');
+  ok(E.adventState(p, day(12)).canOpen, 'door 1 ready on the 12th');
+  const r1 = E.openAdvent(p, day(12, 9)); ok(r1.door === 1, 'door 1');
+  ok(typeof E.openAdvent(p, day(12, 22)) === 'string', 'one door a day');
+  // skip the 13th + 14th, then catch up one a day
+  for (let d = 15; d <= 20; d++) { const r = E.openAdvent(p, day(d)); ok(typeof r === 'object', 'catch-up ' + d + ' ' + r); ok(typeof E.openAdvent(p, day(d, 20)) === 'string', 'still one a day'); }
+  ok(p.advent.opened === 7, 'seven doors by the 20th');
+  ok(p.cards.some((c) => c.kind === 'ship' && c.tier === 'titan'), 'door 7 = Titan card');
+  ok(p.trails.includes('arcade'), 'door 5 = Arcade Wake');
+  ok(E.adventState(p, day(21)).canFinish, '7 doors + 10 days left: can still finish');
+  for (let d = 21; d <= 27; d++) ok(typeof E.openAdvent(p, day(d)) === 'object', 'door on ' + d);
+  ok(p.advent.opened === 14 && p.cards.some((c) => c.kind === 'ship' && c.tier === 'collector'), 'door 14 = Collector\'s Ark card');
+  ok(typeof E.openAdvent(p, day(28)) === 'string', 'nothing after 14 doors');
+  ok(typeof E.openAdvent(p, day(1, 12, 2026) + 30 * 864e5 + 864e5) === 'string', 'closed in December');
+  // never more doors than days elapsed (can't open ahead)
+  const q = { inv: { gold: 0 }, trails: ['foam'], cards: [] };
+  ok(typeof E.openAdvent(q, day(12)) === 'object' && typeof E.openAdvent(q, day(12, 23)) === 'string', 'no opening ahead');
+  const late = { inv: { gold: 0 }, trails: ['foam'], cards: [] };
+  ok(!E.adventState(late, day(25)).canFinish, 'starting on the 25th cannot reach door 14');
+  // next November starts fresh
+  ok(E.adventState(p, day(12, 12, 2027)).opened === 0 && E.adventState(p, day(12, 12, 2027)).canOpen, 'resets next year');
+  // the Collector's Ark card builds the ship
+  const card = p.cards.find((c) => c.tier === 'collector');
+  const s = E.buyShip(p, 'collector', { card: card.id });
+  ok(typeof s === 'object' && s.tier === 'collector', 'redeem the Ark');
+  const st = E.shipStats(s); ok(st.hull >= 3500 && st.speed > 15 && st.side >= 10, 'and it is a decent ship');
+  // via the host action (uses the sim clock)
+  sim.clock = () => day(13); const ra = handleAct(sim, 'u', { type: 'openAdvent' }); ok(!ra.err || /already|door|day/.test(ra.err), 'action wired');
 });
 T('holiday tides: daily gifts; claim every day to New Year for a Titan card', () => {
   const W = world(); const sim = new Sim(W, { rand: rng(36) }); const { p } = joinPlayer(sim, 'u', 'U');

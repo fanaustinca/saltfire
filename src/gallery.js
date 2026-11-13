@@ -30,7 +30,7 @@ export function gallery(q) {
   else { const k = +(q.get('d') || 1); stage.camera.position.set(focus.x + pos[0] * k, pos[1] * k, pos[2] * k); }
   stage.camera.lookAt(focus);
   let t = +(q.get('t') || 3);
-  window.SALT = { ready: true, gallery: true, frames: 0 };
+  window.SALT = { ready: true, gallery: true, frames: 0, stage, ships };
   const loop = () => {
     t += 1 / 60;
     for (const { s } of ships) {

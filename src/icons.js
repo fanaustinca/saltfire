@@ -20,8 +20,14 @@ const ICONS = {
   titan: card('gR', '#ffd25a', `<g transform="translate(0,8)">${ship('#1a1414', '#5a1a1a')}</g><path d="M20 12 L24 20 L32 10 L40 20 L44 12 L44 22 L20 22Z" fill="url(#gC)" stroke="#6b4310" stroke-width="1.2"/>`),
   ghost: card('gG', '#6affd0', `<g transform="translate(0,6)" opacity=".92">${ship('#16302a', '#9ff5d8')}</g><circle cx="22" cy="16" r="2" fill="#6affd0"/><circle cx="44" cy="20" r="1.6" fill="#6affd0"/><path d="M14 54 Q20 48 26 54 T38 54 T50 54" fill="none" stroke="#6affd0" stroke-width="1.6" opacity=".8"/>`),
   size: card('gP', '#f1c45a', `<rect x="20" y="22" width="24" height="20" fill="none" stroke="#fff" stroke-width="2" stroke-dasharray="3 2"/><path d="M16 18 L24 18 M16 18 L16 26 M16 18 L25 27 M48 46 L40 46 M48 46 L48 38 M48 46 L39 37" stroke="#ffe27a" stroke-width="3" stroke-linecap="round"/><text x="32" y="56" font-size="8" font-weight="900" text-anchor="middle" fill="#ffe27a" font-family="sans-serif">120%</text>`),
+  // the Collector's Ark: a gilt display case on a purple card, a little gamepad inside, sparkles round it
+  ark: card('gA', '#ffd34d', `<rect x="18" y="16" width="28" height="26" rx="2" fill="#bfe6ff" fill-opacity=".25" stroke="#ffd34d" stroke-width="2"/><rect x="16" y="42" width="32" height="6" fill="url(#gC)"/><path d="M12 48 L52 48 L46 56 L18 56 Z" fill="#2c1b47" stroke="#ffd34d" stroke-width="1.2"/><rect x="22" y="25" width="20" height="9" rx="4.5" fill="#ffd34d"/><circle cx="25" cy="34" r="3.6" fill="#ffd34d"/><circle cx="39" cy="34" r="3.6" fill="#ffd34d"/><path d="M25 27.5v4M23 29.5h4" stroke="#3a2066" stroke-width="1.6"/><circle cx="38" cy="28" r="1.2" fill="#3a2066"/><circle cx="40.5" cy="30.5" r="1.2" fill="#3a2066"/><path d="M50 10 l1.5 4 4 1.5 -4 1.5 -1.5 4 -1.5 -4 -4 -1.5 4 -1.5z" fill="#fff6c8"/><path d="M14 12 l1 2.6 2.6 1 -2.6 1 -1 2.6 -1 -2.6 -2.6 -1 2.6 -1z" fill="#ff9cf0"/>`),
+  trail: `<path d="M6 44 Q20 30 34 38 T60 26" fill="none" stroke="#ff4fd8" stroke-width="7" stroke-linecap="round" opacity=".85"/><path d="M6 44 Q20 30 34 38 T60 26" fill="none" stroke="#7ff6ff" stroke-width="3" stroke-linecap="round"/><circle cx="16" cy="28" r="2.5" fill="#fff6a0"/><circle cx="42" cy="22" r="2" fill="#ff9cf0"/><circle cx="50" cy="44" r="2.2" fill="#7ff6ff"/>`,
+  harvest: card('gH', '#f0a548', `<g transform="translate(0,6)">${ship('#5a2a12', '#f0a548')}</g><circle cx="46" cy="14" r="6" fill="#ffb04a"/><circle cx="20" cy="55" r="3.2" fill="#e86f1c"/>`),
+  yule: card('gY', '#e8f4ff', `<g transform="translate(0,6)">${ship('#123a24', '#f7f9ff')}</g><path d="M32 6 l2 4.5 5 .6 -3.7 3.4 1 5 -4.3-2.5 -4.3 2.5 1-5 -3.7-3.4 5-.6z" fill="#ffd84a"/><circle cx="18" cy="20" r="1.6" fill="#ff3b3b"/><circle cx="46" cy="22" r="1.6" fill="#3bff6a"/>`),
+  midnight: card('gM', '#f2c14e', `<g transform="translate(0,6)">${ship('#0d0d16', '#1d2a5a')}</g><circle cx="46" cy="14" r="5.5" fill="none" stroke="#f2c14e" stroke-width="1.6"/><path d="M46 14 v-3.5 M46 14 h2.6" stroke="#f2c14e" stroke-width="1.3"/><circle cx="18" cy="14" r="1.4" fill="#ff4fd8"/><circle cx="22" cy="10" r="1.2" fill="#7ff6ff"/>`),
 };
-const DEFS = `<defs>${G('gC', '#fff0a0', '#d49a1c')}${G('gB', '#5c636c', '#16191c')}${G('gW', '#a8703a', '#5a361a')}${G('gI', '#c9d0d8', '#6b737c')}${G('gS', '#fbf6e6', '#d8cca8')}${G('gN', '#2a4a8a', '#12203e')}${G('gR', '#8a1a14', '#2a0806')}${G('gP', '#8a1a5a', '#3a0828')}${G('gG', '#155a4a', '#04140f')}</defs>`;
+const DEFS = `<defs>${G('gC', '#fff0a0', '#d49a1c')}${G('gB', '#5c636c', '#16191c')}${G('gW', '#a8703a', '#5a361a')}${G('gI', '#c9d0d8', '#6b737c')}${G('gS', '#fbf6e6', '#d8cca8')}${G('gN', '#2a4a8a', '#12203e')}${G('gR', '#8a1a14', '#2a0806')}${G('gP', '#8a1a5a', '#3a0828')}${G('gG', '#155a4a', '#04140f')}${G('gA', '#5a2a9a', '#1a0a33')}${G('gH', '#a8501c', '#3a1606')}${G('gY', '#1d6b3a', '#0a2414')}${G('gM', '#1d2a5a', '#06060e')}</defs>`;
 
 /** Inline SVG markup for a reward icon. */
 export function iconSVG(name, size = 32) {
@@ -30,7 +36,8 @@ export function iconSVG(name, size = 32) {
 /** The icon that represents a prize / gift object. */
 export function prizeIcon(pr) {
   if (pr.icon) return pr.icon;
-  if (pr.kind === 'ship') return pr.tier === 'titan' ? 'titan' : pr.tier === 'ghost' ? 'ghost' : 'ship';
+  if (pr.kind === 'ship') return ['titan', 'ghost', 'harvest', 'yule', 'midnight'].includes(pr.tier) ? pr.tier : pr.tier === 'collector' ? 'ark' : 'ship';
+  if (pr.kind === 'trail') return 'trail';
   if (pr.kind === 'titanSize') return 'size';
   if (pr.kind === 'spin') return 'spin';
   if (pr.kind === 'gold') return pr.n >= 50000 ? 'chest' : 'gold';

@@ -698,10 +698,13 @@ export class Game {
     const w = this._wk, L = s.stats.len, B = s.stats.beam, y0 = v.model.root.position.y, R = Math.random;
     const at = (lx, lz) => localToWorld(w, lx, 0, lz);
     switch (s.spec.tier) {
-      case 'yule': if (dist < 600) for (let i = 0; i < 2; i++) { const [x, , z] = at((R() - 0.5) * B * 2.2, (R() - 0.5) * L * 1.2); this.fx.smoke.add({ x, y: y0 + 12 + R() * 28, z, vx: 0.4 + (R() - 0.5) * 0.6, vy: -2.2 - R(), vz: (R() - 0.5) * 0.6, age: 0, life: 9, s0: 0.45, s1: 0.4, a: 0.95, c: SNOW, drag: 0.05 }); } break;
+      case 'yule': { const d = v.model.fest?.points.deer; if (d && dist < 700 && R() < 0.7) { const [x, , z] = at(d.x + (R() - 0.5) * 4, d.z + (R() - 0.5) * 8); this.fx.glow.add({ x, y: y0 + d.y + (R() - 0.5) * 2, z, vx: -Math.sin(w.yaw) * 3, vy: -0.3, vz: -Math.cos(w.yaw) * 3, age: 0, life: 1.4, s0: 0.9, s1: 0.1, a: 0.9, c: FIZZ, drag: 0.6 }); } }
+        if (dist < 600) for (let i = 0; i < 2; i++) { const [x, , z] = at((R() - 0.5) * B * 2.2, (R() - 0.5) * L * 1.2); this.fx.smoke.add({ x, y: y0 + 12 + R() * 28, z, vx: 0.4 + (R() - 0.5) * 0.6, vy: -2.2 - R(), vz: (R() - 0.5) * 0.6, age: 0, life: 9, s0: 0.45, s1: 0.4, a: 0.95, c: SNOW, drag: 0.05 }); } break;
       case 'harvest': if (dist < 600 && R() < 0.35) { const [x, , z] = at((R() - 0.5) * B * 0.8, (R() - 0.5) * L * 0.6); this.fx.smoke.add({ x, y: y0 + 8 + R() * 18, z, vx: (R() - 0.5) * 2.5, vy: -1.2, vz: (R() - 0.5) * 2.5, age: 0, life: 7, s0: 0.8, s1: 0.7, a: 0.95, c: LEAF_C[Math.floor(R() * LEAF_C.length)], drag: 0.5 }); } break;
       case 'collector': if (dist < 700 && R() < 0.5) { const a = R() * 6.28, r = B * (0.2 + R() * 0.2), [x, , z] = at(Math.cos(a) * r, Math.sin(a) * r); this.fx.glow.add({ x, y: y0 + s.stats.depth + 2 + R() * 6, z, vx: 0, vy: 1 + R(), vz: 0, age: 0, life: 1.6, s0: 0.9, s1: 0.1, a: 0.8, c: ARK_C[Math.floor(R() * ARK_C.length)], drag: 0.6 }); } break;
       case 'midnight': {
+        const fz = v.model.fest?.points.fizz;
+        if (fz && dist < 500) for (let i = 0; i < 2; i++) { const [x, , z] = at(fz.x + (R() - 0.5) * 0.6, fz.z); this.fx.glow.add({ x, y: y0 + fz.y, z, vx: (R() - 0.5) * 3 + Math.sin(w.yaw) * 6, vy: 4 + R() * 5, vz: (R() - 0.5) * 3 + Math.cos(w.yaw) * 6, age: 0, life: 1.1 + R() * 0.6, s0: 0.7, s1: 0.15, a: 0.85, c: FIZZ, drag: 0.8, g: 6 }); }
         v.fwT = (v.fwT ?? 1 + R() * 2) - dt;
         if (v.fwT > 0) break;
         v.fwT = ((this.glowK || 0) > 0.5 ? 1.4 : 3.2) + R() * 2.2;
@@ -865,7 +868,7 @@ export class Game {
 
 const GHOST_GLOW = new THREE.Color(0.3, 1, 0.72), BOARD_SMOKE = new THREE.Color(0.75, 0.72, 0.66);
 const FEST_FX = { yule: 1, harvest: 1, collector: 1, midnight: 1 };
-const SNOW = new THREE.Color(0xf4f8ff), LEAF_C = ['#c0392b', '#e67e22', '#f1c40f', '#a84300'].map((c) => new THREE.Color(c)), ARK_C = ['#ff4fd8', '#5ff6ff', '#ffd34d'].map((c) => new THREE.Color(c));
+const SNOW = new THREE.Color(0xf4f8ff), FIZZ = new THREE.Color(1, 0.88, 0.5), LEAF_C = ['#c0392b', '#e67e22', '#f1c40f', '#a84300'].map((c) => new THREE.Color(c)), ARK_C = ['#ff4fd8', '#5ff6ff', '#ffd34d'].map((c) => new THREE.Color(c));
 function pushBuf(s, t, m) {
   s.buf ||= [];
   s.buf.push({ t, x: m.x, z: m.z, yaw: m.yaw, spd: m.spd });

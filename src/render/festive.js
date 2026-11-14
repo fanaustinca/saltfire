@@ -68,7 +68,11 @@ function sagPoints(a, b, n, sag) {
 // ------------------------------------------------------------------ shared materials + textures
 let MT = null, glowK = 0;
 /** Night (0..1) makes the fairy lights, bulbs, beams and clock face burn brighter. */
-export function setFestiveGlow(k) { glowK = k; }
+export function setFestiveGlow(k) { glowK = k; for (const m of TRIMS) m.emissiveIntensity = 0.12 + k * 1.25; }
+// each festival ship's trim (its own material) glows in its colour after dark
+const TRIMS = new Set(), TRIM_GLOW = { harvest: '#ff8a1a', yule: '#8fdcff', midnight: '#ffcc33', collector: '#ff4fd8' };
+export function festiveTrim(id, mat) { mat.emissive.set(TRIM_GLOW[id] || '#ffffff'); mat.emissiveIntensity = 0.12 + glowK * 1.25; TRIMS.add(mat); }
+export function dropFestiveTrim(mat) { TRIMS.delete(mat); }
 function canvasTex(w, h, draw) {
   // Draw on a 2D canvas, then copy the pixels out into a DataTexture straight away: a detached canvas can be reset
   // by the browser before the texture's first upload (it then uploads blank), a pixel copy can't.
@@ -373,23 +377,24 @@ function starShape(r) {
 export function buildFestive(id, c) {
   const M = mats();
   const { H, L, B, body, zU, lists } = c;
+  const S = Math.max(c.gs, L / 62); // decoration scale: grows with the hull
   const vc = [], vcM = [], glowL = [], ice = [], snow = [], tw = [[], [], [], []], bulbA = [], bulbB = [], moon = [], star = [], beams = [], glassL = [];
   const near = [], far = [], spinners = [];
   const add = (parent, list, mat, lod = 1, shadow = false) => { const m = meshOf(list, mat, shadow); if (!m) return null; parent.add(m); (lod === 1 ? near : lod === 2 ? far : []).push(m); return m; };
   const dY = (u) => deckY(H, u);
   const railY = (u) => sheer(H, u) + 0.12;
   const railX = (u) => hullX(H, u, sheer(H, u)) - 0.15;
-  const res = { near, far, update: () => {}, lights: [] };
+  const res = { near, far, update: () => {}, lights: [], points: {}, ownMats: [], disposeTex: null };
   const anims = [];
 
   // -- string of lights/leaves/flags along a sagging line, split per parent group (masts can be shot away)
   const strands = new Map();
   const strand = (parent, a, b, step, sag, fn) => {
     const n = Math.max(2, Math.round(a.distanceTo(b) / step));
-    if (!strands.has(parent)) strands.set(parent, { tw: [[], [], [], []], vc: [] });
+    if (!strands.has(parent)) strands.set(parent, { tw: [[], [], [], []], vc: [], lan: [] });
     sagPoints(a, b, n, sag).forEach((p, k) => fn(strands.get(parent), p, k));
   };
-  const flushStrands = () => { for (const [par, s] of strands) { s.tw.forEach((l, i) => add(par, l, M.twinkle[i], 1)); add(par, s.vc, M.vc, 1); } };
+  const flushStrands = () => { for (const [par, s] of strands) { s.tw.forEach((l, i) => add(par, l, M.twinkle[i], 1)); add(par, s.vc, M.vc, 1); add(par, s.lan, M.moon, 1); } };
   const masts = c.mastInfo, fore = masts.reduce((a, m) => (m.z > a.z ? m : a)), aft = masts.reduce((a, m) => (m.z < a.z ? m : a));
   const main = masts.find((m) => m.main) || masts[0];
   const sternZ = -L / 2 + 0.4, sternTop = sheer(H, 0.0);
@@ -399,14 +404,14 @@ export function buildFestive(id, c) {
     let k = 0;
     for (let u = 0.12; u < 0.86; u += 0.045) for (const sx of [-1, 1]) {
       k++; if (k % 3 === 0) continue;
-      const r = (0.45 + ((k * 37) % 10) * 0.04) * c.gs, x = sx * (railX(u) - r * 0.9), y = dY(u) + r * 0.72, z = zU(u);
+      const r = (0.45 + ((k * 37) % 10) * 0.04) * S, x = sx * (railX(u) - r * 0.9), y = dY(u) + r * 0.72, z = zU(u);
       vc.push(paint(sph(r, [x, y, z], [1.15, 0.78, 1.15], 14, 10), k % 5 === 1 ? '#e8c14a' : '#e86f1c'));
       for (let rib = 0; rib < 4; rib++) vc.push(paint(place(new THREE.TorusGeometry(r * 1.0, r * 0.07, 4, 16), [x, y, z], [Math.PI / 2, 0, 0], [1.13, 1.13, 0.76]).rotateY(0), '#c4561a'));
       vc.push(paint(place(cyl(r * 0.12, r * 0.08, r * 0.5, 6), [x, y + r * 0.85, z], [0.3, 0, 0.2]), '#4d6b22'));
     }
     // wheat sheaves at the foot of each mast
     for (const m of masts) for (const sx of [-1, 1]) {
-      const bx = sx * B * 0.12, bz = m.z + 1.8, hh = 2.2 * c.gs;
+      const bx = sx * B * 0.12, bz = m.z + 1.8, hh = 2.2 * S;
       for (let i = 0; i < 14; i++) { const a = (i / 14) * Math.PI * 2, lean = 0.16; vc.push(paint(span(new V3(bx + Math.cos(a) * 0.12, m.base, bz + Math.sin(a) * 0.12), new V3(bx + Math.cos(a) * hh * lean, m.base + hh, bz + Math.sin(a) * hh * lean), 0.035, 0.03, 4), '#d9b65a')); vc.push(paint(sph(0.09, [bx + Math.cos(a) * hh * lean, m.base + hh + 0.1, bz + Math.sin(a) * hh * lean], [0.7, 1.6, 0.7], 6, 4), '#c9962f')); }
       vc.push(paint(place(new THREE.TorusGeometry(0.2, 0.06, 4, 10), [bx, m.base + hh * 0.45, bz], [Math.PI / 2, 0, 0]), '#8a2a14'));
     }
@@ -414,22 +419,22 @@ export function buildFestive(id, c) {
     for (const [u, sx] of [[0.36, 1], [0.62, -1], [0.66, 1]]) { const x = sx * B * 0.22, y = dY(u); vc.push(paint(place(cyl(0.55, 0.62, 1.1, 12), [x, y + 0.55, zU(u)]), '#7a4a26')); for (let i = 0; i < 9; i++) vc.push(paint(sph(0.17, [x + Math.cos(i * 2.4) * 0.3 * Math.sqrt(i / 9), y + 1.15, zU(u) + Math.sin(i * 2.4) * 0.3 * Math.sqrt(i / 9)]), i % 3 ? '#c62828' : '#9ccc65')); }
     // autumn-leaf garlands strung through the rig
     const LEAF = ['#c0392b', '#e67e22', '#f1c40f', '#a84300', '#d35400'];
-    const leaf = (s, p, k) => { const g = new THREE.CircleGeometry(0.42 * c.gs, 5); g.scale(1, 0.7, 1); g.rotateY(k * 1.3); g.rotateX(k * 0.7); g.translate(p.x, p.y, p.z); s.vc.push(paint(g, LEAF[k % 5])); };
+    const leaf = (s, p, k) => { const g = new THREE.CircleGeometry(0.42 * S, 5); g.scale(1, 0.7, 1); g.rotateY(k * 1.3); g.rotateX(k * 0.7); g.translate(p.x, p.y, p.z); s.vc.push(paint(g, LEAF[k % 5])); };
     const ordered = [...masts].sort((a, b) => a.z - b.z);
     for (let i = 0; i < ordered.length - 1; i++) strand(ordered[i].upper, ordered[i].top.clone().setY(ordered[i].base + ordered[i].h * 0.62), ordered[i + 1].top.clone().setY(ordered[i + 1].base + ordered[i + 1].h * 0.62), 0.9, 2.2, leaf);
     strand(fore.upper, fore.top.clone().setY(fore.base + fore.h * 0.6), c.bsTip, 0.9, 2.5, leaf);
     // cornucopia figurehead: a wicker horn curling back under the bowsprit, its mouth spilling the harvest
     { // its narrow tip is set into the stem; the horn sweeps down and forward, then curls up to an open mouth
-      const R = 2.8 * c.gs, z0 = c.stemZ - 3.2, y0 = c.stemY - 1.8;
+      const R = 2.8 * S, z0 = c.stemZ - 3.2, y0 = c.stemY - 1.8;
       const curve = new THREE.CubicBezierCurve3(new V3(0, y0, z0), new V3(0, y0 - R * 1.1, z0 + R * 0.5), new V3(0, y0 - R * 0.9, z0 + R * 1.5), new V3(0, y0 + R * 0.05, z0 + R * 1.45));
       const pts = curve.getPoints(20);
       for (let i = 0; i < pts.length - 1; i++) { const f = i / (pts.length - 1), r0 = 0.3 + R * 0.4 * f ** 1.4, r1 = 0.3 + R * 0.4 * ((i + 1) / (pts.length - 1)) ** 1.4; vc.push(paint(span(pts[i], pts[i + 1], r0, r1, 12), i % 2 ? '#c8913e' : '#a8732c')); }
       const m0 = pts[pts.length - 1], dir = new V3().subVectors(m0, pts[pts.length - 3]).normalize();
-      { const lip = new THREE.TorusGeometry(R * 0.44, 0.1 * c.gs, 6, 18); lip.lookAt(dir); lip.translate(m0.x, m0.y, m0.z); vc.push(paint(lip, '#e3a02a')); } // gilt lip
+      { const lip = new THREE.TorusGeometry(R * 0.44, 0.1 * S, 6, 18); lip.lookAt(dir); lip.translate(m0.x, m0.y, m0.z); vc.push(paint(lip, '#e3a02a')); } // gilt lip
       // the harvest spilling out: a pumpkin, apples, pears and grape bunches tumbling over the lip
       const fruit = [['#e86f1c', 0.55], ['#c62828', 0.34], ['#f9d342', 0.32], ['#9ccc65', 0.3], ['#c62828', 0.3], ['#e8c14a', 0.36], ['#c62828', 0.26]];
-      fruit.forEach(([col, r], i) => { const a = i * 2.1, rr = R * 0.25; vc.push(paint(sph(r * c.gs, [Math.cos(a) * rr, m0.y + Math.sin(a) * rr * 0.6 - (i > 3 ? R * 0.35 : 0), m0.z + dir.z * (0.3 + i * 0.12) * c.gs + (i > 3 ? R * 0.2 : 0)]), col)); });
-      for (let i = 0; i < 9; i++) vc.push(paint(sph(0.13 * c.gs, [R * 0.12 + (i % 3) * 0.14 * c.gs, m0.y - R * 0.5 - Math.floor(i / 3) * 0.18 * c.gs, m0.z + R * 0.3]), '#5e1f73'));
+      fruit.forEach(([col, r], i) => { const a = i * 2.1, rr = R * 0.25; vc.push(paint(sph(r * S, [Math.cos(a) * rr, m0.y + Math.sin(a) * rr * 0.6 - (i > 3 ? R * 0.35 : 0), m0.z + dir.z * (0.3 + i * 0.12) * S + (i > 3 ? R * 0.2 : 0)]), col)); });
+      for (let i = 0; i < 9; i++) vc.push(paint(sph(0.13 * S, [R * 0.12 + (i % 3) * 0.14 * S, m0.y - R * 0.5 - Math.floor(i / 3) * 0.18 * S, m0.z + R * 0.3]), '#5e1f73'));
     }
     // carved turkey-tail fan over the stern: rank on rank of painted feathers
     { const cx = 0, cy = sternTop + 0.4, cz = sternZ - 0.25, R = B * 0.52, cols = ['#5a2f14', '#8a3a16', '#c4561a', '#e08a2c', '#e8b84a'];
@@ -446,42 +451,92 @@ export function buildFestive(id, c) {
       lists.gold.push(plain(place(cyl(B * 0.09, B * 0.09, 0.5, 18), [cx, cy, cz + 0.1], [Math.PI / 2, 0, 0])));
     }
     // two glowing harvest moons on the quarters + one at the main truck
-    for (const sx of [-1, 1]) { const x = sx * railX(0.06) * 0.8, y = sternTop + 2.2; lists.iron.push(plain(place(cyl(0.08, 0.08, 2.2, 5), [x, y - 1.2, zU(0.05)]))); moon.push(plain(sph(0.75 * c.gs, [x, y, zU(0.05)], null, 14, 10))); res.lights.push(new V3(x, y, zU(0.05))); }
-    { const g = plain(sph(0.9 * c.gs, [main.top.x, main.top.y + 1.2, main.top.z], null, 14, 10)); add(main.upper, [g], M.moon, 2); }
+    for (const sx of [-1, 1]) { const x = sx * railX(0.06) * 0.8, y = sternTop + 2.2; lists.iron.push(plain(place(cyl(0.08, 0.08, 2.2, 5), [x, y - 1.2, zU(0.05)]))); moon.push(plain(sph(0.75 * S, [x, y, zU(0.05)], null, 14, 10))); res.lights.push(new V3(x, y, zU(0.05))); }
+    { const g = plain(sph(0.9 * S, [main.top.x, main.top.y + 1.2, main.top.z], null, 14, 10)); add(main.upper, [g], M.moon, 2); }
+    // glowing paper lanterns strung between the mastheads, below the leaf garlands
+    const lantern = (s2, p) => { s2.lan.push(plain(sph(0.55 * S, [p.x, p.y, p.z], [1, 1.3, 1], 10, 8))); s2.vc.push(paint(place(cyl(0.3 * S, 0.3 * S, 0.16, 8), [p.x, p.y + 0.75 * S, p.z]), '#3a2410')); };
+    for (let i = 0; i < ordered.length - 1; i++) strand(ordered[i].upper, ordered[i].top.clone().setY(ordered[i].base + ordered[i].h * 0.45), ordered[i + 1].top.clone().setY(ordered[i + 1].base + ordered[i + 1].h * 0.45), 3.2, 2.6, lantern);
+    for (const sx of [-1, 1]) { let k = 0; for (let u = 0.08; u < 0.93; u += 0.05) if (k++ % 2) moon.push(plain(sph(0.38 * S, [sx * railX(u), railY(u) + 1.1, zU(u)], [1, 1.3, 1], 8, 6))); }
+    // the harvest feast: a long table on the main deck, a great roast turkey, pies, corn, candles and benches
+    { const u0 = 0.37, u1 = 0.47, y = dY(0.42), z0 = zU(u0), z1 = zU(u1), zc = (z0 + z1) / 2, len = z1 - z0, w = Math.min(4.2, B * 0.17), th = 1.1;
+      vc.push(paint(box(w, 0.18, len, [0, y + th, zc]), '#6b4423'), paint(box(w + 0.3, 0.06, len + 0.3, [0, y + th + 0.12, zc]), '#f4ecd8'));
+      for (const sx of [-1, 1]) for (const sz of [-1, 1]) vc.push(paint(box(0.22, th, 0.22, [sx * (w / 2 - 0.3), y + th / 2, zc + sz * (len / 2 - 0.4)]), '#4a2c14'));
+      for (const sx of [-1, 1]) { vc.push(paint(box(0.7, 0.14, len * 0.92, [sx * (w / 2 + 0.9), y + 0.62, zc]), '#6b4423')); for (const sz of [-1, 1]) vc.push(paint(box(0.18, 0.62, 0.18, [sx * (w / 2 + 0.9), y + 0.31, zc + sz * len * 0.4]), '#4a2c14')); }
+      const ty = y + th + 0.16, T2 = 1.0 * S;
+      vc.push(paint(place(cyl(1.25 * T2, 1.25 * T2, 0.1, 20), [0, ty + 0.05, zc]), '#e8e2d0'));
+      vc.push(paint(sph(0.95 * T2, [0, ty + 0.7 * T2, zc], [1, 0.72, 1.25], 18, 12), '#a0522d'));
+      for (const sx of [-1, 1]) { vc.push(paint(span(new V3(sx * 0.55 * T2, ty + 0.55 * T2, zc + 0.6 * T2), new V3(sx * 0.75 * T2, ty + 0.85 * T2, zc + 1.45 * T2), 0.32 * T2, 0.18 * T2, 8), '#8b4513')); vc.push(paint(sph(0.14 * T2, [sx * 0.77 * T2, ty + 0.9 * T2, zc + 1.55 * T2]), '#fafafa')); vc.push(paint(sph(0.38 * T2, [sx * 0.72 * T2, ty + 0.75 * T2, zc - 0.2 * T2], [0.6, 0.7, 1.2]), '#9a4a22')); }
+      for (const dz of [-0.36, 0.36]) { const pz = zc + dz * len; vc.push(paint(place(cyl(0.55, 0.6, 0.22, 16), [0, ty + 0.11, pz]), '#c8862f'), paint(place(cyl(0.48, 0.48, 0.05, 16), [0, ty + 0.23, pz]), '#e07b1a')); }
+      for (let i = 0; i < 4; i++) { const pz = zc + (i < 2 ? -1 : 1) * len * (0.17 + (i % 2) * 0.08); vc.push(paint(place(cyl(0.12, 0.12, 0.6, 8), [w * 0.3 * (i % 2 ? 1 : -1), ty + 0.12, pz], [0, 0, Math.PI / 2]), '#f2c94c')); }
+      for (let i = 0; i < 6; i++) { const pz = z0 + len * (0.08 + i * 0.168); lists.white.push(plain(place(cyl(0.07, 0.07, 0.5, 6), [w * 0.32 * (i % 2 ? 1 : -1), ty + 0.25, pz]))); lists.lamps.push(plain(sph(0.09, [w * 0.32 * (i % 2 ? 1 : -1), ty + 0.56, pz], [1, 1.6, 1], 6, 4))); }
+      for (const [dx, dz, col] of [[-0.9, 0.42, '#e86f1c'], [0.85, -0.44, '#e8c14a'], [0.9, 0.3, '#c62828']]) vc.push(paint(sph(0.32, [dx * w * 0.5, ty + 0.25, zc + dz * len], [1.1, 0.8, 1.1], 10, 8), col));
+      res.lights.push(new V3(0, ty + 1.5, zc));
+    }
     anims.push((t) => { M.moon.emissiveIntensity = (1.3 + glowK * 1.4) * (0.92 + 0.08 * Math.sin(t * 7.3) * Math.sin(t * 3.1)); });
   }
 
   if (id === 'yule') {
     // snow along the rails and drifts on deck
-    for (let i = 0; i < 30; i++) { const u0 = 0.03 + i * 0.032, u1 = u0 + 0.032; for (const sx of [-1, 1]) snow.push(plain(span(new V3(sx * hullX(H, u0, sheer(H, u0)), railY(u0) + 0.08, zU(u0)), new V3(sx * hullX(H, u1, sheer(H, u1)), railY(u1) + 0.08, zU(u1)), 0.22 * c.gs, 0.22 * c.gs, 5))); }
-    for (let i = 0; i < 14; i++) { const u = 0.1 + i * 0.058, sx = i % 2 ? 1 : -1; snow.push(plain(sph(0.7 * c.gs, [sx * (hullX(H, u, dY(u)) * 0.62), dY(u) + 0.05, zU(u)], [1.1, 0.28, 1.8], 10, 6))); }
+    for (let i = 0; i < 30; i++) { const u0 = 0.03 + i * 0.032, u1 = u0 + 0.032; for (const sx of [-1, 1]) snow.push(plain(span(new V3(sx * hullX(H, u0, sheer(H, u0)), railY(u0) + 0.08, zU(u0)), new V3(sx * hullX(H, u1, sheer(H, u1)), railY(u1) + 0.08, zU(u1)), 0.22 * S, 0.22 * S, 5))); }
+    for (let i = 0; i < 14; i++) { const u = 0.1 + i * 0.058, sx = i % 2 ? 1 : -1; snow.push(plain(sph(0.7 * S, [sx * (hullX(H, u, dY(u)) * 0.62), dY(u) + 0.05, zU(u)], [1.1, 0.28, 1.8], 10, 6))); }
     // icicles under the rail
-    for (let i = 0; i < 56; i++) { const u = 0.06 + i * 0.016; for (const sx of [-1, 1]) { const y = sheer(H, u) - 0.15, l = (0.5 + ((i * 7 + (sx > 0 ? 3 : 0)) % 5) * 0.22) * c.gs; ice.push(plain(place(new THREE.ConeGeometry(0.1 * c.gs, l, 5), [sx * (hullX(H, u, y) + 0.06), y - l / 2, zU(u)], [Math.PI, 0, 0]))); } }
+    for (let i = 0; i < 56; i++) { const u = 0.06 + i * 0.016; for (const sx of [-1, 1]) { const y = sheer(H, u) - 0.15, l = (0.5 + ((i * 7 + (sx > 0 ? 3 : 0)) % 5) * 0.22) * S; ice.push(plain(place(new THREE.ConeGeometry(0.1 * S, l, 5), [sx * (hullX(H, u, y) + 0.06), y - l / 2, zU(u)], [Math.PI, 0, 0]))); } }
     // candy-cane bands up the lower masts
     for (const m of masts) for (let i = 0; i < 9; i++) { const g = place(cyl(Math.max(0.3, B * 0.05), Math.max(0.3, B * 0.05), 0.5, 10), [0, m.base + 1.5 + i * 1.3, m.z]); g.scale(1.06, 1, 1.06); lists.red.push(plain(g)); }
     // fairy lights: masthead to masthead, foremast to the jib-boom, mizzen to the taffrail, and along both rails
-    const bulb = (s, p, k) => s.tw[k % 4].push(plain(sph(0.2 * c.gs, [p.x, p.y, p.z], null, 6, 4)));
+    const bulb = (s, p, k) => s.tw[k % 4].push(plain(sph(0.2 * S, [p.x, p.y, p.z], null, 6, 4)));
     const ordered = [...masts].sort((a, b) => a.z - b.z);
     for (let i = 0; i < ordered.length - 1; i++) strand(ordered[i].upper, ordered[i].top, ordered[i + 1].top, 1.4, 2.5, bulb);
     strand(fore.upper, fore.top, c.bsTip, 1.4, 3, bulb);
     strand(aft.upper, aft.top, new V3(0, sternTop + 1, sternZ), 1.4, 3, bulb);
     for (const m of masts) for (const sx of [-1, 1]) strand(m.upper, m.top, new V3(sx * railX(Math.max(0.03, (m.z / L) + 0.5 - 0.06)), railY(0.5) + 0.4, m.z - L * 0.06), 1.5, 1.2, bulb);
-    for (const sx of [-1, 1]) { let k = 0; for (let u = 0.05; u < 0.95; u += 0.022) tw[(k++) % 4].push(plain(sph(0.18 * c.gs, [sx * railX(u), railY(u) + 0.45, zU(u)], null, 6, 4))); }
+    for (const sx of [-1, 1]) { let k = 0; for (let u = 0.05; u < 0.95; u += 0.022) tw[(k++) % 4].push(plain(sph(0.18 * S, [sx * railX(u), railY(u) + 0.45, zU(u)], null, 6, 4))); }
     // great star on the main truck (turns slowly)
-    { const g = new THREE.ExtrudeGeometry(starShape(1.6 * c.gs), { depth: 0.35, bevelEnabled: true, bevelSize: 0.08, bevelThickness: 0.08, bevelSegments: 1 }); g.center(); const s = new THREE.Mesh(g, M.star); s.position.set(main.top.x, main.top.y + 2.2 * c.gs, main.top.z); main.upper.add(s); spinners.push([s, 0.6]); far.push(s); }
+    { const g = new THREE.ExtrudeGeometry(starShape(1.6 * S), { depth: 0.35, bevelEnabled: true, bevelSize: 0.08, bevelThickness: 0.08, bevelSegments: 1 }); g.center(); const s = new THREE.Mesh(g, M.star); s.position.set(main.top.x, main.top.y + 2.2 * S, main.top.z); main.upper.add(s); spinners.push([s, 0.6]); far.push(s); }
     // decorated tree on the forecastle, with presents underneath
     { const u = 0.86, x = 0, y = dY(u), z = zU(u), hgt = Math.max(6, B * 0.62);
       vc.push(paint(place(cyl(0.3, 0.3, 0.8, 8), [x, y + 0.4, z]), '#5d3a1a'));
       for (let i = 0; i < 4; i++) { const r = hgt * (0.36 - i * 0.07), hh = hgt * 0.36; vc.push(paint(place(new THREE.ConeGeometry(r, hh, 10), [x, y + 0.8 + i * hgt * 0.19 + hh / 2, z]), i % 2 ? '#1e6b34' : '#175a2b')); }
-      for (let i = 0; i < 28; i++) { const t = i / 28, a = i * 2.4, hy = 0.9 + t * hgt * 0.8, rr = hgt * 0.34 * (1 - t * 0.85); (i % 3 ? tw[i % 4] : vcM).push(i % 3 ? plain(sph(0.17 * c.gs, [x + Math.cos(a) * rr, y + hy, z + Math.sin(a) * rr], null, 6, 4)) : paint(sph(0.24 * c.gs, [x + Math.cos(a) * rr, y + hy, z + Math.sin(a) * rr], null, 8, 6), ['#d4a73a', '#c62828', '#c0c0d0'][i % 3])); }
-      const ts = new THREE.ExtrudeGeometry(starShape(0.7 * c.gs), { depth: 0.2, bevelEnabled: false }); ts.center(); star.push(plain(ts.translate(x, y + 0.9 + hgt * 0.95, z)));
+      for (let i = 0; i < 28; i++) { const t = i / 28, a = i * 2.4, hy = 0.9 + t * hgt * 0.8, rr = hgt * 0.34 * (1 - t * 0.85); (i % 3 ? tw[i % 4] : vcM).push(i % 3 ? plain(sph(0.17 * S, [x + Math.cos(a) * rr, y + hy, z + Math.sin(a) * rr], null, 6, 4)) : paint(sph(0.24 * S, [x + Math.cos(a) * rr, y + hy, z + Math.sin(a) * rr], null, 8, 6), ['#d4a73a', '#c62828', '#c0c0d0'][i % 3])); }
+      const ts = new THREE.ExtrudeGeometry(starShape(0.7 * S), { depth: 0.2, bevelEnabled: false }); ts.center(); star.push(plain(ts.translate(x, y + 0.9 + hgt * 0.95, z)));
       const P = [['#c62828', '#f4d03f'], ['#1e8449', '#f4f6f7'], ['#2e86c1', '#f4d03f'], ['#f4f6f7', '#c62828'], ['#7d3c98', '#f4d03f']];
-      P.forEach(([bc, rc], i) => { const a = i * 1.26, r = hgt * 0.3, s = (0.7 + (i % 3) * 0.25) * c.gs, px = x + Math.cos(a) * r, pz = z + Math.sin(a) * r * 0.8; vc.push(paint(box(s, s * 0.8, s, [px, y + s * 0.4, pz], [0, a, 0]), bc)); vc.push(paint(box(s * 1.02, s * 0.82, s * 0.16, [px, y + s * 0.4, pz], [0, a, 0]), rc)); vc.push(paint(box(s * 0.16, s * 0.82, s * 1.02, [px, y + s * 0.4, pz], [0, a, 0]), rc)); });
+      P.forEach(([bc, rc], i) => { const a = i * 1.26, r = hgt * 0.3, s = (0.7 + (i % 3) * 0.25) * S, px = x + Math.cos(a) * r, pz = z + Math.sin(a) * r * 0.8; vc.push(paint(box(s, s * 0.8, s, [px, y + s * 0.4, pz], [0, a, 0]), bc)); vc.push(paint(box(s * 1.02, s * 0.82, s * 0.16, [px, y + s * 0.4, pz], [0, a, 0]), rc)); vc.push(paint(box(s * 0.16, s * 0.82, s * 1.02, [px, y + s * 0.4, pz], [0, a, 0]), rc)); });
     }
     // wreaths: on the stern and on each bow
-    const wreath = (pos, rotY) => { vc.push(paint(place(new THREE.TorusGeometry(1.0 * c.gs, 0.32 * c.gs, 8, 18), pos, [0, rotY, 0]), '#1d6b33')); for (let i = 0; i < 8; i++) { const a = (i / 8) * Math.PI * 2; vc.push(paint(sph(0.14 * c.gs, [pos[0] + Math.cos(rotY) * Math.cos(a) * c.gs, pos[1] + Math.sin(a) * c.gs, pos[2] - Math.sin(rotY) * Math.cos(a) * c.gs]), '#c62828')); } vc.push(paint(box(0.7 * c.gs, 0.4 * c.gs, 0.2, [pos[0], pos[1] - 1.0 * c.gs, pos[2]], [0, rotY, 0]), '#c62828')); };
+    const wreath = (pos, rotY) => { vc.push(paint(place(new THREE.TorusGeometry(1.0 * S, 0.32 * S, 8, 18), pos, [0, rotY, 0]), '#1d6b33')); for (let i = 0; i < 8; i++) { const a = (i / 8) * Math.PI * 2; vc.push(paint(sph(0.14 * S, [pos[0] + Math.cos(rotY) * Math.cos(a) * S, pos[1] + Math.sin(a) * S, pos[2] - Math.sin(rotY) * Math.cos(a) * S]), '#c62828')); } vc.push(paint(box(0.7 * S, 0.4 * S, 0.2, [pos[0], pos[1] - 1.0 * S, pos[2]], [0, rotY, 0]), '#c62828')); };
     wreath([0, sternTop - 1.2, sternZ - 0.3], 0);
     for (const sx of [-1, 1]) { const u = 0.9, y = sheer(H, u) - 1.4; wreath([sx * (hullX(H, u, y) + 0.3), y, zU(u)], sx * Math.PI / 2); }
+    // Santa's team: five reindeer galloping through the air ahead of the jib-boom, harnessed with glowing reins
+    { const team = new THREE.Group(); team.name = 'reindeer'; body.add(team); far.push(team);
+      const R = 1.5 * S, base = c.bsTip.clone(), list = [], glowR = [], noseL = [], reinL = [];
+      const deer = (x, y, z, ph) => {
+        const at = (g) => { g.translate(x, y, z); return g; };
+        list.push(paint(at(sph(0.6 * R, [0, 0, 0], [0.75, 0.62, 1.35], 12, 8)), '#7a4a26'));
+        list.push(paint(at(sph(0.42 * R, [0, -0.05 * R, -0.75 * R], [0.8, 0.75, 0.6], 10, 6)), '#f2e6c8'));
+        list.push(paint(at(span(new V3(0, 0.25 * R, 0.6 * R), new V3(0, 0.95 * R, 1.05 * R), 0.22 * R, 0.17 * R, 8)), '#7a4a26'));
+        list.push(paint(at(sph(0.26 * R, [0, 1.02 * R, 1.25 * R], [0.75, 0.75, 1.3], 10, 8)), '#7a4a26'));
+        for (const sx of [-1, 1]) {
+          const a0 = new V3(sx * 0.12 * R, 1.22 * R, 1.12 * R), a1 = new V3(sx * 0.45 * R, 1.85 * R, 0.95 * R);
+          list.push(paint(at(span(a0, a1, 0.05 * R, 0.04 * R, 5)), '#e8d8b0'));
+          for (const f of [0.45, 0.8]) { const b0 = new V3().lerpVectors(a0, a1, f); list.push(paint(at(span(b0, b0.clone().add(new V3(sx * 0.12 * R, 0.32 * R, 0.25 * R)), 0.035 * R, 0.03 * R, 4)), '#e8d8b0')); }
+          list.push(paint(at(sph(0.05 * R, [sx * 0.15 * R, 1.1 * R, 1.42 * R])), '#111'));
+          // galloping: front legs reach forward, hind legs kick back
+          list.push(paint(at(span(new V3(sx * 0.22 * R, -0.2 * R, 0.6 * R), new V3(sx * 0.24 * R, -0.75 * R, 1.25 * R + ph * 0.1), 0.1 * R, 0.07 * R, 5)), '#5a3418'));
+          list.push(paint(at(span(new V3(sx * 0.22 * R, -0.2 * R, -0.6 * R), new V3(sx * 0.24 * R, -0.85 * R, -1.3 * R), 0.12 * R, 0.07 * R, 5)), '#5a3418'));
+        }
+        list.push(paint(at(box(0.62 * R, 0.14 * R, 0.5 * R, [0, 0.42 * R, 0.1 * R])), '#b3201c'));
+        for (let i = 0; i < 3; i++) glowR.push(plain(at(sph(0.08 * R, [(i - 1) * 0.22 * R, 0.5 * R, 0.38 * R], null, 6, 4))));
+        reinL.push(new V3(x, y + 0.4 * R, z + 0.4 * R));
+      };
+      const rows = [[0, 22], [-1.6, 14], [1.6, 14], [-1.6, 7], [1.6, 7]];
+      rows.forEach(([dx, dz], i) => deer(base.x + dx * R, base.y + 3 + dz * 0.22, base.z + dz * S, i));
+      noseL.push(plain(sph(0.17 * R, [base.x, base.y + 3 + 22 * 0.22 + 1.02 * R, base.z + 22 * S + 1.62 * R], null, 10, 8)));
+      for (const p of reinL) list.push(paint(span(base.clone().add(new V3(0, 0.3, 0)), p, 0.06, 0.06, 4), '#ffd84a'));
+      const m1 = meshOf(list, M.vc, true), m2 = meshOf(glowR, M.star), m3 = meshOf(noseL, M.twinkle[0]);
+      for (const m of [m1, m2, m3]) if (m) team.add(m);
+      res.points.deer = base.clone().add(new V3(0, 3, 10 * S));
+      anims.push((t) => { team.position.y = Math.sin(t * 2.1) * 0.7; team.rotation.x = Math.sin(t * 2.1 + 0.6) * 0.025; });
+    }
     anims.push((t) => { M.twinkle.forEach((m, i) => { m.emissiveIntensity = (0.5 + glowK * 1.8) * (0.35 + 0.65 * Math.max(0, Math.sin(t * 2.2 + i * 1.57))) + 0.25; }); });
   }
 
@@ -503,10 +558,10 @@ export function buildFestive(id, c) {
       }
     }
     // mirror ball at the main truck
-    { const g = new THREE.IcosahedronGeometry(1.6 * c.gs, 2); const ball = new THREE.Mesh(g, M.mirror); ball.position.set(main.top.x, main.top.y + 2.0 * c.gs, main.top.z); main.upper.add(ball); spinners.push([ball, 0.9]); far.push(ball); }
+    { const g = new THREE.IcosahedronGeometry(1.6 * S, 2); const ball = new THREE.Mesh(g, M.mirror); ball.position.set(main.top.x, main.top.y + 2.0 * S, main.top.z); main.upper.add(ball); spinners.push([ball, 0.9]); far.push(ball); }
     // gold + silver bunting from every masthead
     const FL = ['#f2c14e', '#e8e8f0', '#f2c14e', '#1d2a5a'];
-    const pennant = (s, p, k) => { const g = new THREE.BufferGeometry(); const w = 0.55 * c.gs, h = 0.9 * c.gs; g.setAttribute('position', new THREE.Float32BufferAttribute([-w, 0, 0, w, 0, 0, 0, -h, 0], 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute([0, 0, 1, 0, 0, 1, 0, 0, 1], 3)); g.rotateY(Math.PI / 2 + (k % 2) * 0.3); g.translate(p.x, p.y, p.z); s.vc.push(paint(g, FL[k % 4])); };
+    const pennant = (s, p, k) => { const g = new THREE.BufferGeometry(); const w = 0.55 * S, h = 0.9 * S; g.setAttribute('position', new THREE.Float32BufferAttribute([-w, 0, 0, w, 0, 0, 0, -h, 0], 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute([0, 0, 1, 0, 0, 1, 0, 0, 1], 3)); g.rotateY(Math.PI / 2 + (k % 2) * 0.3); g.translate(p.x, p.y, p.z); s.vc.push(paint(g, FL[k % 4])); };
     const ordered = [...masts].sort((a, b) => a.z - b.z);
     for (let i = 0; i < ordered.length - 1; i++) strand(ordered[i].upper, ordered[i].top, ordered[i + 1].top, 1.2, 2.2, pennant);
     strand(fore.upper, fore.top, c.bsTip, 1.2, 2.6, pennant);
@@ -514,11 +569,39 @@ export function buildFestive(id, c) {
     // firework mortars on the waist (game.js fires them)
     for (const [u, sx] of [[0.32, 1], [0.32, -1], [0.66, 1], [0.66, -1]]) { const x = sx * B * 0.26, y = dY(u); lists.iron.push(plain(place(cyl(0.45, 0.4, 1.8, 10), [x, y + 0.9, zU(u)], [0, 0, -sx * 0.18]))); lists.gold.push(plain(place(new THREE.TorusGeometry(0.42, 0.08, 6, 12), [x + sx * 0.16, y + 1.8, zU(u)], [Math.PI / 2, 0, 0]))); vcM.push(paint(place(cyl(0.7, 0.7, 0.3, 10), [x, y + 0.15, zU(u)]), '#2a2a33')); }
     // gilt stern lanterns all along the rails
-    for (let u = 0.1; u < 0.92; u += 0.07) for (const sx of [-1, 1]) lists.lamps.push(plain(sph(0.22 * c.gs, [sx * railX(u), railY(u) + 0.55, zU(u)], [1, 1.3, 1], 6, 4)));
+    for (let u = 0.1; u < 0.92; u += 0.07) for (const sx of [-1, 1]) lists.lamps.push(plain(sph(0.22 * S, [sx * railX(u), railY(u) + 0.55, zU(u)], [1, 1.3, 1], 6, 4)));
+    // a giant champagne bottle for a figurehead, its cork flying off in a fountain of fizz (game.js)
+    { const dir = new V3(0, 0.42, 1).normalize(), o0 = new V3(0, c.stemY - 3.2, c.stemZ - 2.5), Rb = 1.25 * S;
+      const along = (d, r0, r1, len, col, list = vcM) => { const a = o0.clone().addScaledVector(dir, d), b = o0.clone().addScaledVector(dir, d + len); list.push(paint(span(a, b, r0, r1, 18), col)); return b; };
+      along(0, Rb, Rb, 5.5 * S, '#0f4a2a'); along(1.6 * S, Rb * 1.02, Rb * 1.02, 2.2 * S, '#f4ecd8', vc);
+      along(5.5 * S, Rb, Rb * 0.42, 1.6 * S, '#0f4a2a'); const tip = along(7.1 * S, Rb * 0.42, Rb * 0.4, 1.8 * S, '#d4a73a');
+      const cork = tip.clone().addScaledVector(dir, 2.4 * S); vc.push(paint(span(cork, cork.clone().addScaledVector(dir, 0.9 * S), Rb * 0.38, Rb * 0.44, 12), '#c9a26a'));
+      res.points.fizz = tip.clone().addScaledVector(dir, 0.4);
+    }
+    // a lit sign across the stern: HAPPY NEW YEAR and the year that's coming
+    { const now = new Date(), yr = now.getMonth() >= 6 ? now.getFullYear() + 1 : now.getFullYear();
+      const tex = canvasTex(1024, 256, (g, w, h) => {
+        g.fillStyle = '#0b0b14'; g.fillRect(0, 0, w, h); g.strokeStyle = '#f2c14e'; g.lineWidth = 10; g.strokeRect(8, 8, w - 16, h - 16);
+        for (let x = 24; x < w - 16; x += 30) { g.fillStyle = '#fff3c4'; g.beginPath(); g.arc(x, 22, 6, 0, 7); g.arc(x, h - 22, 6, 0, 7); g.fill(); }
+        g.textAlign = 'center'; g.textBaseline = 'middle'; g.shadowColor = '#ff9a00'; g.shadowBlur = 20; g.fillStyle = '#ffe27a';
+        g.font = 'bold 74px Georgia, serif'; g.fillText('HAPPY NEW YEAR', w / 2, 100); g.font = 'bold 66px Georgia, serif'; g.fillStyle = '#ffffff'; g.fillText(`★ ${yr} ★`, w / 2, 182);
+      });
+      const sw = Math.min(B * 0.8, 20), sh = sw / 4, sy = sheer(H, 0) + sh * 0.5 + 0.6;
+      const sign = new THREE.Mesh(new THREE.PlaneGeometry(sw, sh), new THREE.MeshBasicMaterial({ map: tex })); sign.position.set(0, sy, -L / 2 + 0.2); sign.rotation.y = Math.PI; body.add(sign); near.push(sign); res.ownMats.push(sign.material);
+      lists.gold.push(plain(box(sw + 0.5, 0.35, 0.4, [0, sy + sh / 2 + 0.1, -L / 2 + 0.35])), plain(box(sw + 0.5, 0.35, 0.4, [0, sy - sh / 2 - 0.1, -L / 2 + 0.35])));
+      for (const sx of [-1, 1]) lists.gold.push(plain(place(cyl(0.18, 0.18, sh + 1.6, 8), [sx * (sw / 2 + 0.2), sy - 0.4, -L / 2 + 0.35])));
+      res.disposeTex = tex;
+    }
     anims.push((t) => { M.mirror.emissiveIntensity = 0.6 + glowK * 0.9 + 0.3 * Math.sin(t * 9); });
   }
 
   if (id === 'collector') {
+    // neon underglow along the waterline, cycling through the arcade colours
+    { const neon = new THREE.MeshBasicMaterial({ color: 0xff4fd8 }); res.ownMats = [neon];
+      for (const sx of [-1, 1]) { const pts = []; for (let i = 0; i <= 40; i++) { const u = 0.04 + i * 0.023; pts.push(new V3(sx * (hullX(H, u, 1.1) + 0.12), 1.1, zU(u))); }
+        const m = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 80, 0.22, 6), neon); body.add(m); near.push(m); }
+      anims.push((t) => neon.color.setHSL((t * 0.08) % 1, 1, 0.6));
+    }
     // ---- the carousel: a gilded dais, a turning ring of display cases, a hologram, a marquee and spotlights
     const zc = zU(0.5), y0 = dY(0.5), Rd = B * 0.45, Rv = B * 0.345, N = EXHIBITS.length;
     lists.gold.push(plain(place(cyl(Rd + 0.3, Rd + 0.3, 0.25, 40), [0, y0 + 0.12, zc])));
@@ -526,7 +609,7 @@ export function buildFestive(id, c) {
     for (let i = 0; i < 48; i++) { const a = (i / 48) * Math.PI * 2; (i % 2 ? bulbA : bulbB).push(plain(sph(0.16, [Math.sin(a) * (Rd + 0.02), y0 + 0.62, zc + Math.cos(a) * (Rd + 0.02)], null, 6, 4))); }
     const spin = new THREE.Group(); spin.name = 'carousel'; spin.position.set(0, y0 + 0.85, zc); body.add(spin); spinners.push([spin, 0.12]);
     const sV = [], sG = [], sGl = [], sM = [], sGold = [], pq = [];
-    const Wv = Math.min(3.4, ((2 * Math.PI * Rv) / N) * 0.82), Hp = 0.9, Hv = Wv * 1.05, sc = Wv / 2.35;
+    const Wv = Math.min(4.2, ((2 * Math.PI * Rv) / N) * 0.82), Hp = 0.9, Hv = Wv * 1.05, sc = Wv / 2.35;
     EXHIBITS.forEach((name, i) => {
       const a = (i / N) * Math.PI * 2, px = Math.sin(a) * Rv, pz = Math.cos(a) * Rv;
       const T = (g) => { g.rotateY(a); g.translate(px, 0, pz); return g; };
@@ -555,12 +638,12 @@ export function buildFestive(id, c) {
     for (let i = 0; i < 8; i++) { const a = (i / 8) * Math.PI * 2; sGold.push(plain(place(cyl(0.06, 0.06, colH, 5), [Math.sin(a) * 1.02, colH / 2, Math.cos(a) * 1.02]))); }
     add(spin, sV, M.vc, 1); add(spin, sM, M.vc, 0, true); add(spin, sGl, M.vcGlow, 1); add(spin, sGold, c.goldMat, 2); add(spin, sG, M.vitrine, 1); add(spin, pq, M.plaque, 1);
     // marquee ring above the cases (its own slow counter-turn comes from scrolling the texture)
-    { const rM = Rv + Wv * 0.5 + 0.25, hM = 0.8 * c.gs + 0.25, yM = 0.85 + Hp + Hv + 0.9;
+    { const rM = Rv + Wv * 0.5 + 0.25, hM = 0.8 * S + 0.25, yM = 0.85 + Hp + Hv + 0.9;
       const g = new THREE.CylinderGeometry(rM, rM, hM, 64, 1, true); const mq = new THREE.Mesh(g, M.marquee); mq.renderOrder = 2; mq.position.set(0, y0 + yM, zc); body.add(mq); near.push(mq);
       for (let i = 0; i < 6; i++) { const a = (i / 6) * Math.PI * 2 + 0.26; lists.gold.push(plain(place(cyl(0.1, 0.1, yM + hM / 2 - 0.5, 6), [Math.sin(a) * rM, y0 + 0.5 + (yM + hM / 2 - 0.5) / 2, zc + Math.cos(a) * rM]))); }
       anims.push((t) => { M.marquee.map.offset.x = (t * 0.02) % 1; });
     }
-    { const hy = y0 + 0.85 + colH + 2.3, hr = 1.7 * c.gs;
+    { const hy = y0 + 0.85 + colH + 2.3, hr = 1.7 * S;
       const holo = new THREE.Mesh(new THREE.IcosahedronGeometry(hr, 1), M.holo); holo.position.set(0, hy, zc); body.add(holo); spinners.push([holo, -0.5]); near.push(holo);
       const core = new THREE.Mesh(new THREE.SphereGeometry(hr * 0.9, 18, 12), M.holoCore); core.position.copy(holo.position); body.add(core); near.push(core);
       const tg = new THREE.ExtrudeGeometry(starShape(hr * 0.55), { depth: 0.3, bevelEnabled: true, bevelSize: 0.06, bevelThickness: 0.06, bevelSegments: 1 }); tg.center();
@@ -572,7 +655,7 @@ export function buildFestive(id, c) {
     }
     // chase bulbs along both rails, a carnival arch over the gangway
     for (const sx of [-1, 1]) { let k = 0; for (let u = 0.05; u < 0.95; u += 0.016) (k++ % 2 ? bulbA : bulbB).push(plain(sph(0.15, [sx * railX(u), railY(u) + 0.3, zU(u)], null, 6, 4))); }
-    { const zA = zU(0.74), w = B * 0.3, hA = 5.5 * c.gs; for (const sx of [-1, 1]) lists.gold.push(plain(place(cyl(0.2, 0.2, hA, 8), [sx * w, dY(0.74) + hA / 2, zA])));
+    { const zA = zU(0.74), w = B * 0.3, hA = 5.5 * S; for (const sx of [-1, 1]) lists.gold.push(plain(place(cyl(0.2, 0.2, hA, 8), [sx * w, dY(0.74) + hA / 2, zA])));
       const arc = new THREE.TorusGeometry(w, 0.22, 6, 24, Math.PI); lists.gold.push(plain(place(arc, [0, dY(0.74) + hA, zA])));
       for (let i = 0; i <= 16; i++) { const a = (i / 16) * Math.PI; (i % 2 ? bulbA : bulbB).push(plain(sph(0.2, [Math.cos(a) * w, dY(0.74) + hA + Math.sin(a) * w + 0.2, zA + 0.25], null, 6, 4))); }
     }

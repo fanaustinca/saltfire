@@ -20,18 +20,20 @@ peer-to-peer multiplayer over WebRTC. **Play: https://fanaustinca.github.io/salt
 - **Ghost Ship** — a drowned frigate with glowing, see-through, permanently tattered sails, green lanterns and
   drifting will-o'-the-wisps; its hull knits itself back together out of combat. Reward card only: the Wheel of
   Fortune (0.4%) or sinking **the Phantom**, which haunts the night seas.
-- **Festival ships (limited time, every year)** — sold at the Shipwright only while their festival runs, yours
+- **Greenhorn's luck** — until level 6 new captains take less damage, mend between fights, keep their cargo when
+  sunk, earn bonus XP and sail quieter seas where pirates only come at them up close unless they fire first.
+- **Festival ships (limited time, every year)** — Sovereign-class four-deckers (about 90 m, up to 34–36 guns a side), sold at the Shipwright only while their festival runs, yours
   forever once bought, each with its own exclusive wake trail:
   **Harvest Moon** (Thanksgiving, 19 Nov – 2 Dec): a laden harvest galleon with maple-leaf sails, pumpkins on the
-  rails, wheat sheaves, leaf garlands in the rigging, a cornucopia figurehead and a carved turkey-tail stern fan
+  rails, a harvest feast table with a giant roast turkey, glowing paper lanterns, wheat sheaves, leaf garlands in the rigging, a cornucopia figurehead and a carved turkey-tail stern fan
   (Falling Leaves trail). **Yuletide** (Christmas, 12 – 28 Dec): an evergreen frigate-of-the-line under snow — icicles,
-  candy-cane masts, twinkling fairy lights through the rig, a decorated tree with presents, wreaths, a great star on
+  candy-cane masts, twinkling fairy lights through the rig, a decorated tree with presents, wreaths, a flying reindeer team harnessed to the jib-boom, a great star on
   the main and falling snow (Frostwake trail). **Stroke of Midnight** (New Year, 29 Dec – 8 Jan): a black-and-gold
-  three-decker with starry midnight sails, a clock tower that keeps your real local time, a spinning mirror ball,
+  three-decker with starry midnight sails, a clock tower that keeps your real local time, a spinning mirror ball, a champagne-bottle figurehead fizzing over the bow, a lit HAPPY NEW YEAR sign,
   bunting, and firework mortars that light up the sky (Fireworks Wake trail).
 - **Games Month Advent** — every November (International Games Month) a 14-door calendar on the Rewards tab: one door
   a day from the 12th, missed days can be caught up until the 30th. Door 7 is a **Titan**; door 14 is the ultra-rare
-  **Collector's Ark** — a floating museum: a turning carousel of glass display cases holding miniatures of every
+  **Collector's Ark** — a Sovereign-sized floating museum with neon underglow: a turning carousel of glass display cases holding miniatures of every
   major game (Saltfire, Blacksite, Ironcrown, Starhopper, Cartastrophe, Panic on the Plates, Beep Bop Band, Shattered
   Crown, TabOverload, Vertex Forge, BIOBUZZ, Unbound) round a hologram under a scrolling marquee, giant chess
   pieces, dice and playing cards on deck, chase-light bulbs — and still a solid fighting ship.

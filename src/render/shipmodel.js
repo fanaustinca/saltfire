@@ -15,7 +15,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { hullShape, planW, sheer, keelY, sectionW, hullX, deckY, gunLayout, deckGap, sternTaper } from '../layout.js';
 import { tierById } from '../config.js';
 import { planks, deck as deckTex, sailcloth, noiseTex, flagTex } from './textures.js';
-import { buildFestive, festiveDecal, setFestiveGlow, isFestive } from './festive.js';
+import { buildFestive, festiveDecal, setFestiveGlow, isFestive, festiveTrim, dropFestiveTrim } from './festive.js';
 
 const V3 = THREE.Vector3;
 const sm = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
@@ -357,7 +357,7 @@ function rigPlan(id) {
     case 'titan': return { mastH: 0.6, bs: [0.28, 0.3], jibs: 4, sprit: true, masts: [{ u: 0.16, h: 0.8, sq: 5, spanker: true }, { u: 0.33, h: 0.95, sq: 5, stud: true }, { u: 0.5, h: 1, sq: 5, stud: true, main: true }, { u: 0.66, h: 0.96, sq: 5, stud: true }, { u: 0.82, h: 0.86, sq: 5, stud: true }] };
     case 'harvest': return { mastH: 0.9, bs: [0.4, 0.3], jibs: 3, sprit: true, masts: [{ u: 0.23, h: 0.8, sq: 3, spanker: true }, { u: 0.5, h: 1, sq: 4, stud: true, main: true }, { u: 0.75, h: 0.9, sq: 4 }] };
     case 'yule': return { mastH: 0.95, bs: [0.4, 0.3], jibs: 3, masts: [{ u: 0.24, h: 0.8, sq: 3, spanker: true }, { u: 0.5, h: 1, sq: 4, main: true }, { u: 0.74, h: 0.9, sq: 4 }] };
-    case 'midnight': return { mastH: 0.93, bs: [0.42, 0.3], jibs: 4, sprit: true, masts: [{ u: 0.25, h: 0.82, sq: 4, spanker: true }, { u: 0.5, h: 1, sq: 4, stud: true, main: true }, { u: 0.74, h: 0.92, sq: 4, stud: true }] };
+    case 'midnight': return { mastH: 0.93, bs: [0.42, 0.3], jibs: 4, sprit: true, masts: [{ u: 0.25, h: 0.82, sq: 4 }, { u: 0.5, h: 1, sq: 4, stud: true, main: true }, { u: 0.74, h: 0.92, sq: 4, stud: true }] };
     case 'collector': return { mastH: 0.78, bs: [0.34, 0.26], jibs: 2, masts: [{ u: 0.17, h: 0.86, sq: 3, spanker: true }, { u: 0.86, h: 1, sq: 3, main: true }] };
     default: return rigPlan('sloop');
   }
@@ -379,8 +379,8 @@ export function buildShip(stats, look = {}) {
   const body = new THREE.Group(); root.add(body);
   const titan = id === 'titan', lev = id === 'leviathan' || titan, sov = id === 'sovereign';
   const ghost = id === 'ghost', junk = id === 'junk', xebec = id === 'xebec';
-  const festive = isFestive(id), yule = id === 'yule';
-  const big = id === 'manowar' || sov || lev, war = id === 'frigate' || ghost || big || (festive && id !== 'collector');
+  const festive = isFestive(id), yule = id === 'yule', grand = festive && id !== 'collector';
+  const big = id === 'manowar' || sov || lev || grand, war = id === 'frigate' || ghost || big;
 
   const TL = tierById(id).look || {};
   const generic = !look.hullColor || (look.hullColor === '#5a3a22' && (!look.trimColor || look.trimColor === '#c9a227'));
@@ -400,6 +400,7 @@ export function buildShip(stats, look = {}) {
   const hull = new THREE.Mesh(hullGeometry(H, colors, paint), hullMat());
   hull.castShadow = true; hull.receiveShadow = true;
   if (ghost) { hull.material.emissive.set(0x0c3a2c); trimMat.emissive.set(0x1aff9c); trimMat.emissiveIntensity = 0.9; }
+  if (festive) festiveTrim(id, trimMat); // festival + collector trim glows after dark
   body.add(hull);
   const deckMesh = new THREE.Mesh(deckGeometry(H), m.deck); deckMesh.receiveShadow = true; body.add(deckMesh);
 
@@ -506,7 +507,7 @@ export function buildShip(stats, look = {}) {
     // poop / quarterdeck break
     const qy = deckY(H, 0.06), x = hullX(H, 0.15, qy) * 0.95;
     if (!lev) dark.push(box(x * 2, 0.9, 0.18, [0, qy + 0.35, -L / 2 + L * 0.25]));
-    if (big && !lev) { // a fourth deck aft: the poop, plus gilt carving along the sheer
+    if (big && !lev && id !== 'midnight') { // a fourth deck aft: the poop, plus gilt carving along the sheer
       dark.push(box(x * 1.7, 2.2, L * 0.12, [0, qy + 1.1, -L / 2 + L * 0.07]));
       for (let i = 0; i < 6; i++) glass.push(box(0.08, 0.7, 0.9, [x * 0.86, qy + 1.2, -L / 2 + L * (0.03 + i * 0.018)])), glass.push(box(0.08, 0.7, 0.9, [-x * 0.86, qy + 1.2, -L / 2 + L * (0.03 + i * 0.018)]));
       for (let i = 0; i < 40; i++) { const u = 0.04 + i * 0.024; for (const sx of [-1, 1]) gold.push(box(0.1, 0.18, L * 0.012, [sx * (hullX(H, u, sheer(H, u) - 0.4) + 0.02), sheer(H, u) - 0.4, zU(u)])); }
@@ -579,7 +580,7 @@ export function buildShip(stats, look = {}) {
       gold.push(place(new THREE.ConeGeometry(0.8, 1.6, 8), [sx * qx, sy1 + 0.6, zU(0.05)]));
     }
     // stern lanterns
-    const nl = lev ? [] : big ? [-1, 0, 1] : L < 30 ? [0] : [-1, 1];
+    const nl = lev ? [] : id === 'midnight' ? [-1, 1] : big ? [-1, 0, 1] : L < 30 ? [0] : [-1, 1];
     for (const sx of nl) {
       const lx = sx * wx * 0.9, ly = (D.stern === 'castle' ? castleTop(0.02) : sheer(H, 0)) + 0.9 + (sx === 0 ? 0.6 : 0);
       const ls = big ? 1.8 : 1;
@@ -616,7 +617,7 @@ export function buildShip(stats, look = {}) {
   // warships show a full tier of gunports on every deck, whatever their current battery
   {
     const decks = Math.max(1, H.decks);
-    const per = titan ? 32 : lev ? 26 : sov ? 20 : big ? 15 : id === 'galleon' ? 9 : id === 'frigate' || ghost ? 12 : id === 'midnight' ? 15 : id === 'yule' ? 14 : id === 'harvest' ? 13 : id === 'collector' ? 9 : junk ? 8 : xebec ? 5 : id === 'brigantine' ? 7 : id === 'schooner' ? 4 : 0;
+    const per = titan ? 32 : lev ? 26 : sov ? 20 : big ? 15 : id === 'galleon' ? 9 : id === 'frigate' || ghost ? 12 : id === 'midnight' ? 20 : id === 'yule' ? 19 : id === 'harvest' ? 19 : id === 'collector' ? 15 : junk ? 8 : xebec ? 5 : id === 'brigantine' ? 7 : id === 'schooner' ? 4 : 0;
     for (let d = 0; d < decks; d++) {
       const y = Math.max(0.6, deckY(H, 0.5) - d * deckGap(H) + 0.55);
       const u0 = (lev ? 0.1 : 0.17) + d * 0.025, u1 = (lev ? 0.88 : 0.8) - d * 0.03;
@@ -831,7 +832,9 @@ export function buildShip(stats, look = {}) {
   flag2.scale.setScalar(lev ? 0.9 : big ? 1.3 : 0.8);
   const ensY = (D.stern === 'castle' ? castleTop(0.02) : sheer(H, 0)) + 2.2;
   flag2.position.set(0, ensY, -L / 2 - 0.6);
-  iron.push(place(cyl(0.05, 0.05, 2.8, 4), [0, ensY - 0.8, -L / 2 - 0.6]));
+  const ensX = id === 'midnight' ? B * 0.3 : 0; // Midnight's New Year sign takes the middle of the taffrail
+  flag2.position.x = ensX;
+  iron.push(place(cyl(0.05, 0.05, 2.8, 4), [ensX, ensY - 0.8, -L / 2 - 0.6]));
   body.add(flag2);
   flags.push({ mesh: flag2, base: flag2.geometry.attributes.position.array.slice(), len: fh * 1.6 });
 
@@ -1211,7 +1214,7 @@ export function buildShip(stats, look = {}) {
     },
     dispose() {
       root.traverse((o) => { if (o.geometry && o.geometry !== HOLE) o.geometry.dispose(); });
-      hull.material.dispose(); smat.dispose(); smat.userData.depth.dispose(); if (battenMat) { battenMat.dispose(); battenMat.userData.depth.dispose(); } flagMat.dispose(); pennantMat.dispose(); trimMat.dispose();
+      dropFestiveTrim(trimMat); if (fest) { fest.disposeTex?.dispose(); fest.ownMats.forEach((x) => x.dispose()); } hull.material.dispose(); smat.dispose(); smat.userData.depth.dispose(); if (battenMat) { battenMat.dispose(); battenMat.userData.depth.dispose(); } flagMat.dispose(); pennantMat.dispose(); trimMat.dispose();
     },
   };
   return api;

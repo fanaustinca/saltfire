@@ -261,3 +261,4 @@ label { display: block; margin: 6px 0; }
 .door.big:not(.open) { background: linear-gradient(#8a1a5a, #3a0828); border-color: #ff9cf0; }
 .door.ark:not(.open) { background: radial-gradient(circle at 50% 35%, #b46aff, #3a1a6a 70%); box-shadow: 0 0 14px rgba(255,79,216,.5); }
 @media (max-width: 560px) { .advgrid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.lvl .green { color: #8ef0a0; cursor: help; }

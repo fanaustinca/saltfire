@@ -29,11 +29,11 @@ export const DESIGN = {
   // Ghost Ship: a drowned frigate, high-sided and sagging, with a tall gallery stern
   ghost:      { transom: 0.64, sternRise: 0.34, bowRise: 0.22, entry: 1.0, run: 0.95, deadrise: 0.42, tumble: 0.12, rake: 0.04, bow: 'head', stern: 'gallery' },
   // Harvest Moon: a deep-laden harvest galleon — full-bodied, gentle sheer, a cornucopia beak and a fan stern
-  harvest:    { transom: 0.74, sternRise: 0.36, bowRise: 0.28, entry: 0.82, run: 0.86, deadrise: 0.36, tumble: 0.15, rake: 0.0, bow: 'horn', stern: 'gallery' },
+  harvest:    { transom: 0.74, sternRise: 0.36, bowRise: 0.28, entry: 0.82, run: 0.86, deadrise: 0.36, tumble: 0.15, rake: 0.0, bow: 'horn', stern: 'galleries3' },
   // Yuletide: a sleek, high-sided frigate-of-the-line with a lifted bow for the tree on her forecastle
   yule:       { transom: 0.64, sternRise: 0.3, bowRise: 0.3, entry: 1.02, run: 0.98, deadrise: 0.42, tumble: 0.1, rake: 0.02, bow: 'head', stern: 'galleries3' },
   // Stroke of Midnight: long, fast three-decker with a raked rig and a clock tower aft
-  midnight:   { transom: 0.7, sternRise: 0.34, bowRise: 0.24, entry: 1.05, run: 1.0, deadrise: 0.4, tumble: 0.1, rake: 0.03, bow: 'head', stern: 'gallery' },
+  midnight:   { transom: 0.7, sternRise: 0.34, bowRise: 0.24, entry: 1.05, run: 1.0, deadrise: 0.4, tumble: 0.1, rake: 0.03, bow: 'bottle', stern: 'galleries3' },
   // Collector's Ark: a broad, flat display barge — a museum floor amidships, low sheer, raked stem
   collector:  { transom: 0.84, sternRise: 0.12, bowRise: 0.18, entry: 0.72, run: 0.78, deadrise: 0.16, tumble: 0.0, rake: 0.0, bow: 'raked', stern: 'gallery' },
   // Titan (cheat ship): even broader black ironclad with a fortress stern and six gun decks

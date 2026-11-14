@@ -1,7 +1,7 @@
 // Game data: ship tiers, upgrades, ammo, resources, buildings, recipes.
 // Everything balance-related lives here so logic tests and the dev console can read it.
 
-export const VERSION = '2.7.0';
+export const VERSION = '2.7.1';
 
 export const RES = ['gold', 'oak', 'iron', 'canvas', 'powder'];
 export const RES_LABEL = { gold: 'Gold', oak: 'Oak', iron: 'Iron', canvas: 'Canvas', powder: 'Powder' };
@@ -47,15 +47,15 @@ export const TIERS = [
   // Festival ships: on sale at any Shipwright ONLY while their festival runs (every year, `from`..`to` as MM-DD);
   // once bought they are yours for good, and each comes with its own exclusive wake trail.
   // Harvest Moon (Thanksgiving): a broad, heavily laden harvest galleon — tough, and its carpenters keep it mended.
-  { id: 'harvest',    name: 'Harvest Moon', side: 12, minSide: 9, maxSide: 22, len: 64, beam: 17, depth: 8, masts: 3, rig: 'harvest', speed: 19.5, turn: 0.31, hull: 4400, sails: 860, crew: 440, decks: 2, level: 15, armor: 0.84, regen: 0.0015, limited: { from: '11-19', to: '12-02', fest: 'Thanksgiving', trail: 'autumn' }, look: { hullColor: '#5a2a12', trimColor: '#e3a02a', sailColor: '#ee8f34' }, cost: { gold: 60000, oak: 1600, iron: 700, canvas: 600, powder: 150 } },
+  { id: 'harvest',    name: 'Harvest Moon', side: 16, minSide: 12, maxSide: 34, sizeGuns: [18, 34], len: 92, beam: 28, depth: 11.5, masts: 3, rig: 'harvest', speed: 15.5, turn: 0.22, hull: 7200, sails: 1180, crew: 720, decks: 4, level: 15, armor: 0.76, regen: 0.0015, limited: { from: '11-19', to: '12-02', fest: 'Thanksgiving', trail: 'autumn' }, look: { hullColor: '#5a2a12', trimColor: '#e3a02a', sailColor: '#ee8f34' }, cost: { gold: 120000, oak: 3200, iron: 1500, canvas: 1200, powder: 300 } },
   // Yuletide (Christmas): an evergreen-hulled frigate-of-the-line, fast and frosted, strung with fairy lights.
-  { id: 'yule',       name: 'Yuletide',     side: 14, minSide: 10, maxSide: 26, len: 70, beam: 18, depth: 8.4, masts: 3, rig: 'yule', speed: 21.5, turn: 0.33, hull: 5200, sails: 940, crew: 500, decks: 2, level: 18, armor: 0.8, regen: 0.0015, limited: { from: '12-12', to: '12-28', fest: 'Christmas', trail: 'frost' }, look: { hullColor: '#123a24', trimColor: '#d9b04a', sailColor: '#f7f9ff' }, cost: { gold: 90000, oak: 2200, iron: 1000, canvas: 800, powder: 250 } },
+  { id: 'yule',       name: 'Yuletide',     side: 16, minSide: 12, maxSide: 34, sizeGuns: [18, 34], len: 94, beam: 26, depth: 11.2, masts: 3, rig: 'yule', speed: 17, turn: 0.23, hull: 7000, sails: 1240, crew: 700, decks: 4, level: 18, armor: 0.76, regen: 0.0015, limited: { from: '12-12', to: '12-28', fest: 'Christmas', trail: 'frost' }, look: { hullColor: '#123a24', trimColor: '#d9b04a', sailColor: '#f7f9ff' }, cost: { gold: 150000, oak: 3800, iron: 1800, canvas: 1400, powder: 400 } },
   // Stroke of Midnight (New Year): black and gold, three gun decks, a clock tower aft and fireworks on deck.
-  { id: 'midnight',   name: 'Stroke of Midnight', side: 16, minSide: 12, maxSide: 30, len: 78, beam: 20, depth: 9, masts: 3, rig: 'midnight', speed: 22, turn: 0.31, hull: 6200, sails: 1050, crew: 600, decks: 3, level: 20, armor: 0.76, regen: 0.0015, limited: { from: '12-29', to: '01-08', fest: 'New Year', trail: 'fireworks' }, look: { hullColor: '#0d0d16', trimColor: '#f2c14e', sailColor: '#1d2a5a' }, cost: { gold: 120000, oak: 2800, iron: 1400, canvas: 1000, powder: 400 } },
+  { id: 'midnight',   name: 'Stroke of Midnight', side: 18, minSide: 14, maxSide: 36, sizeGuns: [20, 36], len: 96, beam: 27, depth: 11.6, masts: 3, rig: 'midnight', speed: 16.5, turn: 0.22, hull: 7600, sails: 1260, crew: 760, decks: 4, level: 20, armor: 0.72, regen: 0.0015, limited: { from: '12-29', to: '01-08', fest: 'New Year', trail: 'fireworks' }, look: { hullColor: '#0d0d16', trimColor: '#f2c14e', sailColor: '#1d2a5a' }, cost: { gold: 180000, oak: 4400, iron: 2200, canvas: 1600, powder: 600 } },
   // The Collector's Ark: a floating museum — a turning carousel of display cases holding a miniature of every
   // major game. Ultra-rare, collectors only: the final door of the Games Month Advent calendar. Still sails and
-  // fights like a solid frigate.
-  { id: 'collector',  name: "Collector's Ark", side: 10, minSide: 8, maxSide: 18, len: 62, beam: 22, depth: 6.6, masts: 2, rig: 'collector', speed: 20, turn: 0.34, hull: 4000, sails: 720, crew: 320, decks: 1, level: 1, armor: 0.82, regen: 0.002, cardOnly: true, howToGet: 'Open all 14 doors of the Games Month Advent calendar (Rewards tab, every November)', look: { hullColor: '#2b2342', trimColor: '#ffd34d', sailColor: '#6a3bb5' }, cost: { gold: 0 } },
+  // fights like a solid first-rate.
+  { id: 'collector',  name: "Collector's Ark", side: 14, minSide: 10, maxSide: 28, sizeGuns: [16, 28], len: 92, beam: 30, depth: 9.5, masts: 2, rig: 'collector', speed: 16, turn: 0.24, hull: 6800, sails: 1150, crew: 640, decks: 3, level: 1, armor: 0.76, regen: 0.002, cardOnly: true, howToGet: 'Open all 14 doors of the Games Month Advent calendar (Rewards tab, every November)', look: { hullColor: '#2b2342', trimColor: '#ffd34d', sailColor: '#6a3bb5' }, cost: { gold: 0 } },
   // The Titan: cannot be bought with gold — only won (Wheel of Fortune, Holiday Tides event) as a reward card.
   // 150 m, six gun decks, black sails; bigger than 100% only with a Titan Size card.
   { id: 'titan',      name: 'Titan',       side: 120, minSide: 100, maxSide: 150, sizeGuns: [100, 150], len: 150, beam: 46, depth: 14, masts: 5, rig: 'titan', speed: 16, turn: 0.26, hull: 26000, sails: 3200, crew: 2200, decks: 6, level: 1, armor: 0.5, reload: 4, cardOnly: true, flagshipOnly: true, look: { hullColor: '#0b0a0c', trimColor: '#b3201c', sailColor: '#2a1515' }, cost: { gold: 0 } },
@@ -92,6 +92,12 @@ export const WHEEL = {
 export const TREASURE = { price: 2500, max: 3, drop: 0.14, range: 95 };
 // Boarding: come alongside a crippled ship (hull or crew broken) and send your crew across. Capture it into
 // your fleet or strip it bare. Odds follow the crews; flagships, wanted men and phantoms can only be plundered.
+// Greenhorn's luck: brand-new captains (below level `until`) take less damage, mend out of combat, lose nothing
+// when sunk, earn bonus XP, see fewer and gentler pirates, and are only hunted from close range unless they start
+// the fight. All of it fades out level by level.
+export const GREENHORN = { until: 6, dmg: 0.45, regen: 0.012, xp: 0.6, aggroR: 260, strongP: 0.12, dens: 0.65, calm: 6 };
+/** 1 for a level-1 captain, falling to 0 at GREENHORN.until. */
+export const greenK = (level) => Math.max(0, Math.min(1, (GREENHORN.until - (level || 1)) / (GREENHORN.until - 1)));
 export const BOARD = { hull: 0.35, crew: 0.3, gap: 14, relSpeed: 7, cd: 20, fleetMax: 30 };
 // Voyages: charter passage from a harbour to the Free Port or one of your own islands. Gold per metre travelled.
 export const VOYAGE = { base: 250, perM: 0.35 };
@@ -119,7 +125,7 @@ export function maxSideFor(T, size = 1) {
 }
 export const tierIndex = (id) => Math.max(0, TIERS.findIndex((t) => t.id === id));
 /** Power rank of a tier (classic ladder 0..8; the side-branch ships slot in between). Drives range, loot, AI nerve. */
-const RANK = { sloop: 0, schooner: 1, brigantine: 2, xebec: 2.5, frigate: 3, junk: 3.5, galleon: 4, collector: 4.5, manowar: 5, ghost: 5, harvest: 5.2, yule: 5.4, midnight: 5.6, sovereign: 6, leviathan: 7, titan: 8 };
+const RANK = { sloop: 0, schooner: 1, brigantine: 2, xebec: 2.5, frigate: 3, junk: 3.5, galleon: 4, manowar: 5, ghost: 5, collector: 5.8, harvest: 6, yule: 6, midnight: 6, sovereign: 6, leviathan: 7, titan: 8 };
 export const tierRank = (id) => RANK[id] ?? tierIndex(id);
 
 // Upgrades bought with level points. Lots of ranks so points stay useful all the way to level 200

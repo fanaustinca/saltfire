@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import {
   RES, RES_LABEL, RES_ICON, AMMO, AMMO_ORDER, RECIPES, TIERS, shopTiers, tierById, UPGRADES, UPGRADE_TOTAL, XP_PER_LEVEL, BUILDINGS,
-  MARKET_ITEMS, MARKET_TAX, TREATY_TYPES, HAVEN_R, WORLD_R, VERSION, LAND_SLOTS, claimFee, FIELD_REPAIR, TRAILS, maxSideFor, WHEEL, HOLIDAY, TITAN_SIZE_PRICE, TREASURE, ADVENT, limitedOpen,
+  MARKET_ITEMS, MARKET_TAX, TREATY_TYPES, HAVEN_R, WORLD_R, VERSION, LAND_SLOTS, claimFee, FIELD_REPAIR, TRAILS, maxSideFor, WHEEL, HOLIDAY, TITAN_SIZE_PRICE, TREASURE, ADVENT, limitedOpen, GREENHORN,
 } from './config.js';
 import { shipStats, customCost, costText, canAfford, holidayState, holidayGift, giftShort, prizeText, adventState, adventGift, mdText, voyageCost, freeSpinReady, dayKey, bestAsk, bestBid, crewEff, treatyBetween, shielded, landSlotsUsed, flagship, hostile, fleetCap, traderName, aiFaction } from './economy.js';
 import { SAIL_NAMES, SAIL_STEPS, DOCK_SPEED } from './sim.js';
@@ -114,7 +114,7 @@ export class UI {
     if (!game || !$('#cap')) return;
     const p = game.profile(); if (!p) return;
     const need = XP_PER_LEVEL(p.level);
-    $('#cap').innerHTML = `<div class="flagdot" style="background:hsl(${p.color},70%,50%)"></div><div><div class="cname">${esc(p.name)}${p.alliance ? ` <span class="ally">[${esc(p.alliance)}]</span>` : ''}</div><div class="lvl">Level ${p.level}${p.points ? ` · <span class="pts">${p.points} upgrade pt${p.points > 1 ? 's' : ''}</span>` : ''}</div><div class="xp"><i style="width:${Math.min(100, (p.xp / need) * 100)}%"></i></div></div>`;
+    $('#cap').innerHTML = `<div class="flagdot" style="background:hsl(${p.color},70%,50%)"></div><div><div class="cname">${esc(p.name)}${p.alliance ? ` <span class="ally">[${esc(p.alliance)}]</span>` : ''}</div><div class="lvl">Level ${p.level}${p.level < GREENHORN.until ? ` · <span class="green" title="Greenhorn's luck (until level ${GREENHORN.until}): you take less damage, your carpenters mend the ship between fights, you keep your cargo if sunk, earn bonus XP, and pirates only come after you up close unless you start it.">🌱 Greenhorn's luck</span>` : ''}${p.points ? ` · <span class="pts">${p.points} upgrade pt${p.points > 1 ? 's' : ''}</span>` : ''}</div><div class="xp"><i style="width:${Math.min(100, (p.xp / need) * 100)}%"></i></div></div>`;
     const online = Object.values(game.W.players).filter((x) => x.online).length;
     $('#room').innerHTML = game.room ? `<span class="code" title="Click to copy">ROOM ${game.room.code}</span><span class="muted">${online} online · ${game.role === 'host' ? 'hosting' : 'joined'}</span>` : `<span class="muted">Offline world (solo)</span>`;
     $('#room').innerHTML += `<span class="ver">v${VERSION}</span>`;
@@ -331,6 +331,7 @@ export class UI {
         <div><h4>Empire</h4><p><kbd>E</kbd> dock · <kbd>F</kbd> (hold, stopped) harvest resource islets · <kbd>M</kbd> map. Wild islands are held by squatters: smash their stockade and hold position nearby to claim them (each new colony's charter costs more). Pirate clans hold fortresses and keep fortifying them — smash the keep, sink the defenders and hold position to conquer. Build docks, shipyards, mills and defences — the island and its village grow as you build.</p></div>
         <div><h4>Fleet</h4><p><kbd>G</kbd> fleet command: send the ships you own (beyond your flagship) to escort you, guard an island, or attack an enemy, clan or wild island — they bombard it and capture it for you. Sunk fleet ships come home as wrecks to repair.</p></div>
         <div><h4>World</h4><p>Hunt the <b>Kraken</b> and <b>Treasure Flagships</b>, sink level-matched AI, trade on the player market (5% tax), sign treaties, set safe havens & entry fees. Offline captains' bases are shielded.</p></div>
+        <div><h4>Greenhorn's luck</h4><p>New captains get a gentle start: until level ${GREENHORN.until} you take less damage, your carpenters mend the ship between fights, you keep your cargo if you're sunk, you earn bonus XP, the seas are quieter, and pirates only come after you up close — unless you fire first. It fades a little with every level.</p></div>
         <div><h4>Festival ships &amp; the Games Month Advent</h4><p>Some ships are only sold during their festival: the <b>Harvest Moon</b> (Thanksgiving, 19 Nov – 2 Dec), the <b>Yuletide</b> (Christmas, 12 – 28 Dec) and the <b>Stroke of Midnight</b> (New Year, 29 Dec – 8 Jan). Buy one while it's on sale and it's yours for good, with its own exclusive wake trail. Every November the <b>Games Month Advent</b> calendar (Rewards, J) opens a door a day for 14 days: door 7 is a Titan, door 14 the ultra-rare <b>Collector's Ark</b>.</p></div>
         <div><h4>Day, night &amp; storms</h4><p>Days pass and night falls: at nightfall <b>the Phantom</b> may rise — a glowing ghost ship worth a fortune (and maybe a Ghost Ship card) if you sink it before dawn. Storms bring heavy seas, rain and wild gunnery. Turn the cycle off in the menu.</p></div>
         <div><h4>Multiplayer</h4><p>Share your 6-digit room code (top-left). Friends join from the title screen. Your browser saves the world.</p></div>

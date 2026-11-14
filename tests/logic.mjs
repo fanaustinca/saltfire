@@ -17,7 +17,7 @@ const world = (seed = 42) => { const W = E.newWorld(seed); generateIslands(W); r
 const rng = (s = 1) => () => ((s = (s * 16807) % 2147483647) / 2147483647);
 
 T('ship tiers match the spec cannon counts', () => {
-  const want = { sloop: 1, schooner: 1, brigantine: 2, xebec: 3, frigate: 3, junk: 4, galleon: 5, manowar: 10, sovereign: 16, leviathan: 30, ghost: 9, harvest: 12, yule: 14, midnight: 16, collector: 10, titan: 120 };
+  const want = { sloop: 1, schooner: 1, brigantine: 2, xebec: 3, frigate: 3, junk: 4, galleon: 5, manowar: 10, sovereign: 16, leviathan: 30, ghost: 9, harvest: 16, yule: 16, midnight: 18, collector: 14, titan: 120 };
   for (const t of TIERS) ok(t.side === want[t.id], t.id);
   for (const t of TIERS) { const st = E.shipStats(E.shipSpec(t.id)); const g = gunLayout(st); ok(g.filter((x) => x.side === 'L').length === t.side && g.filter((x) => x.side === 'R').length === t.side, 'layout ' + t.id); }
 });
@@ -347,6 +347,31 @@ T('wheel of fortune: one free spin a day, paid spins, odds, ships arrive as card
   for (let i = 0; i < 20000; i++) { const x = E.spinWheel(q, day, R, { paid: true }); if (x.prize.kind === 'ship') ships++; }
   ok(Math.abs(ships / 20000 - 0.043) < 0.006, 'ship rate ' + ships / 20000);
   const a = handleAct(sim, 'u', { type: 'spinWheel' }); ok(a.ok || a.err, 'action works');
+});
+T('greenhorn\'s luck: new captains take less damage, mend, keep cargo, and are left alone unless they start it', () => {
+  const W = world(); const sim = new Sim(W, { rand: rng(61) }); const { p } = joinPlayer(sim, 'u', 'U');
+  ok(p.inv.gold >= 1500 && p.inv.explosive >= 12, 'a fair starting kit');
+  const me = sim.spawnPlayer('u'); me.x = 1500; me.z = -1500; me.docked = null;
+  sim.ships.forEach((s) => { if (s !== me) sim.removeShip(s.id); }); sim.aiDensity = 0;
+  ok(CFG.greenK(1) === 1 && CFG.greenK(CFG.GREENHORN.until) === 0 && CFG.greenK(3) > 0 && CFG.greenK(3) < 1, 'fades with level');
+  const h0 = me.hull; sim.hurt(me, 100, 0, 0, 'ai:pirates'); const took = h0 - me.hull;
+  ok(Math.abs(took - 100 * CFG.GREENHORN.dmg) < 1e-6, 'level 1 takes ' + took);
+  p.level = 20; const h1 = me.hull; sim.hurt(me, 100, 0, 0, 'ai:pirates'); ok(Math.abs(h1 - me.hull - 100) < 1e-6, 'veterans take full damage'); p.level = 1;
+  // carpenters mend between fights
+  me.hull = me.stats.hull * 0.5; sim.time += 30; const hb = me.hull; for (let i = 0; i < 120; i++) sim.step(1 / 60);
+  ok(me.hull > hb + 1, 'greenhorn mends out of combat');
+  // pirates far off leave a greenhorn alone, close ones (or provoked ones) don't
+  const pir = sim.addShip({ owner: 'ai:pirates', role: 'pirate', spec: E.shipSpec('sloop'), x: me.x + 500, z: me.z, yaw: 0, ai: { skill: 0.3, bold: true } });
+  ok(!sim.aiWants(pir, me), 'not hunted from 500 m');
+  pir.x = me.x + 150; ok(sim.aiWants(pir, me), 'close range: fair game');
+  pir.x = me.x + 500; sim.hurt(pir, 1, 0, 0, 'u'); ok(sim.aiWants(pir, me), 'shoot first and they come for you');
+  p.level = 20; pir.ai.grudge = null; ok(sim.aiWants(pir, me), 'veterans are hunted at range'); p.level = 1;
+  // sunk greenhorns keep their cargo
+  const g0 = p.inv.gold, o0 = p.inv.oak; sim.hurt(me, 1e9, 0, 0, 'ai:pirates');
+  ok(me.sink > 0 && p.inv.gold === g0 && p.inv.oak === o0, 'cargo kept');
+  // fewer strong spawns near a level-1 captain
+  let strong = 0; for (let i = 0; i < 200; i++) { const s2 = sim.spawnAI(1, { x: 1500, z: -1500 }); if (s2?.ai.bold) strong++; if (s2) sim.removeShip(s2.id); }
+  ok(strong < 50, 'mostly small fry: ' + strong + '/200 strong');
 });
 T('festival ships: only on sale in their window (every year), bring their trail, never sailed by AI', () => {
   const W = world(); const sim = new Sim(W, { rand: rng(51) }); const { p } = joinPlayer(sim, 'u', 'U');

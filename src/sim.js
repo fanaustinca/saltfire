@@ -4,7 +4,7 @@
 // trade on the market and fortify their holds, world events, production. On clients it only
 // advances visual cannonballs and effects; ship state arrives in snapshots.
 import {
-  AI_TOP_TIER, TIERS, tierById, tierIndex, tierRank, AMMO, GRAVITY, MUZZLE, SECTOR_HALF, CHASE_HALF, MIN_RANGE, BUILDINGS,
+  GREENHORN, greenK, AI_TOP_TIER, TIERS, tierById, tierIndex, tierRank, AMMO, GRAVITY, MUZZLE, SECTOR_HALF, CHASE_HALF, MIN_RANGE, BUILDINGS,
   HAVEN_R, WORLD_R, MAX_LEVEL, UPGRADES, CLAN_PLAN, claimFee, TREASURE, BOUNTY_NAMES, BOARD,
 } from './config.js';
 import {
@@ -476,18 +476,27 @@ export class Sim {
   hurt(s, hull, sail, crew, by, quiet = false) {
     if (s.sink > 0) return;
     if (s.stats.invincible) { if (!quiet) s.hitT = this.time; return; } // unused by stock tiers (dev god mode patches hurt instead)
+    // greenhorn's luck: a brand-new captain's ship takes less punishment
+    const gk = this.greenOf(s);
+    if (gk > 0) { const k = 1 - (1 - GREENHORN.dmg) * gk; hull *= k; crew *= k; sail *= k; }
+    // whoever opens fire on an AI ship has picked a fight with it (greenhorns are otherwise left alone)
+    if (by && s.ai) s.ai.grudge = by;
     s.hull -= hull; s.sails = Math.max(0, s.sails - sail); s.crew = Math.max(0, s.crew - crew);
     if (!quiet) s.hitT = this.time;
     if (by) { if (!this.damagers.has(s.id)) this.damagers.set(s.id, new Map()); const m = this.damagers.get(s.id); m.set(by, (m.get(by) || 0) + hull + sail * 0.5); s.lastBy = by; }
     if (s.hull <= 0) this.sinkShip(s);
   }
+  /** 0..1: how much greenhorn protection this ship's captain still has (player flagships only). */
+  greenOf(s) { return s?.pid ? greenK(this.W.players[s.pid]?.level) : 0; }
   sinkShip(s) {
     s.hull = 0; s.sink = 0.001; s.fire = 0;
     this.fx.push({ t: 'sink', ship: s.id, x: s.x, z: s.z });
     const loot = sinkLoot(s.spec.tier, this.rand);
     if (s.role === 'merchant') { loot.gold *= 2; loot.canvas *= 2; loot.oak *= 2; }
     if (s.tag === 'treasure') { loot.gold *= 8; loot.powder += 20; }
-    if (s.pid) { // players drop a share of their cargo
+    if (s.pid && this.greenOf(s) > 0) { // greenhorns keep their cargo
+      this.msgs.push({ to: s.pid, text: 'Your ship went down! Greenhorn\'s luck: you keep your cargo. Respawning at your harbour…', kind: 'bad' });
+    } else if (s.pid) { // players drop a share of their cargo
       const p = this.W.players[s.pid];
       for (const k of ['oak', 'iron', 'canvas', 'powder']) { const q = Math.floor((p.inv[k] || 0) * 0.2); p.inv[k] -= q; loot[k] = q; }
       loot.gold = Math.floor(p.inv.gold * 0.1); p.inv.gold -= loot.gold;
@@ -511,7 +520,7 @@ export class Sim {
       for (const [owner, v] of dm) {
         const p = this.W.players[owner];
         if (!p || owner === s.owner) continue;
-        const xp = (45 * (tierRank(s.spec.tier) + 1) * (1 + s.level / 8)) * (s.tag === 'treasure' ? 5 : 1) * (0.3 + 0.7 * v / tot);
+        const xp = (45 * (tierRank(s.spec.tier) + 1) * (1 + s.level / 8)) * (s.tag === 'treasure' ? 5 : 1) * (0.3 + 0.7 * v / tot) * (1 + GREENHORN.xp * greenK(p.level));
         const lv = addXp(p, xp);
         if (owner === s.lastBy) p.kills = (p.kills || 0) + 1;
         this.dirty.prof.add(owner);
@@ -782,6 +791,8 @@ export class Sim {
     if (o === s || o.sink > 0 || o.docked) return false;
     if (!hostile(this.W, s.owner, o.owner) || this.inHaven(o.x, o.z)) return false;
     if (o.pid && shielded(this.W, o.owner)) return false;
+    // greenhorns are only hunted from close by — unless they started it, or it's a raid / event ship
+    if (o.pid && !s.tag && !s.ai?.raid && s.ai?.grudge !== o.owner && this.greenOf(o) > 0 && Math.hypot(o.x - s.x, o.z - s.z) > GREENHORN.aggroR + (1 - this.greenOf(o)) * 400) return false;
     if (s.role === 'navy' && o.role === 'merchant') return false;
     if (s.role === 'fleet' && o.role === 'merchant' && !s.ai.plunder) return false;
     const gap = tierRank(o.spec.tier) - tierRank(s.spec.tier);
@@ -978,9 +989,10 @@ export class Sim {
     const dens = this.aiDensity ?? 16;
     for (const p of players) {
       const cnt = ai.filter((a) => a.sink === 0 && a.role !== 'fleet' && Math.hypot(p.x - a.x, p.z - a.z) < 1500).length;
-      if (cnt >= dens || this.ships.size > 140) continue;
+      const myDens = Math.round(dens * (1 - (1 - GREENHORN.dens) * this.greenOf(p))); // quieter seas for greenhorns
+      if (cnt >= myDens || this.ships.size > 140) continue;
       const lvl = this.W.players[p.pid]?.level || 1;
-      for (let k = 0; k < Math.min(3, dens - cnt); k++) this.spawnAI(lvl, p);
+      for (let k = 0; k < Math.min(3, myDens - cnt); k++) this.spawnAI(lvl, p);
     }
   }
   spawnAI(lvl, near, o = {}) {
@@ -994,13 +1006,14 @@ export class Sim {
       const myTier = near?.spec ? Math.min(AI_TOP_TIER, tierIndex(near.spec.tier)) : 0;
       const allowed = Math.min(AI_TOP_TIER, TIERS.filter((t) => t.level <= lvl + 2).length - 1);
       // 60% small fry (sloops/schooners), 40% matched to the captain (their tier and the two below)
-      const strong = o.strong ?? this.rand() < 0.4;
+      const gk = greenK(lvl);
+      const strong = o.strong ?? this.rand() < 0.4 - (0.4 - GREENHORN.strongP) * gk;
       let ti;
       if (o.tier != null) ti = o.anyTier ? tierIndex(o.tier) : Math.min(AI_TOP_TIER, tierIndex(o.tier));
       else if (strong) ti = clamp(myTier - Math.floor(this.rand() * 3) + (role === 'navy' && this.rand() < 0.4 ? 1 : 0), 0, Math.max(0, allowed));
       else ti = clamp(Math.floor(this.rand() * 2.3), 0, Math.max(0, Math.min(2, myTier)));
       const T = TIERS[ti];
-      const alvl = o.level ?? (strong || o.tier != null ? clamp(lvl + Math.floor(this.rand() * 5) - 2, 1, MAX_LEVEL) : clamp(Math.round(lvl * (0.25 + this.rand() * 0.45)) + 1, 1, MAX_LEVEL));
+      const alvl = o.level ?? (strong || o.tier != null ? clamp(lvl + Math.floor(this.rand() * 5) - 2 - Math.round(gk * 2), 1, MAX_LEVEL) : clamp(Math.round(lvl * (0.25 + this.rand() * 0.45)) + 1, 1, MAX_LEVEL));
       const upg = aiUpgrades(alvl);
       const names = { merchant: ['Fat Purse', 'Spice Barge', 'Lady Ledger', 'Salt Hauler', 'Golden Hen', 'Silk Maiden', 'Copper Kettle'], pirate: ['Black Gull', 'Rusty Hook', 'Sea Wolf', 'Cursed Kettle', 'Grim Tide', 'Bilge Rat', 'Red Jenny', 'Howling Dog'], navy: ['HMS Resolute', 'HMS Vigil', 'HMS Dauntless', 'HMS Warden', 'HMS Tenacious', 'HMS Sovereign'] }[role] || ['Raider'];
       const clan = o.owner && this.W.ai?.[o.owner];
@@ -1412,6 +1425,10 @@ export class Sim {
         if (!this.ships.has(s.id)) continue;
         s.heave = heightAt(s.x, s.z, this.time);
         if (s.sink === 0 && s.stats.regen && this.time - s.hitT > 8 && s.hull < s.stats.hull) s.hull = Math.min(s.stats.hull, s.hull + s.stats.regen * s.stats.hull * dt);
+        if (s.pid && s.sink === 0 && this.time - s.hitT > GREENHORN.calm) { // greenhorns' carpenters mend the ship between fights
+          const gk = this.greenOf(s);
+          if (gk > 0) { const r = GREENHORN.regen * gk * dt; s.hull = Math.min(s.stats.hull, s.hull + r * s.stats.hull); s.sails = Math.min(s.stats.sails, s.sails + r * s.stats.sails); s.crew = Math.min(s.stats.crew, s.crew + r * 0.5 * s.stats.crew); }
+        }
         if (s.ai && s.sink === 0) this.stepAI(s, dt);
         if (!this.ships.has(s.id)) continue;
         if (!s.pid || s.local) this.stepShip(s, dt); // remote players move themselves

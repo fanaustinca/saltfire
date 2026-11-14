@@ -18,8 +18,9 @@ export function costText(cost) { return Object.entries(cost).filter(([, v]) => v
 // ------------------------------------------------------------------ profiles
 export function newProfile(id, name) {
   const inv = emptyInv();
-  inv.gold = 500; inv.oak = 30; inv.iron = 10; inv.canvas = 10;
-  inv.chain = 10; inv.grape = 10; inv.explosive = 4;
+  // a fair start: enough gold + timber for a few repairs and a first upgrade run, and some special shot to try
+  inv.gold = 1500; inv.oak = 80; inv.iron = 30; inv.canvas = 30;
+  inv.chain = 20; inv.grape = 20; inv.explosive = 12;
   const sloop = shipSpec('sloop', { name: 'Gull' });
   return {
     id, name: name || 'Captain', color: Math.floor(Math.random() * 360),
